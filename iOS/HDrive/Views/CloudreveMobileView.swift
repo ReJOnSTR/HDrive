@@ -1,0 +1,279 @@
+//
+//  CloudreveMobileView.swift
+//  HDrive (iOS)
+//
+
+import SwiftUI
+import PhotosUI
+
+public struct CloudreveMobileView: View {
+    @ObservedObject var manager = CloudreveManager.shared
+    
+    @State private var serverName: String = "Cloudreve Sunucum"
+    @State private var serverURL: String = "https://your-cloudreve.com/dav"
+    @State private var username: String = ""
+    @State private var password: String = ""
+    
+    @State private var isConfiguring = false
+    @State private var isTesting = false
+    @State private var testMessage: String? = nil
+    
+    // Uzak Dosya Gezgini Durumları
+    @State private var currentPath: String = ""
+    @State private var remoteFiles: [RemoteFileItem] = []
+    @State private var isLoading = false
+    @State private var showingNewFolderAlert = false
+    @State private var newFolderName = ""
+    
+    @State private var selectedPhotos: [PhotosPickerItem] = []
+    
+    public init() {}
+    
+    public var body: some View {
+        NavigationStack {
+            Group {
+                if isConfiguring || manager.activeServer?.serverURL.isEmpty == true {
+                    serverSettingsForm
+                } else {
+                    remoteFilesView
+                }
+            }
+            .navigationTitle(currentPath.isEmpty ? "Cloudreve" : (currentPath as NSString).lastPathComponent)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(action: { isConfiguring.toggle() }) {
+                        Image(systemName: isConfiguring ? "checkmark.circle.fill" : "gearshape")
+                    }
+                }
+                
+                if !isConfiguring {
+                    ToolbarItem(placement: .navigationBarLeading) {
+                        Menu {
+                            Button(action: { showingNewFolderAlert = true }) {
+                                Label("Yeni Klasör", systemImage: "folder.badge.plus")
+                            }
+                            PhotosPicker(selection: $selectedPhotos, matching: .any(of: [.images, .videos])) {
+                                Label("Fotoğraf Yükle", systemImage: "photo.badge.plus")
+                            }
+                        } label: {
+                            Image(systemName: "plus")
+                        }
+                    }
+                }
+            }
+            .onAppear {
+                loadConfig()
+                if !(manager.activeServer?.serverURL.isEmpty ?? true) {
+                    refreshFiles()
+                }
+            }
+            .alert("Yeni Klasör", isPresented: $showingNewFolderAlert) {
+                TextField("Klasör Adı", text: $newFolderName)
+                Button("Oluştur", action: createFolder)
+                Button("İptal", role: .cancel) { newFolderName = "" }
+            }
+            .onChange(of: selectedPhotos) { items in
+                uploadSelectedPhotos(items)
+            }
+        }
+    }
+    
+    // MARK: - Sunucu Yapılandırma Formu
+    private var serverSettingsForm: some View {
+        Form {
+            Section(header: Text("Cloudreve WebDAV Bağlantısı"), footer: Text("Cloudreve hesabınızdan WebDAV adresini (genellikle https://alanadi.com/dav) ve şifrenizi girin.")) {
+                TextField("Sunucu Adı", text: $serverName)
+                TextField("https://alanadi.com/dav", text: $serverURL)
+                    .autocapitalization(.none)
+                    .disableAutocorrection(true)
+                TextField("Kullanıcı Adı / E-posta", text: $username)
+                    .autocapitalization(.none)
+                SecureField("WebDAV Şifresi", text: $password)
+            }
+            
+            Section {
+                Button(action: testAndSave) {
+                    HStack {
+                        if isTesting {
+                            ProgressView()
+                        } else {
+                            Image(systemName: "bolt.fill")
+                        }
+                        Text(isTesting ? "Test Ediliyor..." : "Kaydet ve Bağlan")
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .disabled(isTesting || serverURL.isEmpty)
+                
+                if let msg = testMessage {
+                    Text(msg)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+    }
+    
+    // MARK: - Uzak Dosya Listesi
+    private var remoteFilesView: some View {
+        VStack(spacing: 0) {
+            if isLoading {
+                Spacer()
+                ProgressView("Cloudreve sunucusundan yükleniyor...")
+                Spacer()
+            } else if remoteFiles.isEmpty {
+                VStack(spacing: 12) {
+                    Spacer()
+                    Image(systemName: "cloud")
+                        .font(.system(size: 50))
+                        .foregroundColor(.secondary)
+                    Text("Bu klasör boş")
+                        .font(.headline)
+                    Text("Yukarıdaki + butonuna basarak fotoğraf veya dosya yükleyebilirsiniz.")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                }
+                .padding()
+            } else {
+                List {
+                    ForEach(remoteFiles) { file in
+                        HStack(spacing: 14) {
+                            Image(systemName: file.systemIcon)
+                                .font(.title2)
+                                .foregroundColor(file.isDirectory ? .blue : .purple)
+                                .frame(width: 30)
+                            
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(file.name)
+                                    .font(.body.weight(.medium))
+                                    .lineLimit(1)
+                                Text(file.formattedSize)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            
+                            Spacer()
+                        }
+                        .padding(.vertical, 4)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            if file.isDirectory {
+                                navigateTo(file.name)
+                            }
+                        }
+                        .swipeActions(edge: .trailing) {
+                            Button(role: .destructive) {
+                                deleteFile(file)
+                            } label: {
+                                Label("Sil", systemImage: "trash")
+                            }
+                        }
+                    }
+                }
+                .listStyle(.plain)
+                .refreshable {
+                    refreshFiles()
+                }
+            }
+        }
+    }
+    
+    // MARK: - İşlemler
+    private func loadConfig() {
+        if let current = manager.activeServer {
+            self.serverName = current.name
+            self.serverURL = current.serverURL
+            self.username = current.username
+            self.password = current.password
+        }
+    }
+    
+    private func testAndSave() {
+        isTesting = true
+        testMessage = nil
+        
+        var config = manager.activeServer ?? CloudreveServerConfig()
+        config.name = serverName
+        config.serverURL = serverURL
+        config.username = username
+        config.password = password
+        
+        let client = WebDAVClient(config: config)
+        client.testConnection { success, message in
+            isTesting = false
+            testMessage = message
+            if success {
+                manager.saveServer(config)
+                isConfiguring = false
+                refreshFiles()
+            }
+        }
+    }
+    
+    private func refreshFiles() {
+        guard let server = manager.activeServer else { return }
+        isLoading = true
+        let client = WebDAVClient(config: server)
+        client.listFiles(at: currentPath) { result in
+            isLoading = false
+            switch result {
+            case .success(let files):
+                self.remoteFiles = files
+            case .failure(let error):
+                self.testMessage = error.localizedDescription
+            }
+        }
+    }
+    
+    private func navigateTo(_ folder: String) {
+        currentPath = (currentPath.isEmpty ? "" : currentPath + "/") + folder
+        refreshFiles()
+    }
+    
+    private func createFolder() {
+        let name = newFolderName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, let server = manager.activeServer else { return }
+        let client = WebDAVClient(config: server)
+        let target = (currentPath.isEmpty ? "" : currentPath + "/") + name
+        client.createFolder(at: target) { error in
+            if error == nil {
+                newFolderName = ""
+                refreshFiles()
+            }
+        }
+    }
+    
+    private func deleteFile(_ file: RemoteFileItem) {
+        guard let server = manager.activeServer else { return }
+        let client = WebDAVClient(config: server)
+        client.delete(at: file.href) { error in
+            if error == nil {
+                refreshFiles()
+            }
+        }
+    }
+    
+    private func uploadSelectedPhotos(_ items: [PhotosPickerItem]) {
+        guard let server = manager.activeServer else { return }
+        let client = WebDAVClient(config: server)
+        
+        for item in items {
+            item.loadTransferable(type: Data.self) { result in
+                if case .success(let data) = result, let data = data {
+                    let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("IMG_\(Int(Date().timeIntervalSince1970)).jpg")
+                    try? data.write(to: tempURL)
+                    let remoteDest = (currentPath.isEmpty ? "" : currentPath + "/") + tempURL.lastPathComponent
+                    client.uploadFile(localFileURL: tempURL, toRemotePath: remoteDest) { error in
+                        try? FileManager.default.removeItem(at: tempURL)
+                        DispatchQueue.main.async {
+                            self.refreshFiles()
+                        }
+                    }
+                }
+            }
+        }
+        self.selectedPhotos.removeAll()
+    }
+}

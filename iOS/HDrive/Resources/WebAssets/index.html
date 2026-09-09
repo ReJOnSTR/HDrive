@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HDrive - Mobil & PC Dosya Merkezi</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="app-layout">
+    <!-- Üst Bar -->
+    <header class="top-nav">
+      <div class="logo-area">
+        <div class="logo-badge">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/>
+            <circle cx="12" cy="13" r="3"/>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <span class="brand-title">HDrive</span>
+          <span class="brand-sub">iPhone Wireless Storage</span>
+        </div>
+      </div>
+
+      <div class="status-badge" id="connectionBadge">
+        <span class="pulse-dot"></span>
+        <span>Bağlandı (Yerel Wi-Fi)</span>
+      </div>
+
+      <div class="nav-right">
+        <button class="btn btn-outline" id="btnPCGuide" title="Windows / Mac Ağ Sürücüsü Kurulumu">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg>
+          <span>PC Ağ Sürücüsü</span>
+        </button>
+        <button class="btn btn-primary" id="btnUploadTrigger">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+          <span>Dosya Yükle</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Ana İçerik -->
+    <main class="main-container">
+      <!-- Sol / Üst Bilgi Paneli -->
+      <section class="storage-banner">
+        <div class="storage-info">
+          <span class="storage-label">Cihaz Depolama Durumu</span>
+          <div class="storage-stats">
+            <strong id="storageUsedText">0 GB</strong>
+            <span class="storage-total"> / <span id="storageTotalText">0 GB</span></span>
+          </div>
+        </div>
+        <div class="storage-bar-track">
+          <div class="storage-bar-fill" id="storageProgressBar" style="width: 0%"></div>
+        </div>
+      </section>
+
+      <!-- Araç Çubuğu -->
+      <section class="toolbar">
+        <div class="breadcrumbs" id="breadcrumbsContainer">
+          <span class="crumb-item" data-path="/">HDrive</span>
+        </div>
+
+        <div class="toolbar-actions">
+          <div class="search-box">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" x2="21" y1="21" y2="16.65"/></svg>
+            <input type="text" id="searchInput" placeholder="Dosyalarda ara...">
+          </div>
+
+          <button class="icon-btn" id="btnNewFolder" title="Yeni Klasör">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/><line x1="12" x2="12" y1="10" y2="16"/><line x1="9" x2="15" y1="13" y2="13"/></svg>
+          </button>
+          
+          <button class="icon-btn" id="btnRefresh" title="Yenile">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+          </button>
+          
+          <div class="view-toggle">
+            <button class="view-btn active" id="btnViewGrid" title="Izgara Görünümü">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>
+            </button>
+            <button class="view-btn" id="btnViewList" title="Liste Görünümü">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/><line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/></svg>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Sürükle Bırak Alanı ve Dosya Izgarası -->
+      <section class="files-area" id="dropZone">
+        <div class="drop-overlay" id="dropOverlay">
+          <div class="drop-message">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+            <h3>Dosyaları Buraya Bırakın</h3>
+            <p>iPhone'unuza doğrudan yüklemek için bırakın</p>
+          </div>
+        </div>
+
+        <div class="file-grid" id="fileContainer">
+          <!-- Dinamik dosya kartları buraya gelecek -->
+        </div>
+
+        <!-- Boş Klasör Durumu -->
+        <div class="empty-state" id="emptyState" style="display: none;">
+          <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>
+          <h3>Bu klasör boş</h3>
+          <p>Dosyaları sürükleyip buraya bırakabilir veya yukarıdaki butonla yükleyebilirsiniz.</p>
+        </div>
+      </section>
+    </main>
+
+    <!-- Yükleme İlerleme Çubuğu -->
+    <div class="upload-toast" id="uploadToast" style="display: none;">
+      <div class="toast-header">
+        <span id="uploadToastTitle">Dosya Yükleniyor...</span>
+        <span id="uploadToastPercent">0%</span>
+      </div>
+      <div class="toast-bar"><div class="toast-fill" id="uploadToastFill"></div></div>
+    </div>
+  </div>
+
+  <!-- Gizli Dosya Seçici -->
+  <input type="file" id="fileInput" multiple style="display: none;">
+
+  <!-- Modal: Önizleme Penceresi -->
+  <div class="modal" id="previewModal">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content modal-large">
+      <div class="modal-header">
+        <h3 id="previewTitle">Önizleme</h3>
+        <button class="modal-close" id="btnClosePreview">&times;</button>
+      </div>
+      <div class="modal-body" id="previewBody">
+        <!-- Medya içeriği buraya yüklenecek -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: PC Ağ Sürücüsü Bağlantı Rehberi -->
+  <div class="modal" id="guideModal">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>PC'de Doğrudan Ağ Sürücüsü Olarak Bağlama</h3>
+        <button class="modal-close" id="btnCloseGuide">&times;</button>
+      </div>
+      <div class="modal-body guide-content">
+        <div class="guide-tabs">
+          <button class="tab-btn active" data-tab="win">Windows</button>
+          <button class="tab-btn" data-tab="mac">macOS</button>
+        </div>
+
+        <div class="tab-panel active" id="tabWin">
+          <ol class="steps-list">
+            <li><strong>Dosya Gezgini</strong>'ni açın ve sol menüden <strong>Bu Bilgisayar</strong>'a sağ tıklayın.</li>
+            <li><strong>Ağ Sürücüsü Eşle...</strong> (Map Network Drive) seçeneğine tıklayın.</li>
+            <li>Sürücü harfi olarak <strong>Z:</strong> seçin.</li>
+            <li>Klasör kutusuna aşağıdaki WebDAV adresini yapıştırın:
+              <div class="code-box">
+                <code id="winUrlCode">http://...</code>
+                <button class="copy-btn" id="btnCopyWin">Kopyala</button>
+              </div>
+            </li>
+            <li><strong>Son</strong> butonuna basın. Telefonunuz artık Windows Gezgini'nde harici bir sabit disk gibi açılacaktır!</li>
+          </ol>
+        </div>
+
+        <div class="tab-panel" id="tabMac">
+          <ol class="steps-list">
+            <li><strong>Finder</strong>'ı açın ve üst menüden <strong>Git > Sunucuya Bağlan...</strong> (veya <kbd>Cmd</kbd> + <kbd>K</kbd>) seçin.</li>
+            <li>Sunucu Adresi kutusuna şunu yazın:
+              <div class="code-box">
+                <code id="macUrlCode">http://...</code>
+                <button class="copy-btn" id="btnCopyMac">Kopyala</button>
+              </div>
+            </li>
+            <li><strong>Bağlan</strong> butonuna basın. Telefonunuz Finder kenar çubuğunda disk olarak görünecektir.</li>
+          </ol>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/app.js"></script>
+</body>
+</html>

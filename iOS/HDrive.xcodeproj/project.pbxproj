@@ -1,0 +1,354 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		110100012C8C000100000001 /* HDriveApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110200012C8C000100000001 /* HDriveApp.swift */; };
+		110100022C8C000100000002 /* FileItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110200022C8C000100000002 /* FileItem.swift */; };
+		110100032C8C000100000003 /* ServerConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110200032C8C000100000003 /* ServerConfig.swift */; };
+		110100042C8C000100000004 /* NetworkUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110200042C8C000100000004 /* NetworkUtils.swift */; };
+		110100052C8C000100000005 /* BonjourPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110200052C8C000100000005 /* BonjourPublisher.swift */; };
+		110100062C8C000100000006 /* WebDAVHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110200062C8C000100000006 /* WebDAVHandler.swift */; };
+		110100072C8C000100000007 /* WebDAVServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110200072C8C000100000007 /* WebDAVServer.swift */; };
+		110100082C8C000100000008 /* WebDashboardEmbeddedAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110200082C8C000100000008 /* WebDashboardEmbeddedAssets.swift */; };
+		110100092C8C000100000009 /* MainDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110200092C8C000100000009 /* MainDashboardView.swift */; };
+		1101000A2C8C00010000000A /* FileBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1102000A2C8C00010000000A /* FileBrowserView.swift */; };
+		1101000B2C8C00010000000B /* FileDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1102000B2C8C00010000000B /* FileDetailView.swift */; };
+		1101000C2C8C00010000000C /* QuickConnectGuideView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1102000C2C8C00010000000C /* QuickConnectGuideView.swift */; };
+		1101000D2C8C00010000000D /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1102000D2C8C00010000000D /* SettingsView.swift */; };
+		1101000E2C8C00010000000E /* WebAssets in Resources */ = {isa = PBXBuildFile; fileRef = 1102000E2C8C00010000000E /* WebAssets */; };
+		110100102C8C000100000010 /* WebDAVClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110200102C8C000100000010 /* WebDAVClient.swift */; };
+		110100112C8C000100000011 /* CloudreveManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110200112C8C000100000011 /* CloudreveManager.swift */; };
+		110100122C8C000100000012 /* CloudreveMobileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110200122C8C000100000012 /* CloudreveMobileView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		110200002C8C000100000000 /* HDrive.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HDrive.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		110200012C8C000100000001 /* HDriveApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HDriveApp.swift; sourceTree = "<group>"; };
+		110200022C8C000100000002 /* FileItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileItem.swift; sourceTree = "<group>"; };
+		110200032C8C000100000003 /* ServerConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerConfig.swift; sourceTree = "<group>"; };
+		110200042C8C000100000004 /* NetworkUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkUtils.swift; sourceTree = "<group>"; };
+		110200052C8C000100000005 /* BonjourPublisher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BonjourPublisher.swift; sourceTree = "<group>"; };
+		110200062C8C000100000006 /* WebDAVHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebDAVHandler.swift; sourceTree = "<group>"; };
+		110200072C8C000100000007 /* WebDAVServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebDAVServer.swift; sourceTree = "<group>"; };
+		110200082C8C000100000008 /* WebDashboardEmbeddedAssets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebDashboardEmbeddedAssets.swift; sourceTree = "<group>"; };
+		110200092C8C000100000009 /* MainDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainDashboardView.swift; sourceTree = "<group>"; };
+		1102000A2C8C00010000000A /* FileBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileBrowserView.swift; sourceTree = "<group>"; };
+		1102000B2C8C00010000000B /* FileDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileDetailView.swift; sourceTree = "<group>"; };
+		1102000C2C8C00010000000C /* QuickConnectGuideView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickConnectGuideView.swift; sourceTree = "<group>"; };
+		1102000D2C8C00010000000D /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		1102000E2C8C00010000000E /* WebAssets */ = {isa = PBXFileReference; lastKnownFileType = folder; path = WebAssets; sourceTree = "<group>"; };
+		1102000F2C8C00010000000F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		110200102C8C000100000010 /* WebDAVClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebDAVClient.swift; sourceTree = "<group>"; };
+		110200112C8C000100000011 /* CloudreveManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudreveManager.swift; sourceTree = "<group>"; };
+		110200122C8C000100000012 /* CloudreveMobileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudreveMobileView.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		110300012C8C000100000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		110400012C8C000100000001 = {
+			isa = PBXGroup;
+			children = (
+				110400022C8C000100000002 /* HDrive */,
+				110400032C8C000100000003 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		110400022C8C000100000002 /* HDrive */ = {
+			isa = PBXGroup;
+			children = (
+				110400042C8C000100000004 /* App */,
+				110400052C8C000100000005 /* Models */,
+				110400062C8C000100000006 /* Server */,
+				110400072C8C000100000007 /* Views */,
+				110400082C8C000100000008 /* Resources */,
+				1102000F2C8C00010000000F /* Info.plist */,
+			);
+			path = HDrive;
+			sourceTree = "<group>";
+		};
+		110400032C8C000100000003 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				110200002C8C000100000000 /* HDrive.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		110400042C8C000100000004 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				110200012C8C000100000001 /* HDriveApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		110400052C8C000100000005 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				110200022C8C000100000002 /* FileItem.swift */,
+				110200032C8C000100000003 /* ServerConfig.swift */,
+				110200042C8C000100000004 /* NetworkUtils.swift */,
+				110200102C8C000100000010 /* WebDAVClient.swift */,
+				110200112C8C000100000011 /* CloudreveManager.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		110400062C8C000100000006 /* Server */ = {
+			isa = PBXGroup;
+			children = (
+				110200052C8C000100000005 /* BonjourPublisher.swift */,
+				110200062C8C000100000006 /* WebDAVHandler.swift */,
+				110200072C8C000100000007 /* WebDAVServer.swift */,
+				110200082C8C000100000008 /* WebDashboardEmbeddedAssets.swift */,
+			);
+			path = Server;
+			sourceTree = "<group>";
+		};
+		110400072C8C000100000007 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				110200092C8C000100000009 /* MainDashboardView.swift */,
+				1102000A2C8C00010000000A /* FileBrowserView.swift */,
+				1102000B2C8C00010000000B /* FileDetailView.swift */,
+				1102000C2C8C00010000000C /* QuickConnectGuideView.swift */,
+				1102000D2C8C00010000000D /* SettingsView.swift */,
+				110200122C8C000100000012 /* CloudreveMobileView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		110400082C8C000100000008 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				1102000E2C8C00010000000E /* WebAssets */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		110500012C8C000100000001 /* HDrive */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 110600012C8C000100000001 /* Build configuration list for PBXNativeTarget "HDrive" */;
+			buildPhases = (
+				110700012C8C000100000001 /* Sources */,
+				110300012C8C000100000001 /* Frameworks */,
+				110800012C8C000100000001 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = HDrive;
+			productName = HDrive;
+			productReference = 110200002C8C000100000000 /* HDrive.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		110900012C8C000100000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastUpgradeCheck = 1500;
+				TargetAttributes = {
+					110500012C8C000100000001 = {
+						CreatedOnToolsVersion = 15.0;
+					};
+				};
+			};
+			buildConfigurationList = 110A00012C8C000100000001 /* Build configuration list for PBXProject "HDrive" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 110400012C8C000100000001;
+			productRefGroup = 110400032C8C000100000003 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				110500012C8C000100000001 /* HDrive */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		110800012C8C000100000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1101000E2C8C00010000000E /* WebAssets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		110700012C8C000100000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				110100012C8C000100000001 /* HDriveApp.swift in Sources */,
+				110100022C8C000100000002 /* FileItem.swift in Sources */,
+				110100032C8C000100000003 /* ServerConfig.swift in Sources */,
+				110100042C8C000100000004 /* NetworkUtils.swift in Sources */,
+				110100052C8C000100000005 /* BonjourPublisher.swift in Sources */,
+				110100062C8C000100000006 /* WebDAVHandler.swift in Sources */,
+				110100072C8C000100000007 /* WebDAVServer.swift in Sources */,
+				110100082C8C000100000008 /* WebDashboardEmbeddedAssets.swift in Sources */,
+				110100092C8C000100000009 /* MainDashboardView.swift in Sources */,
+				1101000A2C8C00010000000A /* FileBrowserView.swift in Sources */,
+				1101000B2C8C00010000000B /* FileDetailView.swift in Sources */,
+				1101000C2C8C00010000000C /* QuickConnectGuideView.swift in Sources */,
+				1101000D2C8C00010000000D /* SettingsView.swift in Sources */,
+				110100102C8C000100000010 /* WebDAVClient.swift in Sources */,
+				110100112C8C000100000011 /* CloudreveManager.swift in Sources */,
+				110100122C8C000100000012 /* CloudreveMobileView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		110B00012C8C000100000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		110B00022C8C000100000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_OPTIMIZATION_LEVEL = s;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+			};
+			name = Release;
+		};
+		110B00032C8C000100000003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "";
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = HDrive/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.halilsak.HDrive;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		110B00042C8C000100000004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "";
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = HDrive/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.halilsak.HDrive;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		110A00012C8C000100000001 /* Build configuration list for PBXProject "HDrive" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				110B00012C8C000100000001 /* Debug */,
+				110B00022C8C000100000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		110600012C8C000100000001 /* Build configuration list for PBXNativeTarget "HDrive" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				110B00032C8C000100000003 /* Debug */,
+				110B00042C8C000100000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+	};
+	rootObject = 110900012C8C000100000001 /* Project object */;
+}

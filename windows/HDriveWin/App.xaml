@@ -1,0 +1,16 @@
+<Application
+    x:Class="HDriveWin.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:HDriveWin">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+            </ResourceDictionary.MergedDictionaries>
+            
+            <!-- Global Accent and Fluent Brushes -->
+            <SolidColorBrush x:Key="HDriveAccentBrush" Color="#4F46E5" />
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>
