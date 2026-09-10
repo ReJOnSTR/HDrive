@@ -39,6 +39,7 @@ public sealed partial class MainWindow : Window
         SetupTitleBar();
 
         FileGridView.ItemsSource = _items;
+        FileGridViewMedium.ItemsSource = _items;
         FileListView.ItemsSource = _items;
         PathBreadcrumbBar.ItemsSource = _breadcrumbs;
 
@@ -141,8 +142,63 @@ public sealed partial class MainWindow : Window
 
     private async void FileItem_Clicked(object sender, ItemClickEventArgs e)
     {
-        if (e.ClickedItem is not FileItem item) return;
+        if (e.ClickedItem is FileItem item)
+        {
+            _selectedItem = item;
+            UpdatePreviewPane(item);
+        }
+    }
 
+    private async void FileList_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+    {
+        e.Handled = true;
+        var item = _selectedItem ?? (sender as ListViewBase)?.SelectedItem as FileItem;
+        if (item != null)
+        {
+            await HandleOpenItemAsync(item);
+        }
+    }
+
+    private async void Item_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+    {
+        e.Handled = true;
+        if (sender is FrameworkElement fe && fe.DataContext is FileItem item)
+        {
+            _selectedItem = item;
+            await HandleOpenItemAsync(item);
+        }
+    }
+
+    private void Item_Tapped(object sender, TappedRoutedEventArgs e)
+    {
+        if (sender is FrameworkElement fe && fe.DataContext is FileItem item)
+        {
+            _selectedItem = item;
+            UpdatePreviewPane(item);
+        }
+    }
+
+    private void FileList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        var selected = (sender as ListViewBase)?.SelectedItem as FileItem;
+        if (selected != null)
+        {
+            _selectedItem = selected;
+            UpdatePreviewPane(selected);
+        }
+    }
+
+    private async void FileList_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key == Windows.System.VirtualKey.Enter && _selectedItem != null)
+        {
+            e.Handled = true;
+            await HandleOpenItemAsync(_selectedItem);
+        }
+    }
+
+    private async Task HandleOpenItemAsync(FileItem item)
+    {
         if (item.IsDirectory)
         {
             NavigateToPath(item.Path);
@@ -164,7 +220,7 @@ public sealed partial class MainWindow : Window
 
         if (!string.IsNullOrEmpty(localPath) && File.Exists(localPath))
         {
-            // Windows varsayılan uygulamasıyla aç
+            // Windows varsayılan uygulamasıyla aç (Örn: Word, Adobe Acrobat/Edge, VLC vb.)
             Process.Start(new ProcessStartInfo
             {
                 FileName = localPath,
@@ -220,11 +276,147 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void ViewToggleButton_Click(object sender, RoutedEventArgs e)
+    private void ViewLarge_Click(object sender, RoutedEventArgs e)
     {
-        _isGridView = !_isGridView;
-        FileGridView.Visibility = _isGridView ? Visibility.Visible : Visibility.Collapsed;
-        FileListView.Visibility = _isGridView ? Visibility.Collapsed : Visibility.Visible;
+        FileGridView.Visibility = Visibility.Visible;
+        FileGridViewMedium.Visibility = Visibility.Collapsed;
+        FileListView.Visibility = Visibility.Collapsed;
+    }
+
+    private void ViewMedium_Click(object sender, RoutedEventArgs e)
+    {
+        FileGridView.Visibility = Visibility.Collapsed;
+        FileGridViewMedium.Visibility = Visibility.Visible;
+        FileListView.Visibility = Visibility.Collapsed;
+    }
+
+    private void ViewDetails_Click(object sender, RoutedEventArgs e)
+    {
+        FileGridView.Visibility = Visibility.Collapsed;
+        FileGridViewMedium.Visibility = Visibility.Collapsed;
+        FileListView.Visibility = Visibility.Visible;
+    }
+
+    private void PreviewPaneToggle_Click(object sender, RoutedEventArgs e)
+    {
+        var isVisible = PreviewPane.Visibility == Visibility.Visible;
+        PreviewPane.Visibility = isVisible ? Visibility.Collapsed : Visibility.Visible;
+        PreviewPaneToggle.IsChecked = !isVisible;
+        if (!isVisible && _selectedItem != null)
+        {
+            UpdatePreviewPane(_selectedItem);
+        }
+    }
+
+    private void ClosePreviewPane_Click(object sender, RoutedEventArgs e)
+    {
+        PreviewPane.Visibility = Visibility.Collapsed;
+        PreviewPaneToggle.IsChecked = false;
+    }
+
+    private void UpdatePreviewPane(FileItem? item)
+    {
+        if (item == null)
+        {
+            PreviewFileName.Text = "Dosya Seçilmedi";
+            PreviewTypeBadge.Text = "Bilinmeyen";
+            PreviewSizeText.Text = "--";
+            PreviewDateText.Text = "--";
+            PreviewExtensionText.Text = "--";
+            PreviewPathText.Text = "--";
+            PreviewImage.Visibility = Visibility.Collapsed;
+            PreviewIcon.Visibility = Visibility.Visible;
+            return;
+        }
+
+        PreviewFileName.Text = item.Name;
+        PreviewTypeBadge.Text = item.TypeDescription;
+        PreviewSizeText.Text = item.FormattedSize;
+        PreviewDateText.Text = item.FormattedDate;
+        PreviewExtensionText.Text = string.IsNullOrEmpty(item.Extension) ? (item.IsDirectory ? "Klasör" : "Bilinmeyen") : item.Extension;
+        PreviewPathText.Text = item.Path;
+
+        PreviewIcon.Glyph = item.GlyphIcon;
+        PreviewIcon.Foreground = item.IconBrush;
+
+        if (item.IsImage)
+        {
+            var cacheDir = Path.Combine(Path.GetTempPath(), "HDriveCache");
+            var cachedFile = Path.Combine(cacheDir, Path.GetFileName(item.Path));
+            if (File.Exists(cachedFile))
+            {
+                try
+                {
+                    PreviewImage.Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(cachedFile));
+                    PreviewImage.Visibility = Visibility.Visible;
+                    PreviewIcon.Visibility = Visibility.Collapsed;
+                }
+                catch
+                {
+                    PreviewImage.Visibility = Visibility.Collapsed;
+                    PreviewIcon.Visibility = Visibility.Visible;
+                }
+            }
+            else
+            {
+                PreviewImage.Visibility = Visibility.Collapsed;
+                PreviewIcon.Visibility = Visibility.Visible;
+
+                _ = Task.Run(async () =>
+                {
+                    var client = new WebDAVClient(CloudreveManager.Instance.ActiveServer);
+                    var downloaded = await client.DownloadFileToCacheAsync(item.Path);
+                    if (!string.IsNullOrEmpty(downloaded) && File.Exists(downloaded))
+                    {
+                        DispatcherQueue.TryEnqueue(() =>
+                        {
+                            if (_selectedItem?.Path == item.Path)
+                            {
+                                try
+                                {
+                                    PreviewImage.Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(downloaded));
+                                    PreviewImage.Visibility = Visibility.Visible;
+                                    PreviewIcon.Visibility = Visibility.Collapsed;
+                                }
+                                catch { }
+                            }
+                        });
+                    }
+                });
+            }
+        }
+        else
+        {
+            PreviewImage.Visibility = Visibility.Collapsed;
+            PreviewIcon.Visibility = Visibility.Visible;
+        }
+
+        if (item.IsDirectory)
+        {
+            PreviewOpenButton.Content = "Klasöre Git";
+            PreviewDownloadButton.Visibility = Visibility.Collapsed;
+        }
+        else
+        {
+            PreviewOpenButton.Content = item.IsPdf ? "PDF'i Aç / Önizle" : "Varsayılan Uygulamayla Aç";
+            PreviewDownloadButton.Visibility = Visibility.Visible;
+        }
+    }
+
+    private async void PreviewOpenButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selectedItem != null)
+        {
+            await HandleOpenItemAsync(_selectedItem);
+        }
+    }
+
+    private async void PreviewDownloadButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selectedItem != null && !_selectedItem.IsDirectory)
+        {
+            await OpenFileAsync(_selectedItem);
+        }
     }
 
     private async void RefreshButton_Click(object sender, RoutedEventArgs e)

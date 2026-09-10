@@ -21,6 +21,7 @@ public struct NativeExplorerView: View {
     @State private var isLoading: Bool = false
     @State private var searchText: String = ""
     @State private var isGridView: Bool = true
+    @State private var showPreviewPane: Bool = false
     
     // Seçili ve Vurgulanan Dosya
     @State private var selectedFileID: String? = nil
@@ -46,8 +47,17 @@ public struct NativeExplorerView: View {
                 
                 Divider()
                 
-                // Dosya Listesi (Izgara veya Liste Görünümü)
-                mainFilesAreaView
+                // Dosya Listesi ve Önizleme Bölmesi
+                HStack(spacing: 0) {
+                    mainFilesAreaView
+                    
+                    if showPreviewPane, let selected = files.first(where: { $0.id == selectedFileID }) {
+                        Divider()
+                        previewPaneView(selected)
+                            .frame(width: 280)
+                            .background(Color(NSColor.controlBackgroundColor))
+                    }
+                }
                 
                 // Alt Durum Çubuğu
                 bottomStatusBarView
@@ -78,6 +88,12 @@ public struct NativeExplorerView: View {
                     }
                     .pickerStyle(.segmented)
                     .help("Görünüm Biçimi")
+                    
+                    // Önizleme Bölmesi Butonu
+                    Button(action: { showPreviewPane.toggle() }) {
+                        Image(systemName: showPreviewPane ? "sidebar.right" : "sidebar.right")
+                    }
+                    .help("Önizleme Bölmesini Göster / Gizle")
                     
                     // Yeni Klasör Butonu
                     Button(action: { showingNewFolderAlert = true }) {
@@ -250,7 +266,7 @@ public struct NativeExplorerView: View {
         return VStack(spacing: 6) {
             Image(systemName: file.systemIcon)
                 .font(.system(size: 42))
-                .foregroundColor(file.isDirectory ? .blue : .secondary)
+                .foregroundColor(fileIconColor(file))
                 .frame(width: 60, height: 50)
             
             Text(file.name)
@@ -299,7 +315,7 @@ public struct NativeExplorerView: View {
         return HStack(spacing: 12) {
             Image(systemName: file.systemIcon)
                 .font(.title3)
-                .foregroundColor(file.isDirectory ? .blue : .secondary)
+                .foregroundColor(fileIconColor(file))
                 .frame(width: 24)
             
             Text(file.name)
@@ -578,6 +594,116 @@ public struct NativeExplorerView: View {
                     }
                 }
             }
+        }
+    }
+    
+    // MARK: - Önizleme Bölmesi (Finder Inspector / Quick Look)
+    private func previewPaneView(_ file: RemoteFileItem) -> some View {
+        ScrollView {
+            VStack(spacing: 16) {
+                // Büyük İkon / Önizleme Kartı
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Color(NSColor.windowBackgroundColor))
+                        .frame(height: 160)
+                    
+                    Image(systemName: file.systemIcon)
+                        .font(.system(size: 64))
+                        .foregroundColor(fileIconColor(file))
+                }
+                .padding(.top, 12)
+                
+                // Dosya Adı ve Tür Rozeti
+                VStack(spacing: 4) {
+                    Text(file.name)
+                        .font(.headline)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(3)
+                    
+                    Text(file.isDirectory ? "Klasör" : ((file.name as NSString).pathExtension.uppercased() + " Belgesi"))
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(Color.secondary.opacity(0.15)))
+                }
+                
+                Divider()
+                
+                // Ayrıntılar
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Boyut:")
+                            .foregroundColor(.secondary)
+                            .font(.caption)
+                            .frame(width: 80, alignment: .leading)
+                        Text(file.formattedSize)
+                            .font(.caption.weight(.medium))
+                    }
+                    
+                    if let date = file.modificationDate {
+                        HStack {
+                            Text("Değiştirilme:")
+                                .foregroundColor(.secondary)
+                                .font(.caption)
+                                .frame(width: 80, alignment: .leading)
+                            Text(date, style: .date)
+                                .font(.caption)
+                        }
+                    }
+                    
+                    HStack {
+                        Text("Yol:")
+                            .foregroundColor(.secondary)
+                            .font(.caption)
+                            .frame(width: 80, alignment: .leading)
+                        Text(file.href)
+                            .font(.caption2)
+                            .lineLimit(2)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 8)
+                
+                Divider()
+                
+                // Hızlı Eylemler
+                VStack(spacing: 8) {
+                    Button(action: { handleDoubleClick(file) }) {
+                        Label(file.isDirectory ? "Klasörü Aç" : "Varsayılan Uygulamayla Aç", systemImage: "arrow.up.forward.app")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    
+                    if !file.isDirectory {
+                        Button(action: { downloadFile(file) }) {
+                            Label("İndir", systemImage: "arrow.down.circle")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+            }
+            .padding(14)
+        }
+    }
+    
+    // MARK: - Mac Finder Renk Paleti
+    private func fileIconColor(_ file: RemoteFileItem) -> Color {
+        if file.isDirectory { return .blue }
+        let ext = (file.name as NSString).pathExtension.lowercased()
+        switch ext {
+        case "jpg", "jpeg", "png", "heic", "webp", "gif": return .purple
+        case "mp4", "mov", "mkv", "avi": return .indigo
+        case "mp3", "m4a", "wav", "flac": return .pink
+        case "pdf": return .red
+        case "zip", "rar", "7z", "tar", "gz": return .orange
+        case "doc", "docx": return .blue
+        case "xls", "xlsx", "csv": return .green
+        case "ppt", "pptx": return .orange
+        case "txt", "md", "json", "py", "swift", "js", "html": return .teal
+        default: return .secondary
         }
     }
 }

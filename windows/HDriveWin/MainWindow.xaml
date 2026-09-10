@@ -60,13 +60,28 @@
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
 
-                <!-- 0: Komut Çubuğu (Yeni, Yükle, Yenile, Görünüm) -->
+                <!-- 0: Komut Çubuğu (Yeni, Yükle, Yenile, Görünüm ve Önizleme) -->
                 <CommandBar Grid.Row="0" Background="Transparent" DefaultLabelPosition="Right" Margin="0,0,0,8" HorizontalAlignment="Left">
                     <AppBarButton Icon="NewFolder" Label="Yeni Klasör" Click="NewFolderButton_Click" />
                     <AppBarButton Icon="Upload" Label="Yükle" Click="UploadButton_Click" />
                     <AppBarButton Icon="Refresh" Label="Yenile" Click="RefreshButton_Click" />
                     <AppBarSeparator />
-                    <AppBarButton x:Name="ViewToggleButton" Icon="View" Label="Görünüm" Click="ViewToggleButton_Click" />
+                    <AppBarButton Icon="View" Label="Görünüm">
+                        <AppBarButton.Flyout>
+                            <MenuFlyout>
+                                <MenuFlyoutItem Text="Büyük Simgeler" Click="ViewLarge_Click">
+                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE80A;" /></MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutItem Text="Orta Simgeler" Click="ViewMedium_Click">
+                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE7F4;" /></MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutItem Text="Ayrıntılar (Liste)" Click="ViewDetails_Click">
+                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8C0;" /></MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                            </MenuFlyout>
+                        </AppBarButton.Flyout>
+                    </AppBarButton>
+                    <AppBarToggleButton x:Name="PreviewPaneToggle" Icon="PreviewLink" Label="Önizleme Bölmesi" Click="PreviewPaneToggle_Click" />
                 </CommandBar>
 
                 <!-- 1: Windows 11 Adres Çubuğu & Arama Satırı -->
@@ -130,121 +145,252 @@
                                     TextChanged="SearchBox_TextChanged" />
                 </Grid>
 
-                <!-- 2: Dosya Gezgini İçerik Alanı (Sürükle-Bırak Destekli) -->
+                <!-- 2: Dosya Gezgini İçerik Alanı ve Önizleme Bölmesi -->
                 <Grid Grid.Row="2"
                       AllowDrop="True"
                       DragOver="FileArea_DragOver"
                       Drop="FileArea_Drop">
-                    <!-- Yükleniyor Halkası -->
-                    <ProgressRing x:Name="LoadingRing" IsActive="False" Width="40" Height="40" 
-                                  HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
 
-                    <!-- 1. Grid Görünümü (Büyük Simgeler, Dışarı Sürükleme ve Yükleme Destekli) -->
-                    <GridView x:Name="FileGridView" 
-                              SelectionMode="Single"
-                              IsItemClickEnabled="True"
-                              ItemClick="FileItem_Clicked"
-                              RightTapped="FileItem_RightTapped"
-                              AllowDrop="True"
-                              DragOver="FileArea_DragOver"
-                              Drop="FileArea_Drop"
-                              Visibility="Visible">
-                        <GridView.ItemTemplate>
-                            <DataTemplate x:DataType="models:FileItem">
-                                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                                        BorderThickness="1"
-                                        CornerRadius="8"
-                                        Width="130" Height="130"
-                                        Padding="10" Margin="4"
-                                        CanDrag="True"
-                                        DragStarting="FileItem_DragStarting">
-                                    <Grid>
-                                        <Grid.RowDefinitions>
-                                            <RowDefinition Height="*" />
-                                            <RowDefinition Height="Auto" />
-                                            <RowDefinition Height="Auto" />
-                                        </Grid.RowDefinitions>
+                    <!-- Sol Taraf: Dosya Görünümleri -->
+                    <Grid Grid.Column="0">
+                        <!-- Yükleniyor Halkası -->
+                        <ProgressRing x:Name="LoadingRing" IsActive="False" Width="40" Height="40" 
+                                      HorizontalAlignment="Center" VerticalAlignment="Center" />
 
-                                        <FontIcon Grid.Row="0" Glyph="{x:Bind GlyphIcon}" FontSize="40"
-                                                  Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
-                                                  HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        <!-- 1. Grid Görünümü: Büyük Simgeler (130x130, Orijinal Windows 11 Renkleri) -->
+                        <GridView x:Name="FileGridView" 
+                                  SelectionMode="Single"
+                                  SelectionChanged="FileList_SelectionChanged"
+                                  DoubleTapped="FileList_DoubleTapped"
+                                  KeyDown="FileList_KeyDown"
+                                  RightTapped="FileItem_RightTapped"
+                                  AllowDrop="True"
+                                  DragOver="FileArea_DragOver"
+                                  Drop="FileArea_Drop"
+                                  Visibility="Visible">
+                            <GridView.ItemTemplate>
+                                <DataTemplate x:DataType="models:FileItem">
+                                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                            BorderThickness="1"
+                                            CornerRadius="8"
+                                            Width="130" Height="130"
+                                            Padding="10" Margin="4"
+                                            Tapped="Item_Tapped"
+                                            DoubleTapped="Item_DoubleTapped"
+                                            CanDrag="True"
+                                            DragStarting="FileItem_DragStarting">
+                                        <Grid>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="*" />
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="Auto" />
+                                            </Grid.RowDefinitions>
 
-                                        <TextBlock Grid.Row="1" Text="{x:Bind Name}" 
-                                                   FontWeight="SemiBold"
-                                                   FontSize="12"
-                                                   TextTrimming="CharacterEllipsis"
-                                                   MaxLines="2"
-                                                   TextAlignment="Center"
-                                                   HorizontalAlignment="Center"
-                                                   Margin="0,4,0,0" />
+                                            <FontIcon Grid.Row="0" Glyph="{x:Bind GlyphIcon}" FontSize="44"
+                                                      Foreground="{x:Bind IconBrush}"
+                                                      HorizontalAlignment="Center" VerticalAlignment="Center" />
 
-                                        <TextBlock Grid.Row="2" Text="{x:Bind FormattedSize}" 
-                                                   Style="{ThemeResource CaptionTextBlockStyle}"
-                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                                   TextAlignment="Center"
-                                                   HorizontalAlignment="Center" />
-                                    </Grid>
-                                </Border>
-                            </DataTemplate>
-                        </GridView.ItemTemplate>
-                    </GridView>
+                                            <TextBlock Grid.Row="1" Text="{x:Bind Name}" 
+                                                       FontWeight="SemiBold"
+                                                       FontSize="12"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       MaxLines="2"
+                                                       TextAlignment="Center"
+                                                       HorizontalAlignment="Center"
+                                                       Margin="0,4,0,0" />
 
-                    <!-- 2. Liste / Tablo Görünümü (Ayrıntılar, Dışarı Sürükleme ve Yükleme Destekli) -->
-                    <ListView x:Name="FileListView"
-                              SelectionMode="Single"
-                              IsItemClickEnabled="True"
-                              ItemClick="FileItem_Clicked"
-                              RightTapped="FileItem_RightTapped"
-                              AllowDrop="True"
-                              DragOver="FileArea_DragOver"
-                              Drop="FileArea_Drop"
-                              Visibility="Collapsed">
-                        <ListView.Header>
-                            <Grid Padding="12,6,12,6" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="150" />
-                                    <ColumnDefinition Width="150" />
-                                    <ColumnDefinition Width="100" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" Text="Ad" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="1" Text="Değiştirilme Tarihi" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="2" Text="Tür" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="3" Text="Boyut" FontWeight="SemiBold" TextAlignment="Right" />
-                            </Grid>
-                        </ListView.Header>
-                        <ListView.ItemTemplate>
-                            <DataTemplate x:DataType="models:FileItem">
-                                <Grid Padding="6,8,6,8"
-                                      CanDrag="True"
-                                      DragStarting="FileItem_DragStarting">
+                                            <TextBlock Grid.Row="2" Text="{x:Bind FormattedSize}" 
+                                                       Style="{ThemeResource CaptionTextBlockStyle}"
+                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                       TextAlignment="Center"
+                                                       HorizontalAlignment="Center" />
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </GridView.ItemTemplate>
+                        </GridView>
+
+                        <!-- 2. Grid Görünümü: Orta Simgeler (96x96) -->
+                        <GridView x:Name="FileGridViewMedium" 
+                                  SelectionMode="Single"
+                                  SelectionChanged="FileList_SelectionChanged"
+                                  DoubleTapped="FileList_DoubleTapped"
+                                  KeyDown="FileList_KeyDown"
+                                  RightTapped="FileItem_RightTapped"
+                                  AllowDrop="True"
+                                  DragOver="FileArea_DragOver"
+                                  Drop="FileArea_Drop"
+                                  Visibility="Collapsed">
+                            <GridView.ItemTemplate>
+                                <DataTemplate x:DataType="models:FileItem">
+                                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                            BorderThickness="1"
+                                            CornerRadius="6"
+                                            Width="96" Height="96"
+                                            Padding="6" Margin="3"
+                                            Tapped="Item_Tapped"
+                                            DoubleTapped="Item_DoubleTapped"
+                                            CanDrag="True"
+                                            DragStarting="FileItem_DragStarting">
+                                        <Grid>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="*" />
+                                                <RowDefinition Height="Auto" />
+                                            </Grid.RowDefinitions>
+
+                                            <FontIcon Grid.Row="0" Glyph="{x:Bind GlyphIcon}" FontSize="32"
+                                                      Foreground="{x:Bind IconBrush}"
+                                                      HorizontalAlignment="Center" VerticalAlignment="Center" />
+
+                                            <TextBlock Grid.Row="1" Text="{x:Bind Name}" 
+                                                       FontWeight="Normal"
+                                                       FontSize="11"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       MaxLines="1"
+                                                       TextAlignment="Center"
+                                                       HorizontalAlignment="Center"
+                                                       Margin="0,2,0,0" />
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </GridView.ItemTemplate>
+                        </GridView>
+
+                        <!-- 3. Liste / Tablo Görünümü (Ayrıntılar) -->
+                        <ListView x:Name="FileListView"
+                                  SelectionMode="Single"
+                                  SelectionChanged="FileList_SelectionChanged"
+                                  DoubleTapped="FileList_DoubleTapped"
+                                  KeyDown="FileList_KeyDown"
+                                  RightTapped="FileItem_RightTapped"
+                                  AllowDrop="True"
+                                  DragOver="FileArea_DragOver"
+                                  Drop="FileArea_Drop"
+                                  Visibility="Collapsed">
+                            <ListView.Header>
+                                <Grid Padding="12,6,12,6" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="150" />
                                         <ColumnDefinition Width="150" />
                                         <ColumnDefinition Width="100" />
                                     </Grid.ColumnDefinitions>
-
-                                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10">
-                                        <FontIcon Glyph="{x:Bind GlyphIcon}" FontSize="16" 
-                                                  Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
-                                        <TextBlock Text="{x:Bind Name}" VerticalAlignment="Center" 
-                                                   TextTrimming="CharacterEllipsis" />
-                                    </StackPanel>
-
-                                    <TextBlock Grid.Column="1" Text="{x:Bind FormattedDate}" VerticalAlignment="Center"
-                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                    
-                                    <TextBlock Grid.Column="2" Text="{x:Bind TypeDescription}" VerticalAlignment="Center"
-                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                    
-                                    <TextBlock Grid.Column="3" Text="{x:Bind FormattedSize}" VerticalAlignment="Center"
-                                               TextAlignment="Right" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    <TextBlock Grid.Column="0" Text="Ad" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="1" Text="Değiştirilme Tarihi" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="2" Text="Tür" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="3" Text="Boyut" FontWeight="SemiBold" TextAlignment="Right" />
                                 </Grid>
-                            </DataTemplate>
-                        </ListView.ItemTemplate>
-                    </ListView>
+                            </ListView.Header>
+                            <ListView.ItemTemplate>
+                                <DataTemplate x:DataType="models:FileItem">
+                                    <Grid Padding="6,8,6,8"
+                                          Tapped="Item_Tapped"
+                                          DoubleTapped="Item_DoubleTapped"
+                                          CanDrag="True"
+                                          DragStarting="FileItem_DragStarting">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="150" />
+                                            <ColumnDefinition Width="150" />
+                                            <ColumnDefinition Width="100" />
+                                        </Grid.ColumnDefinitions>
+
+                                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10">
+                                            <FontIcon Glyph="{x:Bind GlyphIcon}" FontSize="16" 
+                                                      Foreground="{x:Bind IconBrush}" />
+                                            <TextBlock Text="{x:Bind Name}" VerticalAlignment="Center" 
+                                                       TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+
+                                        <TextBlock Grid.Column="1" Text="{x:Bind FormattedDate}" VerticalAlignment="Center"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        
+                                        <TextBlock Grid.Column="2" Text="{x:Bind TypeDescription}" VerticalAlignment="Center"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        
+                                        <TextBlock Grid.Column="3" Text="{x:Bind FormattedSize}" VerticalAlignment="Center"
+                                                   TextAlignment="Right" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                    </Grid>
+
+                    <!-- Sağ Taraf: Windows 11 Önizleme Bölmesi (Preview Pane - PDF, Resim, Belge) -->
+                    <Border x:Name="PreviewPane" Grid.Column="1"
+                            Width="300" Margin="12,0,0,0"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Padding="14"
+                            Visibility="Collapsed">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <StackPanel Spacing="12">
+                                <!-- Başlık & Kapat Butonu -->
+                                <Grid>
+                                    <TextBlock Text="Önizleme Bölmesi" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center" />
+                                    <Button HorizontalAlignment="Right" Click="ClosePreviewPane_Click" Padding="6,4" CornerRadius="4" ToolTipService.ToolTip="Önizlemeyi Kapat">
+                                        <FontIcon Glyph="&#xE711;" FontSize="10" />
+                                    </Button>
+                                </Grid>
+
+                                <!-- Önizleme Görsel Kartı -->
+                                <Border Height="180" Background="{ThemeResource LayerFillColorDefaultBrush}" CornerRadius="8" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+                                    <Grid HorizontalAlignment="Center" VerticalAlignment="Center">
+                                        <FontIcon x:Name="PreviewIcon" Glyph="&#xE8A5;" FontSize="72" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                        <Image x:Name="PreviewImage" Stretch="Uniform" MaxHeight="170" Visibility="Collapsed" />
+                                    </Grid>
+                                </Border>
+
+                                <!-- Dosya Başlığı ve Tür Etiketi -->
+                                <TextBlock x:Name="PreviewFileName" Text="Dosya Seçilmedi" FontWeight="Bold" FontSize="13" TextWrapping="Wrap" HorizontalAlignment="Center" TextAlignment="Center" />
+                                <Border x:Name="PreviewBadge" Background="{ThemeResource AccentFillColorDefaultBrush}" CornerRadius="4" Padding="8,3" HorizontalAlignment="Center">
+                                    <TextBlock x:Name="PreviewTypeBadge" Text="Bilinmeyen" Foreground="White" FontSize="11" FontWeight="SemiBold" />
+                                </Border>
+
+                                <MenuFlyoutSeparator Margin="0,2,0,2" />
+
+                                <!-- Ayrıntılı Bilgi Alanı -->
+                                <Grid RowSpacing="6">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="80" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+
+                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Boyut:" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" />
+                                    <TextBlock x:Name="PreviewSizeText" Grid.Row="0" Grid.Column="1" Text="--" FontWeight="SemiBold" FontSize="12" />
+
+                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Değiştirilme:" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" />
+                                    <TextBlock x:Name="PreviewDateText" Grid.Row="1" Grid.Column="1" Text="--" FontSize="12" />
+
+                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Biçim:" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" />
+                                    <TextBlock x:Name="PreviewExtensionText" Grid.Row="2" Grid.Column="1" Text="--" FontSize="12" />
+
+                                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Konum:" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" />
+                                    <TextBlock x:Name="PreviewPathText" Grid.Row="3" Grid.Column="1" Text="--" FontSize="11" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                </Grid>
+
+                                <!-- Hızlı Eylemler -->
+                                <StackPanel Spacing="8" Margin="0,8,0,0">
+                                    <Button x:Name="PreviewOpenButton" Content="Varsayılan Uygulamayla Aç" Style="{ThemeResource AccentButtonStyle}" HorizontalAlignment="Stretch" Click="PreviewOpenButton_Click" />
+                                    <Button x:Name="PreviewDownloadButton" Content="İndir ve Kaydet" HorizontalAlignment="Stretch" Click="PreviewDownloadButton_Click" />
+                                </StackPanel>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </Border>
 
                     <!-- Sağ Tık Menüsü (Flyout) -->
                     <Grid.ContextFlyout>
