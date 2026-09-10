@@ -46,6 +46,23 @@ public sealed partial class MainWindow : Window
         // Başlangıç sekmesi oluştur
         CreateInitialTab();
 
+        // Ctrl+T (Yeni Sekme) ve Ctrl+W (Sekmeyi Kapat) klavye kısayolları
+        var newTabAccelerator = new Microsoft.UI.Xaml.Input.KeyboardAccelerator
+        {
+            Key = Windows.System.VirtualKey.T,
+            Modifiers = Windows.System.VirtualKeyModifiers.Control
+        };
+        newTabAccelerator.Invoked += (s, e) => { OpenNewTab(""); e.Handled = true; };
+        this.Content.KeyboardAccelerators.Add(newTabAccelerator);
+
+        var closeTabAccelerator = new Microsoft.UI.Xaml.Input.KeyboardAccelerator
+        {
+            Key = Windows.System.VirtualKey.W,
+            Modifiers = Windows.System.VirtualKeyModifiers.Control
+        };
+        closeTabAccelerator.Invoked += (s, e) => { CloseCurrentTab(); e.Handled = true; };
+        this.Content.KeyboardAccelerators.Add(closeTabAccelerator);
+
         // Senkronizasyon durumunu dinle
         FolderSyncEngine.Instance.PropertyChanged += (s, e) =>
         {
@@ -63,32 +80,54 @@ public sealed partial class MainWindow : Window
 
     #region Windows 11 Sekme (TabView) Yönetimi
 
-    private void CreateInitialTab()
+    public void OpenNewTab(string path = "")
     {
-        var state = new ExplorerTabState();
-        var tab = new TabViewItem
+        var state = new ExplorerTabState
         {
-            Header = "Cloudreve",
+            CurrentPath = path,
+            History = new List<string> { path },
+            HistoryIndex = 0
+        };
+        var folderName = string.IsNullOrEmpty(path) ? "Cloudreve" : Path.GetFileName(path.TrimEnd('/'));
+        var newTab = new TabViewItem
+        {
+            Header = folderName,
             IconSource = new FontIconSource { Glyph = "\uE8B7" },
             Tag = state,
             IsClosable = true
         };
-        ExplorerTabs.TabItems.Add(tab);
-        ExplorerTabs.SelectedItem = tab;
+        ExplorerTabs.TabItems.Add(newTab);
+        ExplorerTabs.SelectedItem = newTab;
+
+        _currentPath = state.CurrentPath;
+        _history.Clear();
+        _history.AddRange(state.History);
+        _historyIndex = state.HistoryIndex;
+
+        UpdateNavigationButtons();
+        UpdateBreadcrumbs(_currentPath);
+        _ = LoadDirectoryAsync(_currentPath);
+    }
+
+    public void CloseCurrentTab()
+    {
+        if (ExplorerTabs.SelectedItem is TabViewItem currentTab && ExplorerTabs.TabItems.Count > 1)
+        {
+            var index = ExplorerTabs.TabItems.IndexOf(currentTab);
+            ExplorerTabs.TabItems.Remove(currentTab);
+            var newIndex = Math.Clamp(index, 0, ExplorerTabs.TabItems.Count - 1);
+            ExplorerTabs.SelectedIndex = newIndex;
+        }
+    }
+
+    private void CreateInitialTab()
+    {
+        OpenNewTab("");
     }
 
     private void ExplorerTabs_AddTabButtonClick(TabView sender, object args)
     {
-        var state = new ExplorerTabState();
-        var newTab = new TabViewItem
-        {
-            Header = "Cloudreve",
-            IconSource = new FontIconSource { Glyph = "\uE8B7" },
-            Tag = state,
-            IsClosable = true
-        };
-        sender.TabItems.Add(newTab);
-        sender.SelectedItem = newTab;
+        OpenNewTab("");
     }
 
     private void ExplorerTabs_TabCloseRequested(TabView sender, TabViewTabCloseRequestedEventArgs args)
@@ -110,14 +149,17 @@ public sealed partial class MainWindow : Window
     {
         if (ExplorerTabs.SelectedItem is TabViewItem tab && tab.Tag is ExplorerTabState state)
         {
-            _currentPath = state.CurrentPath;
-            _history.Clear();
-            _history.AddRange(state.History);
-            _historyIndex = state.HistoryIndex;
+            if (_currentPath != state.CurrentPath || _items.Count == 0)
+            {
+                _currentPath = state.CurrentPath;
+                _history.Clear();
+                _history.AddRange(state.History);
+                _historyIndex = state.HistoryIndex;
 
-            UpdateNavigationButtons();
-            UpdateBreadcrumbs(_currentPath);
-            _ = LoadDirectoryAsync(_currentPath);
+                UpdateNavigationButtons();
+                UpdateBreadcrumbs(_currentPath);
+                _ = LoadDirectoryAsync(_currentPath);
+            }
         }
     }
 
@@ -126,7 +168,8 @@ public sealed partial class MainWindow : Window
     private void SetupTitleBar()
     {
         ExtendsContentIntoTitleBar = true;
-        SetTitleBar(AppTitleBar);
+        SetTitleBar(CustomDragRegion);
+        this.Loaded += (s, e) => SetTitleBar(CustomDragRegion);
     }
 
     private async void NavigateToPath(string path, bool addToHistory = true)

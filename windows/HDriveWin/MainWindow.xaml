@@ -23,10 +23,10 @@
         </Grid.RowDefinitions>
 
         <!-- 0: Windows 11 Başlık Çubuğu & Sekmeler (TabView - Sıfır Üst Boşluk, Birebir Windows 11 Hizalaması) -->
-        <Grid x:Name="AppTitleBar" Grid.Row="0" VerticalAlignment="Stretch" Height="40">
-            <!-- Windows 11 Sekmeler (Sol kenardan 8px, sağ sistem butonlarına 140px boşluk) -->
+        <Grid Grid.Row="0" VerticalAlignment="Stretch" Height="40">
+            <!-- Windows 11 Sekmeler (Sol kenardan 8px) -->
             <TabView x:Name="ExplorerTabs"
-                     Margin="8,0,140,0"
+                     Margin="8,0,0,0"
                      VerticalAlignment="Stretch"
                      IsAddTabButtonVisible="True"
                      CanDragTabs="True"
@@ -34,6 +34,10 @@
                      AddTabButtonClick="ExplorerTabs_AddTabButtonClick"
                      TabCloseRequested="ExplorerTabs_TabCloseRequested"
                      SelectionChanged="ExplorerTabs_SelectionChanged">
+                <TabView.TabStripFooter>
+                    <!-- Drag Region: Sekmelerden sonraki boş alan pencereyi sürüklemek için kullanılır. MinWidth 188px sistem butonlarını korur -->
+                    <Grid x:Name="CustomDragRegion" Background="Transparent" MinWidth="188" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
+                </TabView.TabStripFooter>
             </TabView>
         </Grid>
 
