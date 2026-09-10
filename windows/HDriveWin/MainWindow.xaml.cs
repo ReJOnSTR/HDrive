@@ -87,6 +87,7 @@ public sealed partial class MainWindow : Window
     {
         BackButton.IsEnabled = _historyIndex > 0;
         ForwardButton.IsEnabled = _historyIndex < _history.Count - 1;
+        UpButton.IsEnabled = !string.IsNullOrEmpty(_currentPath);
     }
 
     private void UpdateBreadcrumbs(string path)
@@ -185,6 +186,21 @@ public sealed partial class MainWindow : Window
         {
             _historyIndex++;
             NavigateToPath(_history[_historyIndex], addToHistory: false);
+        }
+    }
+
+    private void UpButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrEmpty(_currentPath)) return;
+        var clean = _currentPath.TrimEnd('/');
+        var lastSlash = clean.LastIndexOf('/');
+        if (lastSlash >= 0)
+        {
+            NavigateToPath(clean.Substring(0, lastSlash));
+        }
+        else
+        {
+            NavigateToPath("");
         }
     }
 
