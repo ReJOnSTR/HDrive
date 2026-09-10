@@ -177,6 +177,11 @@ public sealed partial class MainWindow : Window
     {
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(CustomDragRegion);
+        try
+        {
+            AppWindow.SetIcon("app.ico");
+        }
+        catch { }
     }
 
     private async void NavigateToPath(string path, bool addToHistory = true)
