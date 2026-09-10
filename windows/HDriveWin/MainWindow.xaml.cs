@@ -377,18 +377,12 @@ public sealed partial class MainWindow : Window
     /// <summary>
     /// HDrive içinden Windows Masaüstüne, Explorer'a veya başka programlara dosya sürükleyip kopyalama
     /// </summary>
-    private async void FileList_DragItemsStarting(object sender, DragItemsStartingEventArgs e)
+    private async void FileItem_DragStarting(UIElement sender, DragStartingEventArgs e)
     {
         var deferral = e.GetDeferral();
         try
         {
-            var itemsToDrag = e.Items.OfType<FileItem>().ToList();
-            if (itemsToDrag.Count == 0 && _selectedItem != null)
-            {
-                itemsToDrag.Add(_selectedItem);
-            }
-
-            if (itemsToDrag.Count == 0)
+            if (sender is not FrameworkElement fe || fe.DataContext is not FileItem item)
             {
                 deferral.Complete();
                 return;
@@ -402,51 +396,48 @@ public sealed partial class MainWindow : Window
             var config = CloudreveManager.Instance.ActiveServer;
             var client = new WebDAVClient(config);
 
-            foreach (var item in itemsToDrag)
-            {
-                string? localPath = null;
+            string? localPath = null;
 
-                // 1. Yerel eşitleme klasöründe (HDrive - Cloudreve) mevcut mu?
-                var relPath = item.Path.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
-                var syncPath = Path.Combine(syncFolder, relPath);
-                if (File.Exists(syncPath) || Directory.Exists(syncPath))
+            // 1. Yerel eşitleme klasöründe (HDrive - Cloudreve) mevcut mu?
+            var relPath = item.Path.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
+            var syncPath = Path.Combine(syncFolder, relPath);
+            if (File.Exists(syncPath) || Directory.Exists(syncPath))
+            {
+                localPath = syncPath;
+            }
+            else
+            {
+                // 2. Geçici önbellekte (Cache) var mı?
+                var cachedPath = Path.Combine(cacheDir, Path.GetFileName(item.Path));
+                if (File.Exists(cachedPath))
                 {
-                    localPath = syncPath;
+                    localPath = cachedPath;
+                }
+                else if (!item.IsDirectory)
+                {
+                    // 3. Henüz indirilmemişse, dışarı sürükleme için hızla önbelleğe indir
+                    localPath = await client.DownloadFileToCacheAsync(item.Path);
                 }
                 else
                 {
-                    // 2. Geçici önbellekte (Cache) var mı?
-                    var cachedPath = Path.Combine(cacheDir, Path.GetFileName(item.Path));
-                    if (File.Exists(cachedPath))
-                    {
-                        localPath = cachedPath;
-                    }
-                    else if (!item.IsDirectory)
-                    {
-                        // 3. Henüz indirilmemişse, dışarı sürükleme için hızla önbelleğe indir
-                        localPath = await client.DownloadFileToCacheAsync(item.Path);
-                    }
-                    else
-                    {
-                        // Klasör ise yerel geçici klasör aç
-                        var cachedFolderPath = Path.Combine(cacheDir, Path.GetFileName(item.Path.TrimEnd('/')));
-                        Directory.CreateDirectory(cachedFolderPath);
-                        localPath = cachedFolderPath;
-                    }
+                    // Klasör ise yerel geçici klasör aç
+                    var cachedFolderPath = Path.Combine(cacheDir, Path.GetFileName(item.Path.TrimEnd('/')));
+                    Directory.CreateDirectory(cachedFolderPath);
+                    localPath = cachedFolderPath;
                 }
+            }
 
-                if (!string.IsNullOrEmpty(localPath))
+            if (!string.IsNullOrEmpty(localPath))
+            {
+                if (File.Exists(localPath))
                 {
-                    if (File.Exists(localPath))
-                    {
-                        var sf = await StorageFile.GetFileFromPathAsync(localPath);
-                        storageItems.Add(sf);
-                    }
-                    else if (Directory.Exists(localPath))
-                    {
-                        var df = await StorageFolder.GetFolderFromPathAsync(localPath);
-                        storageItems.Add(df);
-                    }
+                    var sf = await StorageFile.GetFileFromPathAsync(localPath);
+                    storageItems.Add(sf);
+                }
+                else if (Directory.Exists(localPath))
+                {
+                    var df = await StorageFolder.GetFolderFromPathAsync(localPath);
+                    storageItems.Add(df);
                 }
             }
 
@@ -458,7 +449,7 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"DragItemsStarting error: {ex.Message}");
+            Debug.WriteLine($"DragStarting error: {ex.Message}");
         }
         finally
         {

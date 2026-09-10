@@ -145,8 +145,6 @@
                               IsItemClickEnabled="True"
                               ItemClick="FileItem_Clicked"
                               RightTapped="FileItem_RightTapped"
-                              CanDragItems="True"
-                              DragItemsStarting="FileList_DragItemsStarting"
                               AllowDrop="True"
                               DragOver="FileArea_DragOver"
                               Drop="FileArea_Drop"
@@ -158,7 +156,9 @@
                                         BorderThickness="1"
                                         CornerRadius="8"
                                         Width="130" Height="130"
-                                        Padding="10" Margin="4">
+                                        Padding="10" Margin="4"
+                                        CanDrag="True"
+                                        DragStarting="FileItem_DragStarting">
                                     <Grid>
                                         <Grid.RowDefinitions>
                                             <RowDefinition Height="*" />
@@ -196,8 +196,6 @@
                               IsItemClickEnabled="True"
                               ItemClick="FileItem_Clicked"
                               RightTapped="FileItem_RightTapped"
-                              CanDragItems="True"
-                              DragItemsStarting="FileList_DragItemsStarting"
                               AllowDrop="True"
                               DragOver="FileArea_DragOver"
                               Drop="FileArea_Drop"
@@ -218,7 +216,9 @@
                         </ListView.Header>
                         <ListView.ItemTemplate>
                             <DataTemplate x:DataType="models:FileItem">
-                                <Grid Padding="6,8,6,8">
+                                <Grid Padding="6,8,6,8"
+                                      CanDrag="True"
+                                      DragStarting="FileItem_DragStarting">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="150" />
