@@ -72,6 +72,7 @@ jobs:
           mkdir -p macOS/HDrive.app/Contents/MacOS
           mkdir -p macOS/HDrive.app/Contents/Resources
           cp macOS/Info.plist macOS/HDrive.app/Contents/Info.plist 2>/dev/null || true
+          cp macOS/AppIcon.icns macOS/HDrive.app/Contents/Resources/AppIcon.icns 2>/dev/null || true
 
           swiftc -parse-as-library \
             iOS/HDrive/Models/FileItem.swift \
