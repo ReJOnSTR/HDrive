@@ -43,6 +43,7 @@ jobs:
             $env:Path += ";C:\Program Files (x86)\Inno Setup 6"
           }
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" windows/installer.iss
+          Copy-Item windows/Output/HDrive-Setup.exe ./HDrive-Setup.exe
 
       - name: Package Windows Portable Binary
         shell: pwsh
@@ -54,7 +55,7 @@ jobs:
         with:
           name: HDrive-Windows
           path: |
-            windows/Output/HDrive-Setup.exe
+            HDrive-Setup.exe
             HDrive-Windows-x64.zip
 
   # -----------------------------------------------------------
