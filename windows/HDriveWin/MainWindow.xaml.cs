@@ -28,7 +28,6 @@ public sealed partial class MainWindow : Window
     private string _currentPath = "";
     private readonly List<string> _history = new();
     private int _historyIndex = -1;
-    private bool _isGridView = true;
 
     private FileItem? _selectedItem;
 
@@ -135,7 +134,7 @@ public sealed partial class MainWindow : Window
         if (sender.TabItems.Count > 1)
         {
             var index = sender.TabItems.IndexOf(args.Tab);
-            var isSelected = sender.SelectedItem == args.Tab;
+            var isSelected = sender.SelectedItem is TabViewItem sel && sel == args.Tab;
             sender.TabItems.Remove(args.Tab);
             if (isSelected && sender.TabItems.Count > 0)
             {
@@ -169,7 +168,6 @@ public sealed partial class MainWindow : Window
     {
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(CustomDragRegion);
-        this.Loaded += (s, e) => SetTitleBar(CustomDragRegion);
     }
 
     private async void NavigateToPath(string path, bool addToHistory = true)
