@@ -70,7 +70,8 @@ public sealed partial class MainWindow : Window
         {
             Header = "Cloudreve",
             IconSource = new FontIconSource { Glyph = "\uE8B7" },
-            Tag = state
+            Tag = state,
+            IsClosable = true
         };
         ExplorerTabs.TabItems.Add(tab);
         ExplorerTabs.SelectedItem = tab;
@@ -83,7 +84,8 @@ public sealed partial class MainWindow : Window
         {
             Header = "Cloudreve",
             IconSource = new FontIconSource { Glyph = "\uE8B7" },
-            Tag = state
+            Tag = state,
+            IsClosable = true
         };
         sender.TabItems.Add(newTab);
         sender.SelectedItem = newTab;

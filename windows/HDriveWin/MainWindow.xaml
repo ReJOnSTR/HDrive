@@ -40,7 +40,8 @@
                      Margin="0,0,140,0"
                      VerticalAlignment="Bottom"
                      IsAddTabButtonVisible="True"
-                     CanCloseTabs="True"
+                     CanDragTabs="True"
+                     CanReorderTabs="True"
                      AddTabButtonClick="ExplorerTabs_AddTabButtonClick"
                      TabCloseRequested="ExplorerTabs_TabCloseRequested"
                      SelectionChanged="ExplorerTabs_SelectionChanged">
@@ -100,7 +101,10 @@
                     <AppBarToggleButton x:Name="PreviewPaneToggle" Icon="PreviewLink" Label="Önizleme" Click="PreviewPaneToggle_Click" />
                     <AppBarSeparator />
                     <!-- Üç Nokta (...) Menüsü -->
-                    <AppBarButton Icon="More" Label="Daha Fazla">
+                    <AppBarButton Label="Daha Fazla">
+                        <AppBarButton.Icon>
+                            <FontIcon Glyph="&#xE712;" />
+                        </AppBarButton.Icon>
                         <AppBarButton.Flyout>
                             <MenuFlyout>
                                 <MenuFlyoutItem Text="Yenile" Click="RefreshButton_Click">
