@@ -6,12 +6,15 @@
 import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
+import QuickLook
+import QuickLookUI
 
 public struct NativeExplorerView: View {
     @ObservedObject var manager = CloudreveManager.shared
     @ObservedObject var mounter = DriveMounter.shared
     @ObservedObject var opener = FileOpener.shared
     @ObservedObject var syncEngine = FolderSyncEngine.shared
+    @ObservedObject var previewManager = FilePreviewManager.shared
     
     // Klasör Gezintisi
     @State private var currentPath: String = ""
@@ -26,12 +29,21 @@ public struct NativeExplorerView: View {
     // Seçili ve Vurgulanan Dosya
     @State private var selectedFileID: String? = nil
     @State private var hoveredFileID: String? = nil
+    @State private var quickLookURL: URL? = nil
     
     // Modallar ve Diyaloglar
     @State private var showingSettingsSheet: Bool = false
     @State private var showingNewFolderAlert: Bool = false
     @State private var newFolderName: String = ""
     @State private var statusAlertMessage: String? = nil
+    
+    private let dateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        f.timeStyle = .short
+        f.locale = Locale(identifier: "tr_TR")
+        return f
+    }()
     
     public init() {}
     
@@ -51,11 +63,17 @@ public struct NativeExplorerView: View {
                 HStack(spacing: 0) {
                     mainFilesAreaView
                     
-                    if showPreviewPane, let selected = files.first(where: { $0.id == selectedFileID }) {
+                    if showPreviewPane {
                         Divider()
-                        previewPaneView(selected)
-                            .frame(width: 280)
-                            .background(Color(NSColor.controlBackgroundColor))
+                        if let selected = files.first(where: { $0.id == selectedFileID }) {
+                            previewPaneView(selected)
+                                .frame(width: 300)
+                                .background(Color(NSColor.controlBackgroundColor))
+                        } else {
+                            emptyPreviewPaneView
+                                .frame(width: 300)
+                                .background(Color(NSColor.controlBackgroundColor))
+                        }
                     }
                 }
                 
@@ -90,8 +108,9 @@ public struct NativeExplorerView: View {
                     .help("Görünüm Biçimi")
                     
                     // Önizleme Bölmesi Butonu
-                    Button(action: { showPreviewPane.toggle() }) {
-                        Image(systemName: showPreviewPane ? "sidebar.right" : "sidebar.right")
+                    Button(action: togglePreviewPane) {
+                        Image(systemName: "sidebar.right")
+                            .foregroundColor(showPreviewPane ? .accentColor : .primary)
                     }
                     .help("Önizleme Bölmesini Göster / Gizle")
                     
@@ -122,6 +141,19 @@ public struct NativeExplorerView: View {
             }
             .searchable(text: $searchText, placement: .toolbar, prompt: "Ara...")
             .focusEffectDisabled()
+            .quickLookPreview($quickLookURL)
+            .background(
+                Button(action: {
+                    if let selID = selectedFileID, let file = files.first(where: { $0.id == selID }) {
+                        triggerQuickLook(for: file)
+                    }
+                }) {
+                    EmptyView()
+                }
+                .keyboardShortcut(.space, modifiers: [])
+                .frame(width: 0, height: 0)
+                .opacity(0)
+            )
         }
         .background(ToolbarCustomizer())
         .frame(minWidth: 800, minHeight: 560)
@@ -232,23 +264,37 @@ public struct NativeExplorerView: View {
             } else if isGridView {
                 // IZGARA GÖRÜNÜMÜ (Finder Icon View Gibi)
                 ScrollView {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 105), spacing: 16)], spacing: 18) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 16)], spacing: 18) {
                         ForEach(filteredFiles) { file in
                             fileGridItem(file)
                         }
                     }
                     .padding(20)
                 }
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    selectedFileID = nil
-                }
+                .background(
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            selectedFileID = nil
+                        }
+                )
             } else {
                 // LİSTE GÖRÜNÜMÜ (Finder List View Gibi)
-                List(filteredFiles) { file in
-                    fileRowItem(file)
+                ScrollView {
+                    LazyVStack(spacing: 2) {
+                        ForEach(filteredFiles) { file in
+                            fileRowItem(file)
+                        }
+                    }
+                    .padding(12)
                 }
-                .listStyle(.inset)
+                .background(
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            selectedFileID = nil
+                        }
+                )
             }
         }
         .background(Color(NSColor.windowBackgroundColor))
@@ -264,17 +310,34 @@ public struct NativeExplorerView: View {
         let isSelected = selectedFileID == file.id
         
         return VStack(spacing: 6) {
-            Image(systemName: file.systemIcon)
-                .font(.system(size: 42))
-                .foregroundColor(fileIconColor(file))
-                .frame(width: 60, height: 50)
+            ZStack {
+                if file.isImage, let img = previewManager.cachedImages[file.id] {
+                    Image(nsImage: img)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 58, height: 50)
+                        .cornerRadius(4)
+                        .shadow(color: .black.opacity(0.12), radius: 2, y: 1)
+                } else {
+                    Image(systemName: file.systemIcon)
+                        .font(.system(size: 42))
+                        .foregroundColor(fileIconColor(file))
+                        .frame(width: 60, height: 50)
+                }
+            }
+            .onAppear {
+                if file.isImage, let server = manager.activeServer {
+                    let client = WebDAVClient(config: server)
+                    previewManager.loadThumbnail(for: file, client: client)
+                }
+            }
             
             Text(file.name)
                 .font(.caption.weight(isSelected ? .semibold : .regular))
-                .foregroundColor(.primary)
+                .foregroundColor(isSelected ? .accentColor : .primary)
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
-                .frame(width: 90)
+                .frame(width: 92)
             
             Text(file.formattedSize)
                 .font(.caption2)
@@ -283,7 +346,11 @@ public struct NativeExplorerView: View {
         .padding(8)
         .background(
             RoundedRectangle(cornerRadius: 8)
-                .fill(isHovered ? Color.primary.opacity(0.06) : Color.clear)
+                .fill(isSelected ? Color.accentColor.opacity(0.18) : (isHovered ? Color.primary.opacity(0.06) : Color.clear))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 1.5)
         )
         .contentShape(Rectangle())
         .onHover { hovering in
@@ -293,12 +360,17 @@ public struct NativeExplorerView: View {
                 hoveredFileID = nil
             }
         }
+        .simultaneousGesture(
+            TapGesture().onEnded {
+                selectedFileID = file.id
+                if file.isImage, let server = manager.activeServer {
+                    let client = WebDAVClient(config: server)
+                    previewManager.loadThumbnail(for: file, client: client)
+                }
+            }
+        )
         .onTapGesture(count: 2) {
-            // ÇİFT TIKLANDIĞINDA:
             handleDoubleClick(file)
-        }
-        .onTapGesture {
-            selectedFileID = file.id
         }
         .onDrag {
             exportFileForDrag(file)
@@ -311,28 +383,49 @@ public struct NativeExplorerView: View {
     // MARK: - Dosya Liste Satırı
     private func fileRowItem(_ file: RemoteFileItem) -> some View {
         let isHovered = hoveredFileID == file.id
+        let isSelected = selectedFileID == file.id
         
         return HStack(spacing: 12) {
-            Image(systemName: file.systemIcon)
-                .font(.title3)
-                .foregroundColor(fileIconColor(file))
-                .frame(width: 24)
+            if file.isImage, let img = previewManager.cachedImages[file.id] {
+                Image(nsImage: img)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 24, height: 24)
+                    .cornerRadius(3)
+            } else {
+                Image(systemName: file.systemIcon)
+                    .font(.title3)
+                    .foregroundColor(fileIconColor(file))
+                    .frame(width: 24)
+            }
             
             Text(file.name)
                 .font(.body)
-                .foregroundColor(.primary)
+                .foregroundColor(isSelected ? Color.accentColor : .primary)
+                .fontWeight(isSelected ? .medium : .regular)
+                .lineLimit(1)
             
             Spacer()
+            
+            Text(file.kindDescription)
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .frame(width: 140, alignment: .trailing)
             
             Text(file.formattedSize)
                 .font(.caption)
                 .foregroundColor(.secondary)
+                .frame(width: 70, alignment: .trailing)
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 5)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
         .background(
             RoundedRectangle(cornerRadius: 6)
-                .fill(isHovered ? Color.primary.opacity(0.06) : Color.clear)
+                .fill(isSelected ? Color.accentColor.opacity(0.18) : (isHovered ? Color.primary.opacity(0.06) : Color.clear))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 1.5)
         )
         .contentShape(Rectangle())
         .onHover { hovering in
@@ -342,11 +435,17 @@ public struct NativeExplorerView: View {
                 hoveredFileID = nil
             }
         }
+        .simultaneousGesture(
+            TapGesture().onEnded {
+                selectedFileID = file.id
+                if file.isImage, let server = manager.activeServer {
+                    let client = WebDAVClient(config: server)
+                    previewManager.loadThumbnail(for: file, client: client)
+                }
+            }
+        )
         .onTapGesture(count: 2) {
             handleDoubleClick(file)
-        }
-        .onTapGesture {
-            selectedFileID = file.id
         }
         .onDrag {
             exportFileForDrag(file)
@@ -354,24 +453,38 @@ public struct NativeExplorerView: View {
         .contextMenu {
             fileContextMenu(file)
         }
+        .onAppear {
+            if file.isImage, let server = manager.activeServer {
+                let client = WebDAVClient(config: server)
+                previewManager.loadThumbnail(for: file, client: client)
+            }
+        }
     }
     
     // MARK: - Sağ Tık Menüsü (Context Menu)
     @ViewBuilder
     private func fileContextMenu(_ file: RemoteFileItem) -> some View {
-        Button("Aç (Varsayılan Programla)") {
-            handleDoubleClick(file)
+        if !file.isDirectory {
+            Button(action: { triggerQuickLook(for: file) }) {
+                Label("Hızlı Bakış (Boşluk)", systemImage: "eye")
+            }
         }
         
-        Button("Finder'da Göster") {
+        Button(action: { handleDoubleClick(file) }) {
+            Label(file.isDirectory ? "Klasörü Aç" : "Varsayılan Uygulamayla Aç", systemImage: "arrow.up.forward.app")
+        }
+        
+        Button(action: {
             DriveMounter.shared.openMountedVolumeInFinder()
+        }) {
+            Label("Finder'da Göster", systemImage: "folder")
         }
         
         Divider()
         
         if !file.isDirectory {
-            Button("İndir (İndirilenler Klasörüne)") {
-                downloadFile(file)
+            Button(action: { downloadFile(file) }) {
+                Label("İndir (İndirilenler Klasörüne)", systemImage: "arrow.down.circle")
             }
         }
         
@@ -450,6 +563,41 @@ public struct NativeExplorerView: View {
         return files.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
     }
     
+    private func togglePreviewPane() {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            showPreviewPane.toggle()
+            if showPreviewPane && selectedFileID == nil {
+                selectedFileID = filteredFiles.first?.id
+                if let first = filteredFiles.first, first.isImage, let server = manager.activeServer {
+                    let client = WebDAVClient(config: server)
+                    previewManager.loadThumbnail(for: first, client: client)
+                }
+            }
+        }
+    }
+    
+    private func triggerQuickLook(for file: RemoteFileItem) {
+        if file.isDirectory { return }
+        
+        // 1. Yerel dosya zaten var mı?
+        if let local = previewManager.resolvedLocalURL(for: file) {
+            self.quickLookURL = local
+            return
+        }
+        
+        // 2. Yoksa önizleme için indirip Quick Look aç
+        guard let server = manager.activeServer else { return }
+        let client = WebDAVClient(config: server)
+        
+        previewManager.ensureLocalFile(file: file, client: client) { localURL in
+            if let url = localURL {
+                DispatchQueue.main.async {
+                    self.quickLookURL = url
+                }
+            }
+        }
+    }
+    
     private func loadDirectory(at path: String) {
         guard let server = manager.activeServer, !server.serverURL.isEmpty else { return }
         isLoading = true
@@ -463,6 +611,16 @@ public struct NativeExplorerView: View {
                     if $0.isDirectory && !$1.isDirectory { return true }
                     if !$0.isDirectory && $1.isDirectory { return false }
                     return $0.name.localizedStandardCompare($1.name) == .orderedAscending
+                }
+                if self.showPreviewPane {
+                    if let sel = self.selectedFileID, self.files.contains(where: { $0.id == sel }) {
+                        // Mevcut seçim korunuyor
+                    } else {
+                        self.selectedFileID = self.files.first?.id
+                    }
+                    if let selID = self.selectedFileID, let file = self.files.first(where: { $0.id == selID }), file.isImage {
+                        self.previewManager.loadThumbnail(for: file, client: client)
+                    }
                 }
             case .failure(let error):
                 print("Listeleme hatası: \(error)")
@@ -601,98 +759,274 @@ public struct NativeExplorerView: View {
     private func previewPaneView(_ file: RemoteFileItem) -> some View {
         ScrollView {
             VStack(spacing: 16) {
-                // Büyük İkon / Önizleme Kartı
-                ZStack {
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(Color(NSColor.windowBackgroundColor))
-                        .frame(height: 160)
+                // Üst Başlık ve Kapat Butonu
+                HStack {
+                    Text("Ayrıntılar ve Önizleme")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(.secondary)
                     
-                    Image(systemName: file.systemIcon)
-                        .font(.system(size: 64))
-                        .foregroundColor(fileIconColor(file))
+                    Spacer()
+                    
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            showPreviewPane = false
+                        }
+                    }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundColor(.secondary)
+                            .font(.system(size: 14))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Önizleme Bölmesini Kapat")
                 }
-                .padding(.top, 12)
+                .padding(.horizontal, 4)
+                
+                // Büyük Önizleme Kutusu / Kartı
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color(NSColor.windowBackgroundColor))
+                        .shadow(color: .black.opacity(0.06), radius: 4, y: 2)
+                    
+                    if file.isDirectory {
+                        VStack(spacing: 8) {
+                            Image(systemName: "folder.fill")
+                                .font(.system(size: 64))
+                                .foregroundColor(.blue)
+                            Text("Klasör")
+                                .font(.caption.weight(.medium))
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(24)
+                    } else if file.isImage {
+                        if let img = previewManager.cachedImages[file.id] {
+                            Image(nsImage: img)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(maxHeight: 190)
+                                .cornerRadius(8)
+                                .padding(6)
+                        } else if previewManager.loadingPreviewIDs.contains(file.id) {
+                            VStack(spacing: 10) {
+                                ProgressView()
+                                    .scaleEffect(0.9)
+                                Text("Görsel yükleniyor...")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(24)
+                        } else {
+                            VStack(spacing: 10) {
+                                Image(systemName: file.systemIcon)
+                                    .font(.system(size: 56))
+                                    .foregroundColor(fileIconColor(file))
+                                Button("Önizlemeyi Yükle") {
+                                    if let server = manager.activeServer {
+                                        let client = WebDAVClient(config: server)
+                                        previewManager.loadThumbnail(for: file, client: client)
+                                    }
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                            }
+                            .padding(20)
+                        }
+                    } else if let localURL = previewManager.resolvedLocalURL(for: file) {
+                        // Yerel kopya varsa gömülü Quick Look görünümü
+                        QuickLookRepresentable(url: localURL)
+                            .frame(height: 190)
+                            .cornerRadius(8)
+                            .padding(4)
+                    } else {
+                        // Diğer dosyalar
+                        VStack(spacing: 12) {
+                            Image(systemName: file.systemIcon)
+                                .font(.system(size: 58))
+                                .foregroundColor(fileIconColor(file))
+                            
+                            if previewManager.loadingPreviewIDs.contains(file.id) {
+                                ProgressView()
+                                    .scaleEffect(0.8)
+                                Text("Önizleme indiriliyor...")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            } else {
+                                Button("Önizlemeyi Yükle") {
+                                    triggerQuickLook(for: file)
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                            }
+                        }
+                        .padding(24)
+                    }
+                }
+                .frame(minHeight: 180, maxHeight: 210)
+                .onAppear {
+                    if file.isImage, let server = manager.activeServer {
+                        let client = WebDAVClient(config: server)
+                        previewManager.loadThumbnail(for: file, client: client)
+                    }
+                }
                 
                 // Dosya Adı ve Tür Rozeti
-                VStack(spacing: 4) {
+                VStack(spacing: 6) {
                     Text(file.name)
                         .font(.headline)
                         .multilineTextAlignment(.center)
                         .lineLimit(3)
+                        .textSelection(.enabled)
                     
-                    Text(file.isDirectory ? "Klasör" : ((file.name as NSString).pathExtension.uppercased() + " Belgesi"))
+                    Text(file.kindDescription)
                         .font(.caption)
                         .foregroundColor(.secondary)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 2)
-                        .background(Capsule().fill(Color.secondary.opacity(0.15)))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 3)
+                        .background(Capsule().fill(Color.secondary.opacity(0.12)))
                 }
                 
-                Divider()
-                
-                // Ayrıntılar
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("Boyut:")
-                            .foregroundColor(.secondary)
-                            .font(.caption)
-                            .frame(width: 80, alignment: .leading)
-                        Text(file.formattedSize)
-                            .font(.caption.weight(.medium))
-                    }
-                    
-                    if let date = file.modificationDate {
-                        HStack {
-                            Text("Değiştirilme:")
-                                .foregroundColor(.secondary)
-                                .font(.caption)
-                                .frame(width: 80, alignment: .leading)
-                            Text(date, style: .date)
-                                .font(.caption)
-                        }
-                    }
-                    
-                    HStack {
-                        Text("Yol:")
-                            .foregroundColor(.secondary)
-                            .font(.caption)
-                            .frame(width: 80, alignment: .leading)
-                        Text(file.href)
-                            .font(.caption2)
-                            .lineLimit(2)
-                            .foregroundColor(.secondary)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 8)
-                
-                Divider()
-                
-                // Hızlı Eylemler
+                // Hızlı Eylem Butonları
                 VStack(spacing: 8) {
-                    Button(action: { handleDoubleClick(file) }) {
-                        Label(file.isDirectory ? "Klasörü Aç" : "Varsayılan Uygulamayla Aç", systemImage: "arrow.up.forward.app")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    
                     if !file.isDirectory {
-                        Button(action: { downloadFile(file) }) {
-                            Label("İndir", systemImage: "arrow.down.circle")
+                        Button(action: { triggerQuickLook(for: file) }) {
+                            Label("Hızlı Bakış (Boşluk)", systemImage: "eye")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.regular)
+                    }
+                    
+                    HStack(spacing: 8) {
+                        Button(action: { handleDoubleClick(file) }) {
+                            Label(file.isDirectory ? "Aç" : "Uygulamayla Aç", systemImage: "arrow.up.forward.app")
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.bordered)
+                        
+                        if !file.isDirectory {
+                            Button(action: { downloadFile(file) }) {
+                                Label("İndir", systemImage: "arrow.down.circle")
+                            }
+                            .buttonStyle(.bordered)
+                            .help("İndirilenler klasörüne kaydet")
+                        }
                     }
                 }
+                
+                Divider()
+                
+                // Finder Tarzı Ayrıntılar Tablosu
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("BİLGİLER")
+                        .font(.caption2.weight(.bold))
+                        .foregroundColor(.secondary)
+                        .padding(.bottom, 2)
+                    
+                    inspectorRow(title: "Boyut", value: file.formattedSize)
+                    
+                    if let date = file.modificationDate {
+                        inspectorRow(title: "Değiştirilme", value: dateFormatter.string(from: date))
+                    }
+                    
+                    inspectorRow(title: "Uzak Yol", value: file.href)
+                    
+                    if let ct = file.contentType, !ct.isEmpty {
+                        inspectorRow(title: "İçerik Türü", value: ct)
+                    }
+                    
+                    // Yerel Durum Bilgisi
+                    HStack(alignment: .top) {
+                        Text("Durum:")
+                            .foregroundColor(.secondary)
+                            .font(.caption)
+                            .frame(width: 85, alignment: .leading)
+                        
+                        if previewManager.resolvedLocalURL(for: file) != nil {
+                            HStack(spacing: 4) {
+                                Circle().fill(Color.green).frame(width: 6, height: 6)
+                                Text("Yerelde Hazır")
+                                    .font(.caption.weight(.medium))
+                                    .foregroundColor(.green)
+                            }
+                        } else {
+                            HStack(spacing: 4) {
+                                Circle().fill(Color.blue).frame(width: 6, height: 6)
+                                Text("Yalnızca Bulutta")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 6)
             }
             .padding(14)
+        }
+    }
+    
+    // MARK: - Önizleme Boş Durumu (Öğe Seçilmediğinde)
+    private var emptyPreviewPaneView: some View {
+        VStack(spacing: 20) {
+            HStack {
+                Text("Ayrıntılar ve Önizleme")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(.secondary)
+                Spacer()
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showPreviewPane = false
+                    }
+                }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.secondary)
+                        .font(.system(size: 14))
+                }
+                .buttonStyle(.plain)
+                .help("Önizleme Bölmesini Kapat")
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 14)
+            
+            Spacer()
+            
+            VStack(spacing: 12) {
+                Image(systemName: "sidebar.right")
+                    .font(.system(size: 46))
+                    .foregroundColor(.secondary.opacity(0.5))
+                
+                Text("Öğe Seçilmedi")
+                    .font(.headline)
+                    .foregroundColor(.primary)
+                
+                Text("Önizleme ve ayrıntılarını görüntülemek için listeden bir dosya veya klasör seçin.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+            }
+            
+            Spacer()
+        }
+    }
+    
+    private func inspectorRow(title: String, value: String) -> some View {
+        HStack(alignment: .top) {
+            Text("\(title):")
+                .foregroundColor(.secondary)
+                .font(.caption)
+                .frame(width: 85, alignment: .leading)
+            Text(value)
+                .font(.caption)
+                .foregroundColor(.primary)
+                .lineLimit(2)
+                .textSelection(.enabled)
         }
     }
     
     // MARK: - Mac Finder Renk Paleti
     private func fileIconColor(_ file: RemoteFileItem) -> Color {
         if file.isDirectory { return .blue }
-        let ext = (file.name as NSString).pathExtension.lowercased()
+        let ext = file.fileExtension
         switch ext {
         case "jpg", "jpeg", "png", "heic", "webp", "gif": return .purple
         case "mp4", "mov", "mkv", "avi": return .indigo
