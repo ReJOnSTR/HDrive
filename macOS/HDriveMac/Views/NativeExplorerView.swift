@@ -62,16 +62,18 @@ public struct NativeExplorerView: View {
                 // Dosya Listesi ve Önizleme Bölmesi
                 HStack(spacing: 0) {
                     mainFilesAreaView
+                        .frame(minWidth: 480)
+                        .layoutPriority(1)
                     
                     if showPreviewPane {
                         Divider()
                         if let selected = files.first(where: { $0.id == selectedFileID }) {
                             previewPaneView(selected)
-                                .frame(width: 300)
+                                .frame(width: 260)
                                 .background(Color(NSColor.controlBackgroundColor))
                         } else {
                             emptyPreviewPaneView
-                                .frame(width: 300)
+                                .frame(width: 260)
                                 .background(Color(NSColor.controlBackgroundColor))
                         }
                     }
@@ -156,7 +158,7 @@ public struct NativeExplorerView: View {
             )
         }
         .background(ToolbarCustomizer())
-        .frame(minWidth: 800, minHeight: 560)
+        .frame(minWidth: showPreviewPane ? 960 : 800, minHeight: 560)
         .onAppear {
             if manager.activeServer?.serverURL.isEmpty == true {
                 showingSettingsSheet = true
@@ -564,8 +566,35 @@ public struct NativeExplorerView: View {
     }
     
     private func togglePreviewPane() {
+        let turningOn = !showPreviewPane
+        
+        // Ekranın ve ana dosya alanının daralmaması için pencereyi dinamik genişlet
+        if let window = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible }) {
+            var frame = window.frame
+            let delta: CGFloat = 260
+            if turningOn {
+                if let screen = window.screen {
+                    let maxAvailable = screen.visibleFrame.maxX - frame.maxX
+                    if maxAvailable >= delta {
+                        frame.size.width += delta
+                    } else if frame.origin.x - (delta - maxAvailable) >= screen.visibleFrame.minX {
+                        frame.origin.x -= (delta - maxAvailable)
+                        frame.size.width += delta
+                    } else {
+                        frame.size.width = min(screen.visibleFrame.width, frame.size.width + delta)
+                    }
+                } else {
+                    frame.size.width += delta
+                }
+                window.setFrame(frame, display: true, animate: true)
+            } else {
+                frame.size.width = max(800, frame.size.width - delta)
+                window.setFrame(frame, display: true, animate: true)
+            }
+        }
+        
         withAnimation(.easeInOut(duration: 0.2)) {
-            showPreviewPane.toggle()
+            showPreviewPane = turningOn
             if showPreviewPane && selectedFileID == nil {
                 selectedFileID = filteredFiles.first?.id
                 if let first = filteredFiles.first, first.isImage, let server = manager.activeServer {
@@ -767,11 +796,7 @@ public struct NativeExplorerView: View {
                     
                     Spacer()
                     
-                    Button(action: {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            showPreviewPane = false
-                        }
-                    }) {
+                    Button(action: togglePreviewPane) {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundColor(.secondary)
                             .font(.system(size: 14))
@@ -972,11 +997,7 @@ public struct NativeExplorerView: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundColor(.secondary)
                 Spacer()
-                Button(action: {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        showPreviewPane = false
-                    }
-                }) {
+                Button(action: togglePreviewPane) {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundColor(.secondary)
                         .font(.system(size: 14))
