@@ -22,12 +22,29 @@
             <RowDefinition Height="28" />
         </Grid.RowDefinitions>
 
-        <!-- 0: Windows 11 Başlık Çubuğu (Sürükleme Alanı & Temiz) -->
+        <!-- 0: Windows 11 Başlık Çubuğu & Sekmeler (TabView) -->
         <Grid x:Name="AppTitleBar" Grid.Row="0" VerticalAlignment="Stretch">
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0" Spacing="10">
-                <FontIcon Glyph="&#xE753;" FontSize="16" Foreground="{ThemeResource HDriveAccentBrush}" />
-                <TextBlock Text="HDrive - Dosya Gezgini" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center" />
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Sol Logo & Başlık -->
+            <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="14,0,10,0" Spacing="8">
+                <FontIcon Glyph="&#xE753;" FontSize="15" Foreground="{ThemeResource HDriveAccentBrush}" />
+                <TextBlock Text="HDrive" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center" />
             </StackPanel>
+
+            <!-- Windows 11 Sekmeler (TabView) -->
+            <TabView x:Name="ExplorerTabs" Grid.Column="1"
+                     Margin="0,0,140,0"
+                     VerticalAlignment="Bottom"
+                     IsAddTabButtonVisible="True"
+                     CanCloseTabs="True"
+                     AddTabButtonClick="ExplorerTabs_AddTabButtonClick"
+                     TabCloseRequested="ExplorerTabs_TabCloseRequested"
+                     SelectionChanged="ExplorerTabs_SelectionChanged">
+            </TabView>
         </Grid>
 
         <!-- 1: NavigationView (Windows 11 Sol Kenar Çubuğu ve İçerik) -->
@@ -60,11 +77,10 @@
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
 
-                <!-- 0: Komut Çubuğu (Yeni, Yükle, Yenile, Görünüm ve Önizleme) -->
-                <CommandBar Grid.Row="0" Background="Transparent" DefaultLabelPosition="Right" Margin="0,0,0,8" HorizontalAlignment="Left">
+                <!-- 0: Komut Çubuğu (Kompakt Windows 11 Şerit & Üç Nokta Menüsü) -->
+                <CommandBar Grid.Row="0" Background="Transparent" DefaultLabelPosition="Right" Margin="0,0,0,4" HorizontalAlignment="Left">
                     <AppBarButton Icon="NewFolder" Label="Yeni Klasör" Click="NewFolderButton_Click" />
                     <AppBarButton Icon="Upload" Label="Yükle" Click="UploadButton_Click" />
-                    <AppBarButton Icon="Refresh" Label="Yenile" Click="RefreshButton_Click" />
                     <AppBarSeparator />
                     <AppBarButton Icon="View" Label="Görünüm">
                         <AppBarButton.Flyout>
@@ -75,17 +91,41 @@
                                 <MenuFlyoutItem Text="Orta Simgeler" Click="ViewMedium_Click">
                                     <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE7F4;" /></MenuFlyoutItem.Icon>
                                 </MenuFlyoutItem>
-                                <MenuFlyoutItem Text="Ayrıntılar (Liste)" Click="ViewDetails_Click">
+                                <MenuFlyoutItem Text="Ayrıntılar" Click="ViewDetails_Click">
                                     <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8C0;" /></MenuFlyoutItem.Icon>
                                 </MenuFlyoutItem>
                             </MenuFlyout>
                         </AppBarButton.Flyout>
                     </AppBarButton>
-                    <AppBarToggleButton x:Name="PreviewPaneToggle" Icon="PreviewLink" Label="Önizleme Bölmesi" Click="PreviewPaneToggle_Click" />
+                    <AppBarToggleButton x:Name="PreviewPaneToggle" Icon="PreviewLink" Label="Önizleme" Click="PreviewPaneToggle_Click" />
+                    <AppBarSeparator />
+                    <!-- Üç Nokta (...) Menüsü -->
+                    <AppBarButton Icon="More" Label="Daha Fazla">
+                        <AppBarButton.Flyout>
+                            <MenuFlyout>
+                                <MenuFlyoutItem Text="Yenile" Click="RefreshButton_Click">
+                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE72C;" /></MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutItem Text="Şimdi Eşitle" Click="SyncNow_Click">
+                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE895;" /></MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutItem Text="Yerel Klasörü Aç" Click="OpenLocalFolder_Click">
+                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xED43;" /></MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutSeparator />
+                                <MenuFlyoutItem Text="Tümünü Seç" Click="SelectAll_Click">
+                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8B3;" /></MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutItem Text="Ayarlar" Click="OpenSettings_Click">
+                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE713;" /></MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                            </MenuFlyout>
+                        </AppBarButton.Flyout>
+                    </AppBarButton>
                 </CommandBar>
 
-                <!-- 1: Windows 11 Adres Çubuğu & Arama Satırı -->
-                <Grid Grid.Row="1" Margin="0,0,0,12">
+                <!-- 1: Windows 11 Adres Çubuğu & Arama Satırı (Kompakt) -->
+                <Grid Grid.Row="1" Margin="0,0,0,8">
                     <Grid.ColumnDefinitions>
                         <!-- Geri / İleri / Yukarı Butonları -->
                         <ColumnDefinition Width="Auto" />

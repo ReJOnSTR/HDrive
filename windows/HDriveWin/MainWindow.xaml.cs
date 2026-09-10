@@ -43,8 +43,8 @@ public sealed partial class MainWindow : Window
         FileListView.ItemsSource = _items;
         PathBreadcrumbBar.ItemsSource = _breadcrumbs;
 
-        // Başlangıç konumu
-        NavigateToPath("");
+        // Başlangıç sekmesi oluştur
+        CreateInitialTab();
 
         // Senkronizasyon durumunu dinle
         FolderSyncEngine.Instance.PropertyChanged += (s, e) =>
@@ -60,6 +60,66 @@ public sealed partial class MainWindow : Window
 
         NavView.SelectedItem = CloudreveNavItem;
     }
+
+    #region Windows 11 Sekme (TabView) Yönetimi
+
+    private void CreateInitialTab()
+    {
+        var state = new ExplorerTabState();
+        var tab = new TabViewItem
+        {
+            Header = "Cloudreve",
+            IconSource = new FontIconSource { Glyph = "\uE8B7" },
+            Tag = state
+        };
+        ExplorerTabs.TabItems.Add(tab);
+        ExplorerTabs.SelectedItem = tab;
+    }
+
+    private void ExplorerTabs_AddTabButtonClick(TabView sender, object args)
+    {
+        var state = new ExplorerTabState();
+        var newTab = new TabViewItem
+        {
+            Header = "Cloudreve",
+            IconSource = new FontIconSource { Glyph = "\uE8B7" },
+            Tag = state
+        };
+        sender.TabItems.Add(newTab);
+        sender.SelectedItem = newTab;
+    }
+
+    private void ExplorerTabs_TabCloseRequested(TabView sender, TabViewTabCloseRequestedEventArgs args)
+    {
+        if (sender.TabItems.Count > 1)
+        {
+            var index = sender.TabItems.IndexOf(args.Tab);
+            var isSelected = sender.SelectedItem == args.Tab;
+            sender.TabItems.Remove(args.Tab);
+            if (isSelected && sender.TabItems.Count > 0)
+            {
+                var newIndex = Math.Clamp(index, 0, sender.TabItems.Count - 1);
+                sender.SelectedIndex = newIndex;
+            }
+        }
+    }
+
+    private void ExplorerTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (ExplorerTabs.SelectedItem is TabViewItem tab && tab.Tag is ExplorerTabState state)
+        {
+            _currentPath = state.CurrentPath;
+            _history.Clear();
+            _history.AddRange(state.History);
+            _historyIndex = state.HistoryIndex;
+
+            UpdateNavigationButtons();
+            UpdateBreadcrumbs(_currentPath);
+            _ = LoadDirectoryAsync(_currentPath);
+        }
+    }
+
+    #endregion
 
     private void SetupTitleBar()
     {
@@ -79,6 +139,16 @@ public sealed partial class MainWindow : Window
             }
             _history.Add(path);
             _historyIndex = _history.Count - 1;
+        }
+
+        // Aktif sekmenin başlığını ve durumunu güncelle
+        if (ExplorerTabs.SelectedItem is TabViewItem currentTab && currentTab.Tag is ExplorerTabState state)
+        {
+            state.CurrentPath = path;
+            state.History = new List<string>(_history);
+            state.HistoryIndex = _historyIndex;
+            var folderName = string.IsNullOrEmpty(path) ? "Cloudreve" : Path.GetFileName(path.TrimEnd('/'));
+            currentTab.Header = folderName;
         }
 
         UpdateNavigationButtons();
@@ -447,6 +517,18 @@ public sealed partial class MainWindow : Window
             var success = await client.CreateFolderAsync(targetPath);
             if (success)
             {
+                try
+                {
+                    FolderSyncEngine.Instance.SuppressWatcher(() =>
+                    {
+                        var rel = targetPath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
+                        var localTarget = Path.Combine(FolderSyncEngine.Instance.LocalFolderPath, rel);
+                        Directory.CreateDirectory(localTarget);
+                        FolderSyncEngine.Instance.RegisterRemoteFile(targetPath);
+                    });
+                }
+                catch { }
+
                 await LoadDirectoryAsync(_currentPath);
             }
         }
@@ -472,6 +554,24 @@ public sealed partial class MainWindow : Window
 
             if (success)
             {
+                try
+                {
+                    FolderSyncEngine.Instance.SuppressWatcher(() =>
+                    {
+                        var relDir = _currentPath.Trim('/').Replace('/', Path.DirectorySeparatorChar);
+                        var localDir = string.IsNullOrEmpty(relDir)
+                            ? FolderSyncEngine.Instance.LocalFolderPath
+                            : Path.Combine(FolderSyncEngine.Instance.LocalFolderPath, relDir);
+                        Directory.CreateDirectory(localDir);
+                        var localDest = Path.Combine(localDir, Path.GetFileName(file.Path));
+                        File.Copy(file.Path, localDest, overwrite: true);
+
+                        var relPath = Path.GetRelativePath(FolderSyncEngine.Instance.LocalFolderPath, localDest).Replace('\\', '/');
+                        FolderSyncEngine.Instance.RegisterRemoteFile(relPath);
+                    });
+                }
+                catch { }
+
                 await LoadDirectoryAsync(_currentPath);
             }
         }
@@ -559,6 +659,25 @@ public sealed partial class MainWindow : Window
             var success = await client.DeleteAsync(_selectedItem.Path);
             if (success)
             {
+                try
+                {
+                    FolderSyncEngine.Instance.SuppressWatcher(() =>
+                    {
+                        var rel = _selectedItem.Path.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
+                        var localTarget = Path.Combine(FolderSyncEngine.Instance.LocalFolderPath, rel);
+                        if (File.Exists(localTarget))
+                        {
+                            File.Delete(localTarget);
+                        }
+                        else if (Directory.Exists(localTarget))
+                        {
+                            Directory.Delete(localTarget, true);
+                        }
+                        FolderSyncEngine.Instance.UnregisterRemoteFile(_selectedItem.Path);
+                    });
+                }
+                catch { }
+
                 await LoadDirectoryAsync(_currentPath);
             }
         }
@@ -709,12 +828,44 @@ public sealed partial class MainWindow : Window
         if (item is StorageFile file)
         {
             var ok = await client.UploadFileAsync(file.Path, remoteDir);
-            if (ok) count++;
+            if (ok)
+            {
+                count++;
+                try
+                {
+                    FolderSyncEngine.Instance.SuppressWatcher(() =>
+                    {
+                        var relDir = remoteDir.Trim('/').Replace('/', Path.DirectorySeparatorChar);
+                        var localDir = string.IsNullOrEmpty(relDir)
+                            ? FolderSyncEngine.Instance.LocalFolderPath
+                            : Path.Combine(FolderSyncEngine.Instance.LocalFolderPath, relDir);
+                        Directory.CreateDirectory(localDir);
+                        var localDest = Path.Combine(localDir, Path.GetFileName(file.Path));
+                        File.Copy(file.Path, localDest, overwrite: true);
+
+                        var relPath = Path.GetRelativePath(FolderSyncEngine.Instance.LocalFolderPath, localDest).Replace('\\', '/');
+                        FolderSyncEngine.Instance.RegisterRemoteFile(relPath);
+                    });
+                }
+                catch { }
+            }
         }
         else if (item is StorageFolder folder)
         {
             var targetSubDir = remoteDir.TrimEnd('/') + "/" + folder.Name;
             await client.CreateFolderAsync(targetSubDir);
+            try
+            {
+                FolderSyncEngine.Instance.SuppressWatcher(() =>
+                {
+                    var relDir = targetSubDir.Trim('/').Replace('/', Path.DirectorySeparatorChar);
+                    var localDir = Path.Combine(FolderSyncEngine.Instance.LocalFolderPath, relDir);
+                    Directory.CreateDirectory(localDir);
+                    FolderSyncEngine.Instance.RegisterRemoteFile(targetSubDir);
+                });
+            }
+            catch { }
+
             var subItems = await folder.GetItemsAsync();
             foreach (var sub in subItems)
             {
@@ -725,4 +876,37 @@ public sealed partial class MainWindow : Window
     }
 
     #endregion
+
+    #region Üç Nokta (...) Menüsü ve Hızlı Eylemler
+
+    private void SyncNow_Click(object sender, RoutedEventArgs e)
+    {
+        _ = FolderSyncEngine.Instance.SyncNowAsync();
+    }
+
+    private void OpenLocalFolder_Click(object sender, RoutedEventArgs e)
+    {
+        FolderSyncEngine.Instance.OpenLocalFolderInExplorer();
+    }
+
+    private void SelectAll_Click(object sender, RoutedEventArgs e)
+    {
+        FileGridView.SelectAll();
+        FileGridViewMedium.SelectAll();
+        FileListView.SelectAll();
+    }
+
+    private async void OpenSettings_Click(object sender, RoutedEventArgs e)
+    {
+        await OpenSettingsDialogAsync();
+    }
+
+    #endregion
+}
+
+public class ExplorerTabState
+{
+    public string CurrentPath { get; set; } = "";
+    public List<string> History { get; set; } = new() { "" };
+    public int HistoryIndex { get; set; } = 0;
 }
