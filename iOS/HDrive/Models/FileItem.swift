@@ -31,6 +31,14 @@ public enum FileCategory: String, CaseIterable, Identifiable {
     }
 }
 
+public enum FileSortField: String, CaseIterable, Identifiable {
+    case name = "Ad"
+    case date = "Değiştirilme Tarihi"
+    case size = "Boyut"
+    case kind = "Tür"
+    public var id: String { rawValue }
+}
+
 public struct FileItem: Identifiable, Hashable {
     public let id: String
     public let name: String

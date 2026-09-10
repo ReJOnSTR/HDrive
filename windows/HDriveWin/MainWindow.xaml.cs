@@ -32,6 +32,18 @@ public sealed partial class MainWindow : Window
 
     private FileItem? _selectedItem;
 
+    private enum SortField
+    {
+        Name,
+        Date,
+        Size,
+        Type
+    }
+
+    private SortField _sortField = SortField.Name;
+    private bool _sortAscending = true;
+    private bool _foldersFirst = true;
+
     public MainWindow()
     {
         this.InitializeComponent();
@@ -264,10 +276,28 @@ public sealed partial class MainWindow : Window
         var trimmed = query.Trim();
 
         var filtered = string.IsNullOrEmpty(trimmed)
-            ? _allItems
+            ? (IEnumerable<FileItem>)_allItems
             : _allItems.Where(i => i.Name.Contains(trimmed, StringComparison.CurrentCultureIgnoreCase));
 
-        foreach (var item in filtered)
+        var sorted = filtered.OrderBy(item => _foldersFirst && !item.IsDirectory ? 1 : 0);
+
+        IOrderedEnumerable<FileItem> ordered = _sortField switch
+        {
+            SortField.Date => _sortAscending
+                ? sorted.ThenBy(i => i.ModifiedDate ?? DateTime.MinValue)
+                : sorted.ThenByDescending(i => i.ModifiedDate ?? DateTime.MinValue),
+            SortField.Size => _sortAscending
+                ? sorted.ThenBy(i => i.Size)
+                : sorted.ThenByDescending(i => i.Size),
+            SortField.Type => _sortAscending
+                ? sorted.ThenBy(i => i.TypeDescription, StringComparer.CurrentCultureIgnoreCase)
+                : sorted.ThenByDescending(i => i.TypeDescription, StringComparer.CurrentCultureIgnoreCase),
+            _ => _sortAscending
+                ? sorted.ThenBy(i => i.Name, StringComparer.CurrentCultureIgnoreCase)
+                : sorted.ThenByDescending(i => i.Name, StringComparer.CurrentCultureIgnoreCase)
+        };
+
+        foreach (var item in ordered)
         {
             _items.Add(item);
         }
@@ -430,6 +460,90 @@ public sealed partial class MainWindow : Window
         FileGridView.Visibility = Visibility.Collapsed;
         FileGridViewMedium.Visibility = Visibility.Collapsed;
         FileListView.Visibility = Visibility.Visible;
+    }
+
+    private void SortByName_Click(object sender, RoutedEventArgs e)
+    {
+        _sortField = SortField.Name;
+        UpdateSortMenuChecks();
+        ApplySearchFilter(SearchBox.Text);
+    }
+
+    private void SortByDate_Click(object sender, RoutedEventArgs e)
+    {
+        _sortField = SortField.Date;
+        UpdateSortMenuChecks();
+        ApplySearchFilter(SearchBox.Text);
+    }
+
+    private void SortBySize_Click(object sender, RoutedEventArgs e)
+    {
+        _sortField = SortField.Size;
+        UpdateSortMenuChecks();
+        ApplySearchFilter(SearchBox.Text);
+    }
+
+    private void SortByType_Click(object sender, RoutedEventArgs e)
+    {
+        _sortField = SortField.Type;
+        UpdateSortMenuChecks();
+        ApplySearchFilter(SearchBox.Text);
+    }
+
+    private void SortAscending_Click(object sender, RoutedEventArgs e)
+    {
+        _sortAscending = true;
+        UpdateSortMenuChecks();
+        ApplySearchFilter(SearchBox.Text);
+    }
+
+    private void SortDescending_Click(object sender, RoutedEventArgs e)
+    {
+        _sortAscending = false;
+        UpdateSortMenuChecks();
+        ApplySearchFilter(SearchBox.Text);
+    }
+
+    private void HeaderSortByName_Tapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
+    {
+        if (_sortField == SortField.Name) _sortAscending = !_sortAscending;
+        else { _sortField = SortField.Name; _sortAscending = true; }
+        UpdateSortMenuChecks();
+        ApplySearchFilter(SearchBox.Text);
+    }
+
+    private void HeaderSortByDate_Tapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
+    {
+        if (_sortField == SortField.Date) _sortAscending = !_sortAscending;
+        else { _sortField = SortField.Date; _sortAscending = true; }
+        UpdateSortMenuChecks();
+        ApplySearchFilter(SearchBox.Text);
+    }
+
+    private void HeaderSortByType_Tapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
+    {
+        if (_sortField == SortField.Type) _sortAscending = !_sortAscending;
+        else { _sortField = SortField.Type; _sortAscending = true; }
+        UpdateSortMenuChecks();
+        ApplySearchFilter(SearchBox.Text);
+    }
+
+    private void HeaderSortBySize_Tapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
+    {
+        if (_sortField == SortField.Size) _sortAscending = !_sortAscending;
+        else { _sortField = SortField.Size; _sortAscending = true; }
+        UpdateSortMenuChecks();
+        ApplySearchFilter(SearchBox.Text);
+    }
+
+    private void UpdateSortMenuChecks()
+    {
+        if (SortByNameItem != null) SortByNameItem.IsChecked = (_sortField == SortField.Name);
+        if (SortByDateItem != null) SortByDateItem.IsChecked = (_sortField == SortField.Date);
+        if (SortBySizeItem != null) SortBySizeItem.IsChecked = (_sortField == SortField.Size);
+        if (SortByTypeItem != null) SortByTypeItem.IsChecked = (_sortField == SortField.Type);
+        if (SortAscItem != null) SortAscItem.IsChecked = _sortAscending;
+        if (SortDescItem != null) SortDescItem.IsChecked = !_sortAscending;
     }
 
     private void PreviewPaneToggle_Click(object sender, RoutedEventArgs e)

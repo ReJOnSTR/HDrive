@@ -9,12 +9,41 @@ import UniformTypeIdentifiers
 import QuickLook
 import QuickLookUI
 
+
+public struct ExplorerTab: Identifiable, Equatable {
+    public let id: UUID
+    public var title: String
+    public var path: String
+    public var history: [String]
+    public var historyIndex: Int
+    public var selectedFileID: String?
+    
+    public init(id: UUID = UUID(), title: String = "Cloudreve", path: String = "", history: [String] = [""], historyIndex: Int = 0, selectedFileID: String? = nil) {
+        self.id = id
+        self.title = title
+        self.path = path
+        self.history = history
+        self.historyIndex = historyIndex
+        self.selectedFileID = selectedFileID
+    }
+}
+
 public struct NativeExplorerView: View {
     @ObservedObject var manager = CloudreveManager.shared
     @ObservedObject var mounter = DriveMounter.shared
     @ObservedObject var opener = FileOpener.shared
     @ObservedObject var syncEngine = FolderSyncEngine.shared
     @ObservedObject var previewManager = FilePreviewManager.shared
+    
+    // Sekmeler (Tabs)
+    private static let initialTab = ExplorerTab(title: "Cloudreve", path: "")
+    @State private var tabs: [ExplorerTab] = [initialTab]
+    @State private var activeTabID: UUID = initialTab.id
+    
+    // Sıralama (Sort)
+    @State private var sortField: FileSortField = .name
+    @State private var sortAscending: Bool = true
+    @State private var foldersFirst: Bool = true
     
     // Klasör Gezintisi
     @State private var currentPath: String = ""
@@ -55,6 +84,11 @@ public struct NativeExplorerView: View {
         } detail: {
             // SAĞ ANA BÖLÜM (Klasör Dosya Gezgini)
             VStack(spacing: 0) {
+                // Sekmeler Çubuğu (Tabs Bar)
+                tabBarView
+                
+                Divider()
+                
                 // Klasör Yolu Çubuğu (Finder Path Bar & Arama)
                 pathBarView
                 
@@ -67,16 +101,10 @@ public struct NativeExplorerView: View {
                     
                     if showPreviewPane {
                         Divider()
-                        Group {
-                            if let selected = files.first(where: { $0.id == selectedFileID }) {
-                                previewPaneView(selected)
-                            } else {
-                                emptyPreviewPaneView
-                            }
-                        }
-                        .frame(width: 250)
-                        .frame(maxHeight: .infinity)
-                        .background(Color(NSColor.controlBackgroundColor))
+                        previewPaneSideView
+                            .frame(width: 250)
+                            .frame(maxHeight: .infinity)
+                            .background(Color(NSColor.controlBackgroundColor))
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -112,6 +140,48 @@ public struct NativeExplorerView: View {
                     }
                     .pickerStyle(.segmented)
                     .help("Görünüm Biçimi")
+                    
+                    // Sıralama Menüsü
+                    Menu {
+                        Section("Sıralama Ölçütü") {
+                            ForEach(FileSortField.allCases) { field in
+                                Button(action: { sortField = field }) {
+                                    HStack {
+                                        Text(field.rawValue)
+                                        if sortField == field {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        
+                        Section("Sıralama Yönü") {
+                            Button(action: { sortAscending = true }) {
+                                HStack {
+                                    Text("Artan (A-Z, Eski-Yeni)")
+                                    if sortAscending {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                            Button(action: { sortAscending = false }) {
+                                HStack {
+                                    Text("Azalan (Z-A, Yeni-Eski)")
+                                    if !sortAscending {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                        }
+                        
+                        Section {
+                            Toggle("Klasörleri Üstte Tut", isOn: $foldersFirst)
+                        }
+                    } label: {
+                        Image(systemName: "arrow.up.arrow.down")
+                    }
+                    .help("Sırala")
                     
                     // Önizleme Bölmesi Butonu
                     Button(action: togglePreviewPane) {
@@ -149,14 +219,22 @@ public struct NativeExplorerView: View {
             .focusEffectDisabled()
             .quickLookPreview($quickLookURL)
             .background(
-                Button(action: {
-                    if let selID = selectedFileID, let file = files.first(where: { $0.id == selID }) {
-                        triggerQuickLook(for: file)
+                Group {
+                    Button(action: { addNewTab() }) { EmptyView() }
+                        .keyboardShortcut("t", modifiers: .command)
+                    
+                    Button(action: { closeTab(activeTabID) }) { EmptyView() }
+                        .keyboardShortcut("w", modifiers: .command)
+                    
+                    Button(action: {
+                        if let selID = selectedFileID, let file = files.first(where: { $0.id == selID }) {
+                            triggerQuickLook(for: file)
+                        }
+                    }) {
+                        EmptyView()
                     }
-                }) {
-                    EmptyView()
+                    .keyboardShortcut(.space, modifiers: [])
                 }
-                .keyboardShortcut(.space, modifiers: [])
                 .frame(width: 0, height: 0)
                 .opacity(0)
             )
@@ -164,6 +242,9 @@ public struct NativeExplorerView: View {
         .background(ToolbarCustomizer())
         .frame(minWidth: 800, minHeight: 560)
         .onAppear {
+            if let first = tabs.first {
+                activeTabID = first.id
+            }
             if manager.activeServer?.serverURL.isEmpty == true {
                 showingSettingsSheet = true
             } else {
@@ -180,6 +261,129 @@ public struct NativeExplorerView: View {
             Button("Oluştur", action: createFolder)
             Button("İptal", role: .cancel) { newFolderName = "" }
         }
+    }
+    
+    // MARK: - 0. Sekmeler Çubuğu (Tabs Bar)
+    private func tabItemView(tab: ExplorerTab) -> some View {
+        let isActive = (tab.id == activeTabID)
+        return HStack(spacing: 7) {
+            Image(systemName: tab.path.isEmpty ? "cloud.fill" : "folder.fill")
+                .font(.system(size: 11))
+                .foregroundColor(isActive ? .accentColor : .secondary)
+            
+            Text(tab.title)
+                .font(.system(size: 12, weight: isActive ? .semibold : .regular))
+                .lineLimit(1)
+                .foregroundColor(isActive ? .primary : .secondary)
+            
+            if tabs.count > 1 {
+                Button(action: { closeTab(tab.id) }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundColor(isActive ? Color.primary.opacity(0.7) : Color.secondary)
+                        .padding(3)
+                        .background(Circle().fill(Color.primary.opacity(isActive ? 0.12 : 0.06)))
+                }
+                .buttonStyle(.plain)
+                .help("Sekmeyi Kapat (⌘W)")
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(isActive ? Color(NSColor.controlBackgroundColor) : Color.clear)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(isActive ? Color.accentColor.opacity(0.35) : Color.clear, lineWidth: 1)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            switchToTab(tab.id)
+        }
+    }
+
+    private var tabBarView: some View {
+        HStack(spacing: 0) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 4) {
+                    ForEach(tabs) { tab in
+                        tabItemView(tab: tab)
+                    }
+                    
+                    // Yeni Sekme (+) Butonu
+                    Button(action: { addNewTab() }) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(.secondary)
+                            .padding(6)
+                            .background(RoundedRectangle(cornerRadius: 5).fill(Color.secondary.opacity(0.12)))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Yeni Sekme Aç (⌘T)")
+                    .padding(.leading, 2)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+            }
+        }
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
+    }
+    
+    // MARK: - Liste Sütun Başlıkları (Click-to-Sort Headers)
+    private var listHeaderView: some View {
+        HStack(spacing: 12) {
+            Button(action: { toggleSort(field: FileSortField.name) }) {
+                HStack(spacing: 4) {
+                    Text("Ad")
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(sortField == .name ? .accentColor : .secondary)
+                    if sortField == .name {
+                        Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundColor(.accentColor)
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            .padding(.leading, 38)
+            
+            Spacer()
+            
+            Button(action: { toggleSort(field: FileSortField.kind) }) {
+                HStack(spacing: 4) {
+                    Text("Tür")
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(sortField == .kind ? .accentColor : .secondary)
+                    if sortField == .kind {
+                        Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundColor(.accentColor)
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            .frame(width: 140, alignment: .trailing)
+            
+            Button(action: { toggleSort(field: FileSortField.size) }) {
+                HStack(spacing: 4) {
+                    Text("Boyut")
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(sortField == .size ? .accentColor : .secondary)
+                    if sortField == .size {
+                        Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundColor(.accentColor)
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            .frame(width: 70, alignment: .trailing)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.35))
     }
     
     // MARK: - 1. Sol Menü (Sidebar)
@@ -287,13 +491,18 @@ public struct NativeExplorerView: View {
                 )
             } else {
                 // LİSTE GÖRÜNÜMÜ (Finder List View Gibi)
-                ScrollView {
-                    LazyVStack(spacing: 2) {
-                        ForEach(filteredFiles) { file in
-                            fileRowItem(file)
+                VStack(spacing: 0) {
+                    listHeaderView
+                    Divider()
+                    ScrollView {
+                        LazyVStack(spacing: 2) {
+                            ForEach(filteredFiles) { file in
+                                fileRowItem(file)
+                            }
                         }
+                        .padding(10)
                     }
-                    .padding(12)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(
@@ -566,21 +775,71 @@ public struct NativeExplorerView: View {
         }
     }
     
-    // MARK: - Gezinti ve İşlemler
+    // MARK: - Gezinti ve Sıralama
     private var filteredFiles: [RemoteFileItem] {
-        if searchText.isEmpty { return files }
-        return files.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
+        var result = files
+        if !searchText.isEmpty {
+            result = result.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
+        }
+        
+        return result.sorted(by: { (item1: RemoteFileItem, item2: RemoteFileItem) -> Bool in
+            if foldersFirst {
+                if item1.isDirectory && !item2.isDirectory { return true }
+                if !item1.isDirectory && item2.isDirectory { return false }
+            }
+            
+            let comparison: ComparisonResult
+            switch sortField {
+            case .name:
+                comparison = item1.name.localizedStandardCompare(item2.name)
+            case .date:
+                let d1 = item1.modificationDate ?? Date.distantPast
+                let d2 = item2.modificationDate ?? Date.distantPast
+                if d1 == d2 {
+                    comparison = item1.name.localizedStandardCompare(item2.name)
+                } else {
+                    comparison = d1.compare(d2)
+                }
+            case .size:
+                let s1 = item1.size
+                let s2 = item2.size
+                if s1 == s2 {
+                    comparison = item1.name.localizedStandardCompare(item2.name)
+                } else if s1 < s2 {
+                    comparison = .orderedAscending
+                } else {
+                    comparison = .orderedDescending
+                }
+            case .kind:
+                let ext1 = item1.isDirectory ? "" : (item1.name as NSString).pathExtension.lowercased()
+                let ext2 = item2.isDirectory ? "" : (item2.name as NSString).pathExtension.lowercased()
+                if ext1 == ext2 {
+                    comparison = item1.name.localizedStandardCompare(item2.name)
+                } else {
+                    comparison = ext1.localizedStandardCompare(ext2)
+                }
+            }
+            
+            return sortAscending ? (comparison == .orderedAscending) : (comparison == .orderedDescending)
+        })
+    }
+    
+    private func toggleSort(field: FileSortField) {
+        if sortField == field {
+            sortAscending.toggle()
+        } else {
+            sortField = field
+            sortAscending = true
+        }
     }
     
     private func togglePreviewPane() {
-        withAnimation(.easeInOut(duration: 0.2)) {
-            showPreviewPane.toggle()
-            if showPreviewPane && selectedFileID == nil {
-                selectedFileID = filteredFiles.first?.id
-                if let first = filteredFiles.first, first.isImage, let server = manager.activeServer {
-                    let client = WebDAVClient(config: server)
-                    previewManager.loadThumbnail(for: first, client: client)
-                }
+        showPreviewPane.toggle()
+        if showPreviewPane && selectedFileID == nil {
+            selectedFileID = filteredFiles.first?.id
+            if let first = filteredFiles.first, first.isImage, let server = manager.activeServer {
+                let client = WebDAVClient(config: server)
+                previewManager.loadThumbnail(for: first, client: client)
             }
         }
     }
@@ -637,6 +896,64 @@ public struct NativeExplorerView: View {
         }
     }
     
+    // MARK: - Sekme Yönetimi
+    private func saveCurrentTabState() {
+        if let idx = tabs.firstIndex(where: { $0.id == activeTabID }) {
+            let tabTitle = currentPath.isEmpty ? (manager.activeServer?.name ?? "Cloudreve") : (currentPath as NSString).lastPathComponent
+            tabs[idx].title = tabTitle
+            tabs[idx].path = currentPath
+            tabs[idx].history = pathHistory
+            tabs[idx].historyIndex = historyIndex
+            tabs[idx].selectedFileID = selectedFileID
+        }
+    }
+    
+    private func addNewTab(path: String = "") {
+        saveCurrentTabState()
+        let tabTitle = path.isEmpty ? (manager.activeServer?.name ?? "Cloudreve") : (path as NSString).lastPathComponent
+        let newTab = ExplorerTab(
+            title: tabTitle,
+            path: path,
+            history: [path],
+            historyIndex: 0,
+            selectedFileID: nil
+        )
+        tabs.append(newTab)
+        activeTabID = newTab.id
+        
+        currentPath = path
+        pathHistory = [path]
+        historyIndex = 0
+        selectedFileID = nil
+        loadDirectory(at: path)
+    }
+    
+    private func closeTab(_ id: UUID) {
+        guard tabs.count > 1 else { return }
+        guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
+        
+        let closingActive = (id == activeTabID)
+        tabs.remove(at: index)
+        
+        if closingActive {
+            let newIndex = min(index, tabs.count - 1)
+            let nextTab = tabs[newIndex]
+            switchToTab(nextTab.id)
+        }
+    }
+    
+    private func switchToTab(_ id: UUID) {
+        guard id != activeTabID, let targetTab = tabs.first(where: { $0.id == id }) else { return }
+        saveCurrentTabState()
+        
+        activeTabID = targetTab.id
+        currentPath = targetTab.path
+        pathHistory = targetTab.history
+        historyIndex = targetTab.historyIndex
+        selectedFileID = targetTab.selectedFileID
+        loadDirectory(at: targetTab.path)
+    }
+
     private func navigateTo(_ path: String) {
         currentPath = path
         if historyIndex < pathHistory.count - 1 {
@@ -644,6 +961,7 @@ public struct NativeExplorerView: View {
         }
         pathHistory.append(path)
         historyIndex = pathHistory.count - 1
+        saveCurrentTabState()
         loadDirectory(at: path)
     }
     
@@ -655,6 +973,7 @@ public struct NativeExplorerView: View {
         if historyIndex > 0 {
             historyIndex -= 1
             currentPath = pathHistory[historyIndex]
+            saveCurrentTabState()
             loadDirectory(at: currentPath)
         }
     }
@@ -663,6 +982,7 @@ public struct NativeExplorerView: View {
         if historyIndex < pathHistory.count - 1 {
             historyIndex += 1
             currentPath = pathHistory[historyIndex]
+            saveCurrentTabState()
             loadDirectory(at: currentPath)
         }
     }
@@ -765,6 +1085,15 @@ public struct NativeExplorerView: View {
     }
     
     // MARK: - Önizleme Bölmesi (Finder Inspector / Quick Look)
+    @ViewBuilder
+    private var previewPaneSideView: some View {
+        if let selID = selectedFileID, let selected = files.first(where: { $0.id == selID }) {
+            previewPaneView(selected)
+        } else {
+            emptyPreviewPaneView
+        }
+    }
+    
     private func previewPaneView(_ file: RemoteFileItem) -> some View {
         ScrollView {
             VStack(spacing: 16) {

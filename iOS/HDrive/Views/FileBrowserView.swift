@@ -16,6 +16,11 @@ public struct FileBrowserView: View {
     @State private var searchText: String = ""
     @State private var isGridView: Bool = false
     
+    // Sıralama Durumları
+    @State private var sortField: FileSortField = .name
+    @State private var sortAscending: Bool = true
+    @State private var foldersFirst: Bool = true
+    
     // Eylem Durumları
     @State private var showingNewFolderAlert = false
     @State private var newFolderName = ""
@@ -57,24 +62,62 @@ public struct FileBrowserView: View {
         .searchable(text: $searchText, prompt: "Dosya veya klasör ara...")
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                Menu {
-                    Button(action: { showingNewFolderAlert = true }) {
-                        Label("Yeni Klasör", systemImage: "folder.badge.plus")
+                HStack(spacing: 12) {
+                    // Sıralama Menüsü
+                    Menu {
+                        Section("Sıralama Ölçütü") {
+                            ForEach(FileSortField.allCases) { field in
+                                Button(action: { sortField = field }) {
+                                    HStack {
+                                        Text(field.rawValue)
+                                        if sortField == field {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        
+                        Section("Sıralama Yönü") {
+                            Button(action: { sortAscending = true }) {
+                                HStack {
+                                    Text("Artan (A-Z)")
+                                    if sortAscending { Image(systemName: "checkmark") }
+                                }
+                            }
+                            Button(action: { sortAscending = false }) {
+                                HStack {
+                                    Text("Azalan (Z-A)")
+                                    if !sortAscending { Image(systemName: "checkmark") }
+                                }
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "arrow.up.arrow.down")
+                            .font(.body)
+                            .foregroundColor(.indigo)
                     }
-                    Button(action: { showingDocPicker = true }) {
-                        Label("Dosya İçe Aktar...", systemImage: "doc.badge.plus")
+                    
+                    // Yeni Ekle & Görünüm Menüsü
+                    Menu {
+                        Button(action: { showingNewFolderAlert = true }) {
+                            Label("Yeni Klasör", systemImage: "folder.badge.plus")
+                        }
+                        Button(action: { showingDocPicker = true }) {
+                            Label("Dosya İçe Aktar...", systemImage: "doc.badge.plus")
+                        }
+                        Button(action: { showingPhotoPicker = true }) {
+                            Label("Fotoğraf/Video Ekle...", systemImage: "photo.badge.plus")
+                        }
+                        Divider()
+                        Button(action: { isGridView.toggle() }) {
+                            Label(isGridView ? "Liste Görünümü" : "Izgara Görünümü", systemImage: isGridView ? "list.bullet" : "square.grid.2x2")
+                        }
+                    } label: {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.title3)
+                            .foregroundColor(.indigo)
                     }
-                    Button(action: { showingPhotoPicker = true }) {
-                        Label("Fotoğraf/Video Ekle...", systemImage: "photo.badge.plus")
-                    }
-                    Divider()
-                    Button(action: { isGridView.toggle() }) {
-                        Label(isGridView ? "Liste Görünümü" : "Izgara Görünümü", systemImage: isGridView ? "list.bullet" : "square.grid.2x2")
-                    }
-                } label: {
-                    Image(systemName: "plus.circle.fill")
-                        .font(.title3)
-                        .foregroundColor(.indigo)
                 }
             }
         }
@@ -98,13 +141,45 @@ public struct FileBrowserView: View {
         }
     }
     
-    // MARK: - Filtrelenmiş Dosyalar
+    // MARK: - Filtrelenmiş ve Sıralanmış Dosyalar
     private var filteredItems: [FileItem] {
-        items.filter { item in
+        let list = items.filter { item in
             let matchesCategory = (selectedCategory == .all) || item.isDirectory || (item.category == selectedCategory)
             let matchesSearch = searchText.isEmpty || item.name.localizedCaseInsensitiveContains(searchText)
             return matchesCategory && matchesSearch
         }
+        
+        return list.sorted(by: { (item1: FileItem, item2: FileItem) -> Bool in
+            if foldersFirst {
+                if item1.isDirectory && !item2.isDirectory { return true }
+                if !item1.isDirectory && item2.isDirectory { return false }
+            }
+            
+            let comparison: ComparisonResult
+            switch sortField {
+            case .name:
+                comparison = item1.name.localizedStandardCompare(item2.name)
+            case .date:
+                comparison = item1.modificationDate.compare(item2.modificationDate)
+            case .size:
+                if item1.size == item2.size {
+                    comparison = item1.name.localizedStandardCompare(item2.name)
+                } else if item1.size < item2.size {
+                    comparison = .orderedAscending
+                } else {
+                    comparison = .orderedDescending
+                }
+            case .kind:
+                let ext1 = item1.isDirectory ? "" : item1.url.pathExtension.lowercased()
+                let ext2 = item2.isDirectory ? "" : item2.url.pathExtension.lowercased()
+                if ext1 == ext2 {
+                    comparison = item1.name.localizedStandardCompare(item2.name)
+                } else {
+                    comparison = ext1.localizedStandardCompare(ext2)
+                }
+            }
+            return sortAscending ? (comparison == .orderedAscending) : (comparison == .orderedDescending)
+        })
     }
     
     // MARK: - Kategori Filtreleme

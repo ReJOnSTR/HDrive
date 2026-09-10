@@ -25,6 +25,11 @@ public struct CloudreveMobileView: View {
     @State private var showingNewFolderAlert = false
     @State private var newFolderName = ""
     
+    // Sıralama Durumları
+    @State private var sortField: FileSortField = .name
+    @State private var sortAscending: Bool = true
+    @State private var foldersFirst: Bool = true
+    
     @State private var selectedPhotos: [PhotosPickerItem] = []
     
     public init() {}
@@ -49,15 +54,46 @@ public struct CloudreveMobileView: View {
                 
                 if !isConfiguring {
                     ToolbarItem(placement: .navigationBarLeading) {
-                        Menu {
-                            Button(action: { showingNewFolderAlert = true }) {
-                                Label("Yeni Klasör", systemImage: "folder.badge.plus")
+                        HStack(spacing: 8) {
+                            Menu {
+                                Button(action: { showingNewFolderAlert = true }) {
+                                    Label("Yeni Klasör", systemImage: "folder.badge.plus")
+                                }
+                                PhotosPicker(selection: $selectedPhotos, matching: .any(of: [.images, .videos])) {
+                                    Label("Fotoğraf Yükle", systemImage: "photo.badge.plus")
+                                }
+                            } label: {
+                                Image(systemName: "plus")
                             }
-                            PhotosPicker(selection: $selectedPhotos, matching: .any(of: [.images, .videos])) {
-                                Label("Fotoğraf Yükle", systemImage: "photo.badge.plus")
+                            
+                            Menu {
+                                Section("Sıralama Ölçütü") {
+                                    ForEach(FileSortField.allCases) { field in
+                                        Button(action: { sortField = field }) {
+                                            HStack {
+                                                Text(field.rawValue)
+                                                if sortField == field { Image(systemName: "checkmark") }
+                                            }
+                                        }
+                                    }
+                                }
+                                Section("Sıralama Yönü") {
+                                    Button(action: { sortAscending = true }) {
+                                        HStack {
+                                            Text("Artan (A-Z)")
+                                            if sortAscending { Image(systemName: "checkmark") }
+                                        }
+                                    }
+                                    Button(action: { sortAscending = false }) {
+                                        HStack {
+                                            Text("Azalan (Z-A)")
+                                            if !sortAscending { Image(systemName: "checkmark") }
+                                        }
+                                    }
+                                }
+                            } label: {
+                                Image(systemName: "arrow.up.arrow.down")
                             }
-                        } label: {
-                            Image(systemName: "plus")
                         }
                     }
                 }
@@ -115,7 +151,47 @@ public struct CloudreveMobileView: View {
         }
     }
     
-    // MARK: - Uzak Dosya Listesi
+    // MARK: - Uzak Dosya Listesi ve Sıralama
+    private var sortedRemoteFiles: [RemoteFileItem] {
+        return remoteFiles.sorted(by: { (item1: RemoteFileItem, item2: RemoteFileItem) -> Bool in
+            if foldersFirst {
+                if item1.isDirectory && !item2.isDirectory { return true }
+                if !item1.isDirectory && item2.isDirectory { return false }
+            }
+            
+            let comparison: ComparisonResult
+            switch sortField {
+            case .name:
+                comparison = item1.name.localizedStandardCompare(item2.name)
+            case .date:
+                let d1 = item1.modificationDate ?? Date.distantPast
+                let d2 = item2.modificationDate ?? Date.distantPast
+                if d1 == d2 {
+                    comparison = item1.name.localizedStandardCompare(item2.name)
+                } else {
+                    comparison = d1.compare(d2)
+                }
+            case .size:
+                if item1.size == item2.size {
+                    comparison = item1.name.localizedStandardCompare(item2.name)
+                } else if item1.size < item2.size {
+                    comparison = .orderedAscending
+                } else {
+                    comparison = .orderedDescending
+                }
+            case .kind:
+                let ext1 = item1.isDirectory ? "" : (item1.name as NSString).pathExtension.lowercased()
+                let ext2 = item2.isDirectory ? "" : (item2.name as NSString).pathExtension.lowercased()
+                if ext1 == ext2 {
+                    comparison = item1.name.localizedStandardCompare(item2.name)
+                } else {
+                    comparison = ext1.localizedStandardCompare(ext2)
+                }
+            }
+            return sortAscending ? (comparison == .orderedAscending) : (comparison == .orderedDescending)
+        })
+    }
+
     private var remoteFilesView: some View {
         VStack(spacing: 0) {
             if isLoading {
@@ -138,7 +214,7 @@ public struct CloudreveMobileView: View {
                 .padding()
             } else {
                 List {
-                    ForEach(remoteFiles) { file in
+                    ForEach(sortedRemoteFiles) { file in
                         HStack(spacing: 14) {
                             Image(systemName: file.systemIcon)
                                 .font(.title2)

@@ -170,6 +170,22 @@
                             </MenuFlyout>
                         </AppBarButton.Flyout>
                     </AppBarButton>
+                    <AppBarButton Label="Sırala">
+                        <AppBarButton.Icon>
+                            <FontIcon Glyph="&#xE8CB;" />
+                        </AppBarButton.Icon>
+                        <AppBarButton.Flyout>
+                            <MenuFlyout>
+                                <ToggleMenuFlyoutItem x:Name="SortByNameItem" Text="Ad" IsChecked="True" Click="SortByName_Click" />
+                                <ToggleMenuFlyoutItem x:Name="SortByDateItem" Text="Değiştirilme Tarihi" Click="SortByDate_Click" />
+                                <ToggleMenuFlyoutItem x:Name="SortBySizeItem" Text="Boyut" Click="SortBySize_Click" />
+                                <ToggleMenuFlyoutItem x:Name="SortByTypeItem" Text="Tür" Click="SortByType_Click" />
+                                <MenuFlyoutSeparator />
+                                <ToggleMenuFlyoutItem x:Name="SortAscItem" Text="Artan" IsChecked="True" Click="SortAscending_Click" />
+                                <ToggleMenuFlyoutItem x:Name="SortDescItem" Text="Azalan" Click="SortDescending_Click" />
+                            </MenuFlyout>
+                        </AppBarButton.Flyout>
+                    </AppBarButton>
                     <AppBarToggleButton x:Name="PreviewPaneToggle" Icon="PreviewLink" Label="Önizleme" Click="PreviewPaneToggle_Click" />
                     <AppBarSeparator />
                     <!-- Üç Nokta (...) Menüsü -->
@@ -336,10 +352,10 @@
                                         <ColumnDefinition Width="150" />
                                         <ColumnDefinition Width="100" />
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Text="Ad" FontWeight="SemiBold" />
-                                    <TextBlock Grid.Column="1" Text="Değiştirilme Tarihi" FontWeight="SemiBold" />
-                                    <TextBlock Grid.Column="2" Text="Tür" FontWeight="SemiBold" />
-                                    <TextBlock Grid.Column="3" Text="Boyut" FontWeight="SemiBold" TextAlignment="Right" />
+                                    <TextBlock Grid.Column="0" Text="Ad" FontWeight="SemiBold" Tapped="HeaderSortByName_Tapped" />
+                                    <TextBlock Grid.Column="1" Text="Değiştirilme Tarihi" FontWeight="SemiBold" Tapped="HeaderSortByDate_Tapped" />
+                                    <TextBlock Grid.Column="2" Text="Tür" FontWeight="SemiBold" Tapped="HeaderSortByType_Tapped" />
+                                    <TextBlock Grid.Column="3" Text="Boyut" FontWeight="SemiBold" TextAlignment="Right" Tapped="HeaderSortBySize_Tapped" />
                                 </Grid>
                             </ListView.Header>
                             <ListView.ItemTemplate>
