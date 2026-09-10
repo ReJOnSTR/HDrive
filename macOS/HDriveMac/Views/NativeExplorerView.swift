@@ -25,6 +25,7 @@ public struct NativeExplorerView: View {
     @State private var searchText: String = ""
     @State private var isGridView: Bool = true
     @State private var showPreviewPane: Bool = false
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
     
     // Seçili ve Vurgulanan Dosya
     @State private var selectedFileID: String? = nil
@@ -48,7 +49,7 @@ public struct NativeExplorerView: View {
     public init() {}
     
     public var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             // SOL MENÜ (Sidebar)
             sidebarView
         } detail: {
@@ -62,6 +63,7 @@ public struct NativeExplorerView: View {
                 // Dosya Listesi ve Önizleme Bölmesi
                 HStack(spacing: 0) {
                     mainFilesAreaView
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                     
                     if showPreviewPane {
                         Divider()
@@ -73,14 +75,17 @@ public struct NativeExplorerView: View {
                             }
                         }
                         .frame(width: 250)
+                        .frame(maxHeight: .infinity)
                         .background(Color(NSColor.controlBackgroundColor))
-                        .transition(.move(edge: .trailing))
                     }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 
                 // Alt Durum Çubuğu
                 bottomStatusBarView
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(NSColor.windowBackgroundColor))
             .navigationTitle(currentPath.isEmpty ? (manager.activeServer?.name ?? "Cloudreve") : (currentPath as NSString).lastPathComponent)
             .toolbar {
                 // SOL: Geri & İleri Butonları (Yerleşik Sidebar Aç/Kapa simgesinin hemen yanında sabit)
@@ -265,13 +270,14 @@ public struct NativeExplorerView: View {
             } else if isGridView {
                 // IZGARA GÖRÜNÜMÜ (Finder Icon View Gibi)
                 ScrollView {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 16)], spacing: 18) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 16)], alignment: .leading, spacing: 18) {
                         ForEach(filteredFiles) { file in
                             fileGridItem(file)
                         }
                     }
                     .padding(20)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(
                     Color.clear
                         .contentShape(Rectangle())
@@ -289,6 +295,7 @@ public struct NativeExplorerView: View {
                     }
                     .padding(12)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(
                     Color.clear
                         .contentShape(Rectangle())
@@ -298,6 +305,7 @@ public struct NativeExplorerView: View {
                 )
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(NSColor.windowBackgroundColor))
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
             handleDroppedFiles(providers)
