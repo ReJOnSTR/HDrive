@@ -34,16 +34,28 @@ jobs:
           cd windows/HDriveWin
           dotnet publish -c Release -p:Platform=x64 -r win-x64 --self-contained -p:PublishSingleFile=false -o publish_x64
 
-      - name: Package Windows Binary
+      - name: Build Windows Setup Installer (HDrive-Setup.exe)
+        shell: pwsh
+        run: |
+          if (-not (Get-Command iscc -ErrorAction SilentlyContinue)) {
+            choco install innosetup -y --no-progress
+            echo "C:\Program Files (x86)\Inno Setup 6" >> $env:GITHUB_PATH
+            $env:Path += ";C:\Program Files (x86)\Inno Setup 6"
+          }
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" windows/installer.iss
+
+      - name: Package Windows Portable Binary
         shell: pwsh
         run: |
           Compress-Archive -Path windows/HDriveWin/publish_x64/* -DestinationPath HDrive-Windows-x64.zip
 
-      - name: Upload Windows Artifact
+      - name: Upload Windows Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: HDrive-Windows-x64
-          path: HDrive-Windows-x64.zip
+          name: HDrive-Windows
+          path: |
+            windows/Output/HDrive-Setup.exe
+            HDrive-Windows-x64.zip
 
   # -----------------------------------------------------------
   # 2. macOS (Native Apple Silicon / Universal) Derleme
@@ -99,10 +111,10 @@ jobs:
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     steps:
-      - name: Download Windows Build
+      - name: Download Windows Builds
         uses: actions/download-artifact@v4
         with:
-          name: HDrive-Windows-x64
+          name: HDrive-Windows
 
       - name: Download macOS Builds
         uses: actions/download-artifact@v4
@@ -119,13 +131,15 @@ jobs:
 
             Tüm platformlar için sorunsuz çalışan hazır kurulum paketleri:
 
-            - 🍎 **macOS (Apple Silicon & Intel)**:
-              - [HDrive-macOS.dmg](HDrive-macOS.dmg) (Doğrudan açıp Uygulamalar klasörüne sürükleyin)
-              - [HDrive-macOS.zip](HDrive-macOS.zip) (Arşivden çıkarıp çalıştırın)
-            
             - 🪟 **Windows (WinUI 3 / x64)**:
-              - [HDrive-Windows-x64.zip](HDrive-Windows-x64.zip) (Zipi açıp `HDrive.exe`yi doğrudan çalıştırın, ek yazılım gerektirmez)
+              - [HDrive-Setup.exe](HDrive-Setup.exe) (⭐️ **Önerilen Windows Kurulum Programı** - Çift tıklayıp kurun, Başlat menüsü ve Masaüstü kısayollarını otomatik oluşturur)
+              - [HDrive-Windows-x64.zip](HDrive-Windows-x64.zip) (Taşınabilir / Portatif zip sürümü)
+
+            - 🍎 **macOS (Apple Silicon & Intel)**:
+              - [HDrive-macOS.dmg](HDrive-macOS.dmg) (Apple Disk İmajı - Açıp Uygulamalar klasörüne sürükleyin)
+              - [HDrive-macOS.zip](HDrive-macOS.zip) (Taşınabilir macOS Uygulaması)
           files: |
+            HDrive-Setup.exe
             HDrive-Windows-x64.zip
             HDrive-macOS.dmg
             HDrive-macOS.zip
