@@ -15,7 +15,7 @@ if %ERRORLEVEL% neq 0 (
 
 cd /d "%~dp0HDriveWin"
 echo [.NET] WinUI 3 projesi Release modunda derleniyor...
-dotnet build -c Release -r win-x64 --self-contained
+dotnet build -c Release -p:Platform=x64 -r win-x64 --self-contained
 
 if %ERRORLEVEL% equ 0 (
     echo.

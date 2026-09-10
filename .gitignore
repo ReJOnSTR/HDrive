@@ -38,3 +38,5 @@ _ReSharper*/
 # Temporary files
 *.tmp
 *.log
+*.dmg
+*.zip
