@@ -88,10 +88,18 @@ public sealed partial class MainWindow : Window
             HistoryIndex = 0
         };
         var folderName = string.IsNullOrEmpty(path) ? "Cloudreve" : Path.GetFileName(path.TrimEnd('/'));
+        var isRoot = string.IsNullOrEmpty(path);
+
         var newTab = new TabViewItem
         {
             Header = folderName,
-            IconSource = new FontIconSource { Glyph = "\uE8B7" },
+            IconSource = new FontIconSource
+            {
+                Glyph = isRoot ? "\uE753" : "\uE8B7",
+                Foreground = isRoot 
+                    ? new SolidColorBrush(Windows.UI.Color.FromArgb(255, 0, 120, 212)) 
+                    : new SolidColorBrush(Windows.UI.Color.FromArgb(255, 234, 163, 0))
+            },
             Tag = state,
             IsClosable = true
         };
@@ -191,7 +199,15 @@ public sealed partial class MainWindow : Window
             state.History = new List<string>(_history);
             state.HistoryIndex = _historyIndex;
             var folderName = string.IsNullOrEmpty(path) ? "Cloudreve" : Path.GetFileName(path.TrimEnd('/'));
+            var isRoot = string.IsNullOrEmpty(path);
             currentTab.Header = folderName;
+            currentTab.IconSource = new FontIconSource
+            {
+                Glyph = isRoot ? "\uE753" : "\uE8B7",
+                Foreground = isRoot 
+                    ? new SolidColorBrush(Windows.UI.Color.FromArgb(255, 0, 120, 212)) 
+                    : new SolidColorBrush(Windows.UI.Color.FromArgb(255, 234, 163, 0))
+            };
         }
 
         UpdateNavigationButtons();

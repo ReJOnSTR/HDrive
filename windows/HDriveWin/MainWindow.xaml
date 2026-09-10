@@ -22,18 +22,28 @@
             <RowDefinition Height="26" />
         </Grid.RowDefinitions>
 
-        <!-- 0: Windows 11 Başlık Çubuğu & Sekmeler (TabView - Sıfır Üst Boşluk, Birebir Windows 11 Hizalaması) -->
+        <!-- 0: Windows 11 Başlık Çubuğu & Sekmeler (TabView - Birebir Windows 11 Dosya Gezgini Sekme Şekli & Animasyonu) -->
         <Grid Grid.Row="0" VerticalAlignment="Stretch" Height="40">
-            <!-- Windows 11 Sekmeler (Sol kenardan 8px) -->
+            <!-- Windows 11 Sekmeler (Sol kenardan 8px, eşit genişlik animasyonu, hover kapat butonu) -->
             <TabView x:Name="ExplorerTabs"
                      Margin="8,0,0,0"
                      VerticalAlignment="Stretch"
+                     TabWidthMode="Equal"
+                     CloseButtonOverlayMode="OnPointerOver"
                      IsAddTabButtonVisible="True"
                      CanDragTabs="True"
                      CanReorderTabs="True"
                      AddTabButtonClick="ExplorerTabs_AddTabButtonClick"
                      TabCloseRequested="ExplorerTabs_TabCloseRequested"
                      SelectionChanged="ExplorerTabs_SelectionChanged">
+                <TabView.Resources>
+                    <!-- Windows 11 Dosya Gezgini Sekme Ölçüleri ve Köşe Yuvarlaklığı -->
+                    <x:Double x:Key="TabViewItemHeaderMinHeight">34</x:Double>
+                    <x:Double x:Key="TabViewItemHeaderMinWidth">130</x:Double>
+                    <x:Double x:Key="TabViewItemHeaderMaxWidth">240</x:Double>
+                    <CornerRadius x:Key="TabViewItemCornerRadius">7,7,0,0</CornerRadius>
+                    <CornerRadius x:Key="OverlayCornerRadius">7,7,0,0</CornerRadius>
+                </TabView.Resources>
                 <TabView.TabStripFooter>
                     <!-- Drag Region: Sekmelerden sonraki boş alan pencereyi sürüklemek için kullanılır. MinWidth 188px sistem butonlarını korur -->
                     <Grid x:Name="CustomDragRegion" Background="Transparent" MinWidth="188" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
