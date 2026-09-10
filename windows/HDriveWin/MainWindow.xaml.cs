@@ -5,6 +5,8 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using Windows.ApplicationModel.DataTransfer;
+using Windows.Storage;
 using Windows.Storage.Pickers;
 using Microsoft.UI;
 using Microsoft.UI.Windowing;
@@ -369,4 +371,175 @@ public sealed partial class MainWindow : Window
             }
         }
     }
+
+    #region Sürükle ve Bırak (Drag & Drop) Desteği
+
+    /// <summary>
+    /// HDrive içinden Windows Masaüstüne, Explorer'a veya başka programlara dosya sürükleyip kopyalama
+    /// </summary>
+    private async void FileList_DragItemsStarting(object sender, DragItemsStartingEventArgs e)
+    {
+        var deferral = e.GetDeferral();
+        try
+        {
+            var itemsToDrag = e.Items.OfType<FileItem>().ToList();
+            if (itemsToDrag.Count == 0 && _selectedItem != null)
+            {
+                itemsToDrag.Add(_selectedItem);
+            }
+
+            if (itemsToDrag.Count == 0)
+            {
+                deferral.Complete();
+                return;
+            }
+
+            var storageItems = new List<IStorageItem>();
+            var syncFolder = FolderSyncEngine.Instance.LocalFolderPath;
+            var cacheDir = Path.Combine(Path.GetTempPath(), "HDriveCache");
+            Directory.CreateDirectory(cacheDir);
+
+            var config = CloudreveManager.Instance.ActiveServer;
+            var client = new WebDAVClient(config);
+
+            foreach (var item in itemsToDrag)
+            {
+                string? localPath = null;
+
+                // 1. Yerel eşitleme klasöründe (HDrive - Cloudreve) mevcut mu?
+                var relPath = item.Path.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
+                var syncPath = Path.Combine(syncFolder, relPath);
+                if (File.Exists(syncPath) || Directory.Exists(syncPath))
+                {
+                    localPath = syncPath;
+                }
+                else
+                {
+                    // 2. Geçici önbellekte (Cache) var mı?
+                    var cachedPath = Path.Combine(cacheDir, Path.GetFileName(item.Path));
+                    if (File.Exists(cachedPath))
+                    {
+                        localPath = cachedPath;
+                    }
+                    else if (!item.IsDirectory)
+                    {
+                        // 3. Henüz indirilmemişse, dışarı sürükleme için hızla önbelleğe indir
+                        localPath = await client.DownloadFileToCacheAsync(item.Path);
+                    }
+                    else
+                    {
+                        // Klasör ise yerel geçici klasör aç
+                        var cachedFolderPath = Path.Combine(cacheDir, Path.GetFileName(item.Path.TrimEnd('/')));
+                        Directory.CreateDirectory(cachedFolderPath);
+                        localPath = cachedFolderPath;
+                    }
+                }
+
+                if (!string.IsNullOrEmpty(localPath))
+                {
+                    if (File.Exists(localPath))
+                    {
+                        var sf = await StorageFile.GetFileFromPathAsync(localPath);
+                        storageItems.Add(sf);
+                    }
+                    else if (Directory.Exists(localPath))
+                    {
+                        var df = await StorageFolder.GetFolderFromPathAsync(localPath);
+                        storageItems.Add(df);
+                    }
+                }
+            }
+
+            if (storageItems.Count > 0)
+            {
+                e.Data.SetStorageItems(storageItems);
+                e.Data.RequestedOperation = DataPackageOperation.Copy | DataPackageOperation.Move;
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"DragItemsStarting error: {ex.Message}");
+        }
+        finally
+        {
+            deferral.Complete();
+        }
+    }
+
+    /// <summary>
+    /// Dışarıdan HDrive içine dosya sürüklendiğinde görsel geribildirim sağlama
+    /// </summary>
+    private void FileArea_DragOver(object sender, DragEventArgs e)
+    {
+        if (e.DataView.Contains(StandardDataFormats.StorageItems))
+        {
+            e.AcceptedOperation = DataPackageOperation.Copy;
+            e.DragUIOverride.Caption = "HDrive'a Kopyala / Yükle";
+            e.DragUIOverride.IsCaptionVisible = true;
+            e.DragUIOverride.IsContentVisible = true;
+        }
+    }
+
+    /// <summary>
+    /// Windows Explorer veya Masaüstünden HDrive içine bırakılan dosyaları otomatik Cloudreve'e yükleme
+    /// </summary>
+    private async void FileArea_Drop(object sender, DragEventArgs e)
+    {
+        if (e.DataView.Contains(StandardDataFormats.StorageItems))
+        {
+            var deferral = e.GetDeferral();
+            try
+            {
+                var items = await e.DataView.GetStorageItemsAsync();
+                if (items.Count > 0)
+                {
+                    LoadingRing.IsActive = true;
+                    var client = new WebDAVClient(CloudreveManager.Instance.ActiveServer);
+                    int uploadedCount = 0;
+
+                    foreach (var item in items)
+                    {
+                        uploadedCount += await UploadStorageItemRecursivelyAsync(item, _currentPath, client);
+                    }
+
+                    LoadingRing.IsActive = false;
+                    if (uploadedCount > 0)
+                    {
+                        await LoadDirectoryAsync(_currentPath);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Drop error: {ex.Message}");
+            }
+            finally
+            {
+                deferral.Complete();
+            }
+        }
+    }
+
+    private async Task<int> UploadStorageItemRecursivelyAsync(IStorageItem item, string remoteDir, WebDAVClient client)
+    {
+        int count = 0;
+        if (item is StorageFile file)
+        {
+            var ok = await client.UploadFileAsync(file.Path, remoteDir);
+            if (ok) count++;
+        }
+        else if (item is StorageFolder folder)
+        {
+            var targetSubDir = remoteDir.TrimEnd('/') + "/" + folder.Name;
+            await client.CreateFolderAsync(targetSubDir);
+            var subItems = await folder.GetItemsAsync();
+            foreach (var sub in subItems)
+            {
+                count += await UploadStorageItemRecursivelyAsync(sub, targetSubDir, client);
+            }
+        }
+        return count;
+    }
+
+    #endregion
 }

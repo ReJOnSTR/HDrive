@@ -5,6 +5,7 @@
 
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 
 public struct NativeExplorerView: View {
     @ObservedObject var manager = CloudreveManager.shared
@@ -235,6 +236,10 @@ public struct NativeExplorerView: View {
             }
         }
         .background(Color(NSColor.windowBackgroundColor))
+        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+            handleDroppedFiles(providers)
+            return true
+        }
     }
     
     // MARK: - Dosya Izgara Kartı (Finder Görünümü)
@@ -278,6 +283,9 @@ public struct NativeExplorerView: View {
         }
         .onTapGesture {
             selectedFileID = file.id
+        }
+        .onDrag {
+            exportFileForDrag(file)
         }
         .contextMenu {
             fileContextMenu(file)
@@ -323,6 +331,9 @@ public struct NativeExplorerView: View {
         }
         .onTapGesture {
             selectedFileID = file.id
+        }
+        .onDrag {
+            exportFileForDrag(file)
         }
         .contextMenu {
             fileContextMenu(file)
@@ -528,6 +539,45 @@ public struct NativeExplorerView: View {
     private func openInFinder() {
         if let server = manager.activeServer {
             DriveMounter.shared.connectAndOpenInFinder(config: server) { _, _ in }
+        }
+    }
+    
+    // MARK: - Sürükle ve Bırak (Drag & Drop) Desteği
+    private func exportFileForDrag(_ file: RemoteFileItem) -> NSItemProvider {
+        // 1. Yerel eşitleme klasöründe (HDrive - Cloudreve) var mı?
+        let syncDir = FolderSyncEngine.shared.localFolderURL
+        let relPath = file.href.hasPrefix("/") ? String(file.href.dropFirst()) : file.href
+        let syncFile = syncDir.appendingPathComponent(relPath)
+        
+        if FileManager.default.fileExists(atPath: syncFile.path) {
+            return NSItemProvider(item: syncFile as NSURL, typeIdentifier: UTType.fileURL.identifier)
+        }
+        
+        // 2. Cache klasöründe var mı?
+        let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("HDriveFiles", isDirectory: true)
+        let cachedFile = cacheDir.appendingPathComponent(file.name)
+        if FileManager.default.fileExists(atPath: cachedFile.path) {
+            return NSItemProvider(item: cachedFile as NSURL, typeIdentifier: UTType.fileURL.identifier)
+        }
+        
+        // 3. Önceden indirilmemişse bile dosya URL'i dön
+        return NSItemProvider(item: syncFile as NSURL, typeIdentifier: UTType.fileURL.identifier)
+    }
+    
+    private func handleDroppedFiles(_ providers: [NSItemProvider]) {
+        for provider in providers {
+            _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                guard let localURL = url, let server = manager.activeServer else { return }
+                let client = WebDAVClient(config: server)
+                let dest = (currentPath.isEmpty ? "" : currentPath + "/") + localURL.lastPathComponent
+                client.uploadFile(localFileURL: localURL, toRemotePath: dest) { error in
+                    if error == nil {
+                        DispatchQueue.main.async {
+                            loadDirectory(at: currentPath)
+                        }
+                    }
+                }
+            }
         }
     }
 }
