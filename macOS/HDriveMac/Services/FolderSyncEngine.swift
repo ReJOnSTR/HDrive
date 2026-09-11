@@ -34,14 +34,10 @@ public final class FolderSyncEngine: ObservableObject {
     @Published public var syncStatus: String = "Hazır"
     @Published public var lastSyncDate: Date? = nil
     
-    /// Mac üzerindeki yerel eşitleme klasörü: ~/HDrive - Cloudreve
+    /// Mac üzerindeki isteğe bağlı yerel eşitleme klasörü: ~/HDrive - Cloudreve
     public let localFolderURL: URL = {
         let home = FileManager.default.homeDirectoryForCurrentUser
-        let folder = home.appendingPathComponent("HDrive - Cloudreve", isDirectory: true)
-        if !FileManager.default.fileExists(atPath: folder.path) {
-            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        }
-        return folder
+        return home.appendingPathComponent("HDrive - Cloudreve", isDirectory: true)
     }()
     
     private var syncTimer: Timer?
@@ -56,18 +52,8 @@ public final class FolderSyncEngine: ObservableObject {
     private var manifest: SyncManifest = SyncManifest()
     
     private init() {
-        self.isSyncEnabled = UserDefaults.standard.bool(forKey: "HDrive_isSyncEnabled")
-        self.manifest = loadManifest()
-        
-        if isSyncEnabled {
-            startSyncTimer()
-            startLocalWatcher()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
-                self?.syncNow()
-            }
-        } else {
-            self.syncStatus = "Eşitleme Kapalı"
-        }
+        self.isSyncEnabled = false // Varsayılan: Yerel eşitleme kapalı (Tamamen Bulut/Canlı Akış Modu)
+        self.syncStatus = "Canlı Bulut Modu"
         
         // Ağ bağlantısı geri geldiğinde otomatik eşitle
         NetworkMonitor.shared.onConnectionRestored = { [weak self] in

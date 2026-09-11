@@ -22,23 +22,13 @@ struct HDriveMacApp: App {
         .defaultSize(width: 920, height: 620)
         
         // 2. macOS Menü Çubuğu Simgesi (Menu Bar Extra)
-        MenuBarExtra("HDrive", systemImage: "folder.fill") {
-            Button("📁 Yerel Eşitleme Klasörünü Aç") {
-                syncEngine.openLocalFolderInFinder()
+        MenuBarExtra("HDrive", systemImage: "cloud.fill") {
+            if let active = cloudreveManager.activeServer {
+                Text("Bulut: \(active.name)")
+                    .font(.subheadline.weight(.semibold))
+            } else {
+                Text("HDrive Bulut Gezgini")
             }
-            
-            Toggle("Otomatik Eşitleme", isOn: $syncEngine.isSyncEnabled)
-            
-            if syncEngine.isSyncEnabled {
-                Button("Şimdi Eşitle") {
-                    syncEngine.syncNow()
-                }
-            }
-            
-            Divider()
-            
-            Text("Durum: \(syncEngine.syncStatus)")
-                .font(.caption)
             
             Divider()
             

@@ -548,23 +548,9 @@ public struct NativeExplorerView: View {
                         .foregroundColor(.blue)
                 }
                 .buttonStyle(.plain)
-                
-                Button(action: {
-                    FolderSyncEngine.shared.openLocalFolderInFinder()
-                }) {
-                    Label("Yerel Eşitleme Klasörü", systemImage: "folder.badge.gearshape")
-                        .foregroundColor(.orange)
-                }
-                .buttonStyle(.plain)
             }
             
             Section("Araçlar") {
-                Button(action: { showingDiagnosticsSheet = true }) {
-                    Label("Eşitleme Günlüğü", systemImage: "list.bullet.rectangle")
-                        .foregroundColor(.teal)
-                }
-                .buttonStyle(.plain)
-                
                 Button(action: { showingSettingsSheet = true }) {
                     Label("Ayarlar...", systemImage: "gearshape")
                         .foregroundColor(.secondary)
@@ -943,18 +929,12 @@ public struct NativeExplorerView: View {
     private func fileContextMenu(_ file: RemoteFileItem) -> some View {
         if !file.isDirectory {
             Button(action: { triggerQuickLook(for: file) }) {
-                Label("Hızlı Bakış (Boşluk)", systemImage: "eye")
+                Label("Görüntüle (Hızlı Bakış)", systemImage: "eye")
             }
-        }
-        
-        Button(action: { handleDoubleClick(file) }) {
-            Label(file.isDirectory ? "Klasörü Aç" : "Varsayılan Uygulamayla Aç", systemImage: "arrow.up.forward.app")
-        }
-        
-        Button(action: {
-            DriveMounter.shared.openMountedVolumeInFinder()
-        }) {
-            Label("Finder'da Göster", systemImage: "folder")
+        } else {
+            Button(action: { handleDoubleClick(file) }) {
+                Label("Klasörü Aç", systemImage: "folder")
+            }
         }
         
         Divider()
@@ -965,21 +945,21 @@ public struct NativeExplorerView: View {
         
         if !file.isDirectory {
             Button(action: { downloadFile(file) }) {
-                Label("İndir (İndirilenler Klasörüne)", systemImage: "arrow.down.circle")
+                Label("İndirilenlere Kaydet...", systemImage: "arrow.down.circle")
             }
         }
         
         if selectedFileIDs.count > 1 {
             Divider()
             Button(action: { downloadSelectedFiles() }) {
-                Label("\(selectedFileIDs.count) Ögeyi İndir", systemImage: "square.and.arrow.down.on.square")
+                Label("\(selectedFileIDs.count) Ögeyi İndirilenlere Kaydet...", systemImage: "square.and.arrow.down.on.square")
             }
             Button(role: .destructive, action: { deleteSelectedFiles() }) {
                 Label("\(selectedFileIDs.count) Ögeyi Sil", systemImage: "trash")
             }
         } else {
             Button(role: .destructive, action: { deleteFile(file) }) {
-                Label("Sil", systemImage: "trash")
+                Label("Sil (⌘⌫)", systemImage: "trash")
             }
         }
     }
@@ -1037,25 +1017,11 @@ public struct NativeExplorerView: View {
                         .foregroundColor(.secondary)
                 }
                 
-                if syncEngine.isSyncEnabled {
-                    Button(action: { showingDiagnosticsSheet = true }) {
-                        HStack(spacing: 4) {
-                            Circle()
-                                .fill(syncEngine.isSyncing ? Color.orange : Color.green)
-                                .frame(width: 6, height: 6)
-                            Text(syncEngine.syncStatus)
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                }
-                
                 HStack(spacing: 4) {
                     Circle()
-                        .fill(mounter.isMounted ? Color.green : Color.gray)
+                        .fill(Color.blue)
                         .frame(width: 6, height: 6)
-                    Text(mounter.isMounted ? "Ağ Sürücüsü Bağlı" : "Uzak Mod")
+                    Text("Canlı Bulut Modu (İndirmesiz)")
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }
@@ -1066,22 +1032,15 @@ public struct NativeExplorerView: View {
         .background(Color(NSColor.controlBackgroundColor))
     }
     
-    // MARK: - Dosyaya Çift Tıklama Mantığı (KEY FEATURE)
+    // MARK: - Dosyaya Çift Tıklama Mantığı (Doğrudan Quick Look ile Görüntüle - Dosya İndirilmez)
     private func handleDoubleClick(_ file: RemoteFileItem) {
         if file.isDirectory {
             // Klasör ise içine gir
             let newPath = currentPath.isEmpty ? file.name : "\(currentPath)/\(file.name)"
             navigateTo(newPath)
         } else {
-            // DOSYA İSE: BİLGİSAYARIN KENDİ PROGRAMIYLA (Word, VLC, Preview, Acrobat) AÇ!
-            guard let server = manager.activeServer else { return }
-            let client = WebDAVClient(config: server)
-            
-            FileOpener.shared.openFileNatively(file: file, client: client) { success, error in
-                if !success {
-                    print("Açma hatası: \(error ?? "")")
-                }
-            }
+            // DOSYA İSE: ASLA YERELE İNDİRME! DOĞRUDAN ANLIK QUICK LOOK İLE GÖRÜNTÜLE!
+            triggerQuickLook(for: file)
         }
     }
     
@@ -1709,11 +1668,11 @@ public struct NativeExplorerView: View {
                             if previewManager.loadingPreviewIDs.contains(file.id) {
                                 ProgressView()
                                     .scaleEffect(0.8)
-                                Text("Önizleme indiriliyor...")
+                                Text("Görüntü hazırlanıyor...")
                                     .font(.caption2)
                                     .foregroundColor(.secondary)
                             } else {
-                                Button("Önizlemeyi Yükle") {
+                                Button("Görüntüle (Hızlı Bakış)") {
                                     triggerQuickLook(for: file)
                                 }
                                 .buttonStyle(.bordered)
