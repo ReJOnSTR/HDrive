@@ -104,6 +104,10 @@ public class FileItem : INotifyPropertyChanged
             ".mp4" or ".mov" or ".mkv" or ".avi" => Windows.UI.Color.FromArgb(255, 194, 57, 179), // Video Macenta #C239B3
             ".mp3" or ".wav" or ".flac" or ".m4a" => Windows.UI.Color.FromArgb(255, 0, 130, 114), // Müzik Deniz Yeşili #008272
             ".txt" or ".md" or ".json" or ".xml" or ".cs" or ".js" or ".ts" or ".html" or ".css" => Windows.UI.Color.FromArgb(255, 0, 120, 212), // Kod/Metin Mavi #0078D4
+            ".fig" or ".figjam" => Windows.UI.Color.FromArgb(255, 242, 78, 30), // Figma Turuncu/Kırmızı #F24E1E
+            ".psd" or ".psb" => Windows.UI.Color.FromArgb(255, 49, 168, 255), // Photoshop Camgöbeği #31A8FF
+            ".ai" or ".eps" => Windows.UI.Color.FromArgb(255, 255, 154, 0), // Illustrator Sarı/Turuncu #FF9A00
+            ".sketch" => Windows.UI.Color.FromArgb(255, 253, 179, 0), // Sketch Kehribar #FDB300
             _ => Windows.UI.Color.FromArgb(255, 120, 120, 120)
         };
     }
@@ -117,6 +121,8 @@ public class FileItem : INotifyPropertyChanged
             ".docx" or ".doc" => "\uE8A5",
             ".xlsx" or ".xls" => "\uF1C5",
             ".pptx" or ".ppt" => "\uE8B9",
+            ".fig" or ".figjam" or ".sketch" => "\uE790", // Design Icon (Palette/Shape)
+            ".psd" or ".psb" or ".ai" or ".eps" => "\uEB9F", // Image Design
             ".zip" or ".rar" or ".7z" or ".tar" or ".gz" => "\uF012",
             ".png" or ".jpg" or ".jpeg" or ".gif" or ".webp" or ".svg" => "\uEB9F",
             ".mp4" or ".mov" or ".mkv" or ".avi" => "\uE714",
@@ -135,6 +141,10 @@ public class FileItem : INotifyPropertyChanged
             ".docx" or ".doc" => "Word Belgesi",
             ".xlsx" or ".xls" => "Excel Çalışma Sayfası",
             ".pptx" or ".ppt" => "PowerPoint Sunusu",
+            ".fig" or ".figjam" => "Figma Tasarım Dosyası",
+            ".psd" or ".psb" => "Adobe Photoshop Belgesi",
+            ".ai" or ".eps" => "Adobe Illustrator Belgesi",
+            ".sketch" => "Sketch Tasarım Dosyası",
             ".zip" or ".rar" or ".7z" => "Sıkıştırılmış Arşiv",
             ".png" or ".jpg" or ".jpeg" or ".gif" or ".webp" => "Görüntü Dosyası",
             ".mp4" or ".mkv" or ".mov" or ".avi" => "Video Dosyası",

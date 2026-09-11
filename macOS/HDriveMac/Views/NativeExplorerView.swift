@@ -763,10 +763,11 @@ public struct NativeExplorerView: View {
                         .cornerRadius(4)
                         .shadow(color: .black.opacity(0.12), radius: 2, y: 1)
                 } else {
-                    Image(systemName: file.systemIcon)
-                        .font(.system(size: 42))
-                        .foregroundColor(fileIconColor(file))
-                        .frame(width: 60, height: 50)
+                    Image(nsImage: FileIconProvider.shared.icon(for: file.name, isDirectory: file.isDirectory, size: 64))
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 58, height: 50)
+                        .shadow(color: .black.opacity(0.10), radius: 2, y: 1)
                 }
             }
             .onAppear {
@@ -847,10 +848,10 @@ public struct NativeExplorerView: View {
                     .frame(width: 24, height: 24)
                     .cornerRadius(3)
             } else {
-                Image(systemName: file.systemIcon)
-                    .font(.title3)
-                    .foregroundColor(fileIconColor(file))
-                    .frame(width: 24)
+                Image(nsImage: FileIconProvider.shared.icon(for: file.name, isDirectory: file.isDirectory, size: 24))
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 24, height: 24)
             }
             
             if isRenaming {
@@ -1611,9 +1612,10 @@ public struct NativeExplorerView: View {
                     
                     if file.isDirectory {
                         VStack(spacing: 8) {
-                            Image(systemName: "folder.fill")
-                                .font(.system(size: 64))
-                                .foregroundColor(.blue)
+                            Image(nsImage: FileIconProvider.shared.icon(for: file.name, isDirectory: true, size: 96))
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 80, height: 80)
                             Text("Klasör")
                                 .font(.caption.weight(.medium))
                                 .foregroundColor(.secondary)
@@ -1638,9 +1640,10 @@ public struct NativeExplorerView: View {
                             .padding(24)
                         } else {
                             VStack(spacing: 10) {
-                                Image(systemName: file.systemIcon)
-                                    .font(.system(size: 56))
-                                    .foregroundColor(fileIconColor(file))
+                                Image(nsImage: FileIconProvider.shared.icon(for: file.name, isDirectory: false, size: 84))
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 72, height: 72)
                                 Button("Önizlemeyi Yükle") {
                                     if let server = manager.activeServer {
                                         let client = WebDAVClient(config: server)
@@ -1659,11 +1662,12 @@ public struct NativeExplorerView: View {
                             .cornerRadius(8)
                             .padding(4)
                     } else {
-                        // Diğer dosyalar
+                        // Diğer dosyalar (Excel, Word, Figma, PDF vb.)
                         VStack(spacing: 12) {
-                            Image(systemName: file.systemIcon)
-                                .font(.system(size: 58))
-                                .foregroundColor(fileIconColor(file))
+                            Image(nsImage: FileIconProvider.shared.icon(for: file.name, isDirectory: false, size: 84))
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 76, height: 76)
                             
                             if previewManager.loadingPreviewIDs.contains(file.id) {
                                 ProgressView()
