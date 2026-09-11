@@ -1757,14 +1757,17 @@ struct CloudreveSettingsSheet: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            // Başlık Çubuğu
+            // Üst Başlık Çubuğu
             HStack {
-                Label("Hesaplar ve Eşitleme Ayarları", systemImage: "gearshape.fill")
+                Label("Hesaplar ve Eşitleme Ayarları", systemImage: "person.crop.circle.badge.checkmark")
                     .font(.headline)
-                    .foregroundColor(.indigo)
+                    .foregroundColor(.accentColor)
                 Spacer()
-                Button("Kapat") { isPresented = false }
-                    .keyboardShortcut(.cancelAction)
+                Button("Kapat") {
+                    saveCurrentAccount()
+                    isPresented = false
+                }
+                .keyboardShortcut(.cancelAction)
             }
             .padding(.horizontal, 20)
             .padding(.top, 16)
@@ -1772,51 +1775,92 @@ struct CloudreveSettingsSheet: View {
             
             Divider()
             
-            // Ana Gövde: Sol Hesap Listesi | Sağ Hesap Formu ve Senkronizasyon
+            // 2 Sütunlu Ana Gövde
             HStack(spacing: 0) {
-                // SOL PANEL: Hesaplar Listesi (+ / - Butonları ile)
+                // SOL SÜTUN: Kayıtlı Hesaplar Listesi
                 VStack(spacing: 0) {
-                    List(selection: $selectedServerID) {
-                        Section("Kayıtlı Hesaplar") {
-                            ForEach(manager.servers) { server in
-                                HStack(spacing: 8) {
-                                    Image(systemName: manager.activeServer?.id == server.id ? "checkmark.circle.fill" : "cloud.fill")
-                                        .font(.system(size: 12))
-                                        .foregroundColor(manager.activeServer?.id == server.id ? .indigo : .secondary)
-                                    
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(server.name)
-                                            .font(.system(size: 12, weight: .medium))
-                                            .lineLimit(1)
-                                        
-                                        if let host = URL(string: server.serverURL)?.host {
-                                            Text(host)
-                                                .font(.system(size: 10))
-                                                .foregroundColor(.secondary)
-                                                .lineLimit(1)
-                                        }
-                                    }
-                                    
-                                    Spacer()
-                                }
-                                .tag(server.id)
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    selectServer(server)
-                                }
-                            }
-                        }
+                    // Liste Başlığı
+                    HStack {
+                        Text("Kayıtlı Hesaplar")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Text("\(manager.servers.count)")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(.secondary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Capsule().fill(Color.primary.opacity(0.08)))
                     }
-                    .listStyle(.inset(alternatesRowBackgrounds: true))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(Color(NSColor.controlBackgroundColor).opacity(0.6))
                     
                     Divider()
                     
-                    // Alt Araç Çubuğu: [+] Ekle, [-] Sil
-                    HStack(spacing: 4) {
+                    // Hesap Öğeleri (ScrollView)
+                    ScrollView {
+                        VStack(spacing: 4) {
+                            ForEach(manager.servers) { server in
+                                let isSelected = (selectedServerID == server.id)
+                                let isActive = (manager.activeServer?.id == server.id)
+                                
+                                Button(action: {
+                                    selectServer(server)
+                                }) {
+                                    HStack(spacing: 10) {
+                                        Image(systemName: isActive ? "cloud.fill" : "cloud")
+                                            .font(.system(size: 16))
+                                            .foregroundColor(isSelected ? .white : (isActive ? .accentColor : .secondary))
+                                            .frame(width: 22)
+                                        
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            HStack(spacing: 4) {
+                                                Text(server.name.isEmpty ? "Yeni Hesap" : server.name)
+                                                    .font(.system(size: 12, weight: isSelected ? .semibold : .medium))
+                                                    .foregroundColor(isSelected ? .white : .primary)
+                                                    .lineLimit(1)
+                                                
+                                                if isActive {
+                                                    Circle()
+                                                        .fill(isSelected ? Color.white : Color.green)
+                                                        .frame(width: 6, height: 6)
+                                                }
+                                            }
+                                            
+                                            Text(serverSubtitle(server))
+                                                .font(.system(size: 10))
+                                                .foregroundColor(isSelected ? Color.white.opacity(0.85) : .secondary)
+                                                .lineLimit(1)
+                                        }
+                                        
+                                        Spacer(minLength: 0)
+                                    }
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 7)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 6)
+                                            .fill(isSelected ? Color.accentColor : Color.clear)
+                                    )
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(8)
+                    }
+                    .background(Color(NSColor.controlBackgroundColor).opacity(0.35))
+                    
+                    Divider()
+                    
+                    // Alt Butonlar: [+] Ekle, [-] Sil
+                    HStack(spacing: 0) {
                         Button(action: createNewAccount) {
                             Image(systemName: "plus")
-                                .font(.system(size: 12, weight: .semibold))
-                                .frame(width: 26, height: 22)
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(.primary)
+                                .frame(width: 32, height: 26)
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                         .help("Yeni Hesap Ekle")
@@ -1825,8 +1869,10 @@ struct CloudreveSettingsSheet: View {
                         
                         Button(action: deleteSelectedAccount) {
                             Image(systemName: "minus")
-                                .font(.system(size: 12, weight: .semibold))
-                                .frame(width: 26, height: 22)
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(manager.servers.count > 1 ? .primary : .secondary.opacity(0.3))
+                                .frame(width: 32, height: 26)
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                         .disabled(manager.servers.count <= 1)
@@ -1834,41 +1880,43 @@ struct CloudreveSettingsSheet: View {
                         
                         Spacer()
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color(NSColor.controlBackgroundColor))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(Color(NSColor.controlBackgroundColor).opacity(0.8))
                 }
-                .frame(width: 190)
+                .frame(width: 220)
                 
                 Divider()
                 
-                // SAĞ PANEL: Seçili Hesabın Bilgileri ve Eşitleme
+                // SAĞ SÜTUN: Hesap Detayları ve Senkronizasyon
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
-                        // Hesap Başlığı ve Aktif Yap Butonu
+                        // Üst Başlık ve Aktif Durumu
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(serverName.isEmpty ? "Hesap Detayları" : serverName)
                                     .font(.title3.bold())
-                                if let host = URL(string: serverURL)?.host {
-                                    Text(host)
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
+                                Text(serverSubtitleFromFields())
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
                             }
                             
                             Spacer()
                             
                             if let curID = selectedServerID, manager.activeServer?.id == curID {
-                                Label("Aktif Hesap", systemImage: "checkmark.circle.fill")
-                                    .font(.caption.bold())
-                                    .foregroundColor(.green)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .background(Color.green.opacity(0.12))
-                                    .cornerRadius(6)
+                                HStack(spacing: 4) {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundColor(.green)
+                                    Text("Aktif Sürücü")
+                                        .font(.caption.bold())
+                                        .foregroundColor(.green)
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Color.green.opacity(0.12))
+                                .cornerRadius(6)
                             } else {
-                                Button("Aktif Hesap Yap") {
+                                Button("Aktif Hesap Olarak Ayarla") {
                                     makeCurrentActive()
                                 }
                                 .font(.caption)
@@ -1998,7 +2046,30 @@ struct CloudreveSettingsSheet: View {
         }
     }
     
+    private func serverSubtitle(_ server: CloudreveServerConfig) -> String {
+        if !server.username.isEmpty {
+            return server.username
+        }
+        if let host = URL(string: server.serverURL)?.host, !host.isEmpty {
+            return host
+        }
+        return "Yapılandırılmamış"
+    }
+    
+    private func serverSubtitleFromFields() -> String {
+        if !username.isEmpty {
+            return username
+        }
+        if let host = URL(string: serverURL)?.host, !host.isEmpty {
+            return host
+        }
+        return serverURL.isEmpty ? "Sunucu adresi belirtilmemiş" : serverURL
+    }
+    
     private func selectServer(_ server: CloudreveServerConfig) {
+        if selectedServerID != nil {
+            saveCurrentAccount()
+        }
         selectedServerID = server.id
         serverName = server.name
         serverURL = server.serverURL
@@ -2008,6 +2079,7 @@ struct CloudreveSettingsSheet: View {
     }
     
     private func createNewAccount() {
+        saveCurrentAccount()
         let newServer = CloudreveServerConfig(
             name: "Yeni Hesap \(manager.servers.count + 1)",
             serverURL: "https://",
@@ -2015,7 +2087,12 @@ struct CloudreveSettingsSheet: View {
             password: ""
         )
         manager.servers.append(newServer)
-        selectServer(newServer)
+        selectedServerID = newServer.id
+        serverName = newServer.name
+        serverURL = newServer.serverURL
+        username = newServer.username
+        password = newServer.password
+        testResult = nil
     }
     
     private func deleteSelectedAccount() {
@@ -2023,7 +2100,12 @@ struct CloudreveSettingsSheet: View {
               let target = manager.servers.first(where: { $0.id == curID }) else { return }
         manager.deleteServer(target)
         if let next = manager.servers.first {
-            selectServer(next)
+            selectedServerID = next.id
+            serverName = next.name
+            serverURL = next.serverURL
+            username = next.username
+            password = next.password
+            testResult = nil
         }
         onSave()
     }
