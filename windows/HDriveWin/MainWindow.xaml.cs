@@ -368,7 +368,7 @@ public sealed partial class MainWindow : Window
         else if (e.Key == Windows.System.VirtualKey.Delete && _selectedItem != null)
         {
             e.Handled = true;
-            ContextDelete_Click(sender, null);
+            ContextDelete_Click(sender, new RoutedEventArgs());
         }
     }
 
@@ -1066,20 +1066,6 @@ public sealed partial class MainWindow : Window
                         var sf = await StorageFolder.GetFolderFromPathAsync(localPath);
                         storageItems.Add(sf);
                     }
-                }
-            }
-
-            if (!string.IsNullOrEmpty(localPath))
-            {
-                if (File.Exists(localPath))
-                {
-                    var sf = await StorageFile.GetFileFromPathAsync(localPath);
-                    storageItems.Add(sf);
-                }
-                else if (Directory.Exists(localPath))
-                {
-                    var df = await StorageFolder.GetFolderFromPathAsync(localPath);
-                    storageItems.Add(df);
                 }
             }
 
