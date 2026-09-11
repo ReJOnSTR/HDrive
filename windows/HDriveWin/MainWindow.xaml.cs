@@ -87,7 +87,10 @@ public sealed partial class MainWindow : Window
             }
         };
 
-        NavView.SelectedItem = CloudreveNavItem;
+        LoadPinnedFolders();
+        _ = RefreshStorageQuotaAsync();
+
+        NavView.SelectedItem = AllFilesNavItem;
     }
 
     #region Windows 11 Sekme (TabView) Yönetimi
@@ -268,6 +271,8 @@ public sealed partial class MainWindow : Window
 
         LoadingRing.IsActive = false;
         ItemCountText.Text = $"{_items.Count} öğe";
+
+        _ = RefreshStorageQuotaAsync();
     }
 
     private void ApplySearchFilter(string query)
@@ -360,6 +365,11 @@ public sealed partial class MainWindow : Window
             e.Handled = true;
             await HandleOpenItemAsync(_selectedItem);
         }
+        else if (e.Key == Windows.System.VirtualKey.Space && _selectedItem != null)
+        {
+            e.Handled = true;
+            PreviewPaneToggle_Click(sender, new RoutedEventArgs());
+        }
         else if (e.Key == Windows.System.VirtualKey.F2 && _selectedItem != null)
         {
             e.Handled = true;
@@ -386,21 +396,46 @@ public sealed partial class MainWindow : Window
 
     private async Task OpenFileAsync(FileItem item)
     {
-        LoadingRing.IsActive = true;
-        var config = CloudreveManager.Instance.ActiveServer;
-        var client = new WebDAVClient(config);
-
-        var localPath = await client.DownloadFileToCacheAsync(item.Path);
-        LoadingRing.IsActive = false;
-
-        if (!string.IsNullOrEmpty(localPath) && File.Exists(localPath))
+        try
         {
-            // Windows varsayılan uygulamasıyla aç (Örn: Word, Adobe Acrobat/Edge, VLC vb.)
-            Process.Start(new ProcessStartInfo
+            LoadingRing.IsActive = true;
+            var config = CloudreveManager.Instance.ActiveServer;
+            if (config == null) return;
+            var client = new WebDAVClient(config);
+
+            var localPath = await client.DownloadFileToCacheAsync(item.Path);
+            LoadingRing.IsActive = false;
+
+            if (!string.IsNullOrEmpty(localPath) && File.Exists(localPath))
             {
-                FileName = localPath,
-                UseShellExecute = true
-            });
+                // Windows varsayılan uygulamasıyla aç (Örn: Word, Adobe Acrobat/Edge, VLC vb.)
+                try
+                {
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = localPath,
+                        UseShellExecute = true
+                    });
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"Failed to open with default app: {ex.Message}");
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = "explorer.exe",
+                        Arguments = $"/select,\"{localPath}\"",
+                        UseShellExecute = true
+                    });
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"OpenFileAsync error: {ex.Message}");
+        }
+        finally
+        {
+            LoadingRing.IsActive = false;
         }
     }
 
@@ -768,7 +803,17 @@ public sealed partial class MainWindow : Window
 
     private void SearchBox_TextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
     {
-        ApplySearchFilter(sender.Text);
+        if (DeepSearchToggle.IsChecked == true)
+        {
+            if (string.IsNullOrWhiteSpace(sender.Text))
+            {
+                ApplySearchFilter("");
+            }
+        }
+        else
+        {
+            ApplySearchFilter(sender.Text);
+        }
     }
 
     private async void NavView_ItemInvoked(NavigationView sender, NavigationViewItemInvokedEventArgs args)
@@ -779,13 +824,21 @@ public sealed partial class MainWindow : Window
         }
         else if (args.InvokedItemContainer is NavigationViewItem item)
         {
-            if ((string)item.Tag == "cloud")
+            if (item.Tag is string tag)
             {
-                NavigateToPath("");
-            }
-            else if ((string)item.Tag == "local")
-            {
-                FolderSyncEngine.Instance.OpenLocalFolderInExplorer();
+                if (tag == "cloud")
+                {
+                    NavigateToPath("");
+                }
+                else if (tag.StartsWith("pinned:"))
+                {
+                    var pinnedPath = tag.Substring("pinned:".Length);
+                    NavigateToPath(pinnedPath);
+                }
+                else if (tag == "local")
+                {
+                    FolderSyncEngine.Instance.OpenLocalFolderInExplorer();
+                }
             }
         }
     }
@@ -805,6 +858,24 @@ public sealed partial class MainWindow : Window
         if (e.OriginalSource is FrameworkElement element && element.DataContext is FileItem item)
         {
             _selectedItem = item;
+            if (item.IsDirectory)
+            {
+                ContextPinItem.Visibility = Visibility.Visible;
+                if (IsFolderPinned(item.Path))
+                {
+                    ContextPinItem.Text = "Kenar Çubuğundan Kaldır";
+                    ContextPinIcon.Glyph = "\uE77A";
+                }
+                else
+                {
+                    ContextPinItem.Text = "Kenar Çubuğuna Sabitle";
+                    ContextPinIcon.Glyph = "\uE718";
+                }
+            }
+            else
+            {
+                ContextPinItem.Visibility = Visibility.Collapsed;
+            }
         }
     }
 
@@ -1017,6 +1088,12 @@ public sealed partial class MainWindow : Window
                 return;
             }
 
+            if (selectedItems.Count == 1 && selectedItems[0].IsDirectory)
+            {
+                e.Data.Properties["HDrive_Folder_Name"] = selectedItems[0].Name;
+                e.Data.Properties["HDrive_Folder_Path"] = selectedItems[0].Path;
+            }
+
             var storageItems = new List<IStorageItem>();
             var syncFolder = FolderSyncEngine.Instance.LocalFolderPath;
             var cacheDir = Path.Combine(Path.GetTempPath(), "HDriveCache");
@@ -1217,6 +1294,323 @@ public sealed partial class MainWindow : Window
     {
         await OpenSettingsDialogAsync();
     }
+
+    #region Kenar Çubuğu Sabit Klasörler (Pinned Favorites)
+
+    private List<PinnedFolder> _pinnedFolders = new();
+
+    private string GetPinnedFoldersFilePath()
+    {
+        var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HDrive");
+        Directory.CreateDirectory(dir);
+        var serverId = CloudreveManager.Instance.ActiveServer?.Id.ToString() ?? "global";
+        return Path.Combine(dir, $"pinned_folders_{serverId}.json");
+    }
+
+    private void LoadPinnedFolders()
+    {
+        try
+        {
+            var filePath = GetPinnedFoldersFilePath();
+            if (File.Exists(filePath))
+            {
+                var json = File.ReadAllText(filePath);
+                _pinnedFolders = System.Text.Json.JsonSerializer.Deserialize<List<PinnedFolder>>(json) ?? new();
+            }
+            else
+            {
+                _pinnedFolders = new();
+            }
+        }
+        catch
+        {
+            _pinnedFolders = new();
+        }
+        UpdateFavoritesSidebar();
+    }
+
+    private void SavePinnedFolders()
+    {
+        try
+        {
+            var filePath = GetPinnedFoldersFilePath();
+            var json = System.Text.Json.JsonSerializer.Serialize(_pinnedFolders, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(filePath, json);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Failed to save pinned folders: {ex.Message}");
+        }
+    }
+
+    private void UpdateFavoritesSidebar()
+    {
+        // Önceki sabit klasör öğelerini temizle
+        var itemsToRemove = NavView.MenuItems
+            .OfType<NavigationViewItem>()
+            .Where(item => item.Tag is string tag && tag.StartsWith("pinned:"))
+            .ToList();
+
+        foreach (var item in itemsToRemove)
+        {
+            NavView.MenuItems.Remove(item);
+        }
+
+        // Sabitlenen klasörleri ekle
+        foreach (var pinned in _pinnedFolders)
+        {
+            var navItem = new NavigationViewItem
+            {
+                Content = pinned.Name,
+                Tag = $"pinned:{pinned.Path}",
+                Icon = new FontIcon 
+                { 
+                    Glyph = "\uE8B7", 
+                    Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 234, 163, 0)) 
+                }
+            };
+
+            var flyout = new MenuFlyout();
+            var unpinItem = new MenuFlyoutItem
+            {
+                Text = "Kenar Çubuğundan Kaldır",
+                Icon = new FontIcon { Glyph = "\uE77A" }
+            };
+            var pinnedPath = pinned.Path;
+            unpinItem.Click += (s, e) => UnpinFolder(pinnedPath);
+            flyout.Items.Add(unpinItem);
+            navItem.ContextFlyout = flyout;
+
+            NavView.MenuItems.Add(navItem);
+        }
+    }
+
+    private void PinFolder(string name, string path)
+    {
+        var cleanPath = path.Trim('/');
+        if (string.IsNullOrEmpty(cleanPath)) return;
+
+        if (!_pinnedFolders.Any(p => p.Path.Equals(cleanPath, StringComparison.OrdinalIgnoreCase)))
+        {
+            _pinnedFolders.Add(new PinnedFolder(name, cleanPath));
+            SavePinnedFolders();
+            UpdateFavoritesSidebar();
+        }
+    }
+
+    private void UnpinFolder(string path)
+    {
+        var cleanPath = path.Trim('/');
+        _pinnedFolders.RemoveAll(p => p.Path.Equals(cleanPath, StringComparison.OrdinalIgnoreCase));
+        SavePinnedFolders();
+        UpdateFavoritesSidebar();
+    }
+
+    private bool IsFolderPinned(string path)
+    {
+        var cleanPath = path.Trim('/');
+        return _pinnedFolders.Any(p => p.Path.Equals(cleanPath, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void ContextPin_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selectedItem != null && _selectedItem.IsDirectory)
+        {
+            if (IsFolderPinned(_selectedItem.Path))
+            {
+                UnpinFolder(_selectedItem.Path);
+            }
+            else
+            {
+                PinFolder(_selectedItem.Name, _selectedItem.Path);
+            }
+        }
+    }
+
+    private void NavView_DragOver(object sender, DragEventArgs e)
+    {
+        e.AcceptedOperation = DataPackageOperation.Copy;
+        e.DragUIOverride.Caption = "Kenar Çubuğuna Sabitle";
+        e.DragUIOverride.IsCaptionVisible = true;
+        e.DragUIOverride.IsGlyphVisible = true;
+    }
+
+    private async void NavView_Drop(object sender, DragEventArgs e)
+    {
+        try
+        {
+            if (e.DataView.Properties.TryGetValue("HDrive_Folder_Path", out var pathObj) &&
+                pathObj is string path &&
+                e.DataView.Properties.TryGetValue("HDrive_Folder_Name", out var nameObj) &&
+                nameObj is string name)
+            {
+                PinFolder(name, path);
+                return;
+            }
+
+            if (e.DataView.Contains(StandardDataFormats.StorageItems))
+            {
+                var items = await e.DataView.GetStorageItemsAsync();
+                foreach (var storageItem in items)
+                {
+                    if (storageItem is StorageFolder folder)
+                    {
+                        PinFolder(folder.Name, folder.Name);
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"NavView Drop error: {ex.Message}");
+        }
+    }
+
+    #endregion
+
+    #region Sabit Depolama Kotası (Storage Quota)
+
+    private async Task RefreshStorageQuotaAsync()
+    {
+        try
+        {
+            var config = CloudreveManager.Instance.ActiveServer;
+            if (config == null) return;
+            var client = new WebDAVClient(config);
+            var quota = await client.GetQuotaAsync();
+            if (quota.HasValue)
+            {
+                var (used, total) = quota.Value;
+                double percent = total > 0 ? ((double)used / total) * 100.0 : 0.0;
+                percent = Math.Min(100.0, Math.Max(0.0, percent));
+
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    StorageQuotaPercentText.Text = $"%{Math.Round(percent)}";
+                    StorageQuotaProgressBar.Value = percent;
+                    StorageQuotaDetailText.Text = $"{FormatBytes(used)} / {FormatBytes(total)}";
+
+                    if (percent > 90.0)
+                    {
+                        StorageQuotaProgressBar.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 232, 17, 35));
+                    }
+                    else if (percent > 75.0)
+                    {
+                        StorageQuotaProgressBar.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 247, 99, 12));
+                    }
+                    else
+                    {
+                        StorageQuotaProgressBar.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 0, 120, 215));
+                    }
+                });
+            }
+            else
+            {
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    StorageQuotaDetailText.Text = "Bilgi alınamadı";
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Quota error: {ex.Message}");
+        }
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{(bytes / 1024.0):F1} KB";
+        if (bytes < 1024 * 1024 * 1024) return $"{(bytes / (1024.0 * 1024.0)):F1} MB";
+        return $"{(bytes / (1024.0 * 1024.0 * 1024.0)):F2} GB";
+    }
+
+    private async void RefreshQuotaButton_Click(object sender, RoutedEventArgs e)
+    {
+        await RefreshStorageQuotaAsync();
+    }
+
+    #endregion
+
+    #region Derin Arama (Deep Search)
+
+    private async void DeepSearchToggle_Click(object sender, RoutedEventArgs e)
+    {
+        if (DeepSearchToggle.IsChecked == true)
+        {
+            if (!string.IsNullOrWhiteSpace(SearchBox.Text))
+            {
+                await PerformDeepSearchAsync(SearchBox.Text.Trim());
+            }
+        }
+        else
+        {
+            ApplySearchFilter(SearchBox.Text);
+        }
+    }
+
+    private async void SearchBox_QuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
+    {
+        if (DeepSearchToggle.IsChecked == true && !string.IsNullOrWhiteSpace(args.QueryText))
+        {
+            await PerformDeepSearchAsync(args.QueryText.Trim());
+        }
+        else
+        {
+            ApplySearchFilter(args.QueryText);
+        }
+    }
+
+    private async Task PerformDeepSearchAsync(string query)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            ApplySearchFilter("");
+            return;
+        }
+
+        var config = CloudreveManager.Instance.ActiveServer;
+        if (config == null) return;
+
+        LoadingRing.IsActive = true;
+        _items.Clear();
+
+        var client = new WebDAVClient(config);
+
+        async Task CrawlDirectoryAsync(string path, int depth)
+        {
+            if (depth > 4) return;
+            try
+            {
+                var dirItems = await client.ListDirectoryAsync(path);
+                foreach (var it in dirItems)
+                {
+                    if (it.Name.Contains(query, StringComparison.CurrentCultureIgnoreCase))
+                    {
+                        DispatcherQueue.TryEnqueue(() =>
+                        {
+                            if (!_items.Contains(it)) _items.Add(it);
+                            ItemCountText.Text = $"{_items.Count} öğe (Derin Arama)";
+                        });
+                    }
+
+                    if (it.IsDirectory)
+                    {
+                        await CrawlDirectoryAsync(it.Path, depth + 1);
+                    }
+                }
+            }
+            catch { }
+        }
+
+        await CrawlDirectoryAsync("", 0);
+
+        LoadingRing.IsActive = false;
+        ItemCountText.Text = $"{_items.Count} sonuç bulundu";
+    }
+
+    #endregion
 
     #endregion
 }

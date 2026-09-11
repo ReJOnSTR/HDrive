@@ -55,20 +55,48 @@
         <NavigationView x:Name="NavView" Grid.Row="1"
                         PaneDisplayMode="Left"
                         IsBackButtonVisible="Collapsed"
-                        IsSettingsVisible="True"
+                        IsSettingsVisible="False"
+                        AllowDrop="True"
+                        DragOver="NavView_DragOver"
+                        Drop="NavView_Drop"
                         ItemInvoked="NavView_ItemInvoked">
             <NavigationView.MenuItems>
-                <NavigationViewItem x:Name="CloudreveNavItem" Content="Cloudreve" Tag="cloud">
+                <NavigationViewItem x:Name="AllFilesNavItem" Content="Tüm Dosyalar" Tag="cloud">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE753;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem x:Name="LocalFolderNavItem" Content="Yerel Eşitleme Klasörü" Tag="local">
-                    <NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xED43;" />
-                    </NavigationViewItem.Icon>
-                </NavigationViewItem>
+                <NavigationViewItemHeader x:Name="FavoritesHeader" Content="Favoriler" />
             </NavigationView.MenuItems>
+
+            <NavigationView.PaneFooter>
+                <!-- Sabit Alt Depolama Alanı (Sticky Quota Footer) -->
+                <Border Padding="14,10,14,12" 
+                        BorderThickness="0,1,0,0" 
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" 
+                        Background="{ThemeResource LayerFillColorDefaultBrush}">
+                    <StackPanel Spacing="6">
+                        <Grid>
+                            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                <FontIcon Glyph="&#xEDA2;" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                <TextBlock Text="Depolama" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" />
+                            </StackPanel>
+                            <TextBlock x:Name="StorageQuotaPercentText" Text="%0" FontSize="11" FontWeight="SemiBold"
+                                       HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        </Grid>
+
+                        <ProgressBar x:Name="StorageQuotaProgressBar" Value="0" Maximum="100" Height="4" CornerRadius="2" />
+
+                        <Grid>
+                            <TextBlock x:Name="StorageQuotaDetailText" Text="-- / --" FontSize="10" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" />
+                            <Button x:Name="RefreshQuotaButton" Click="RefreshQuotaButton_Click" ToolTipService.ToolTip="Depolama bilgisini yenile"
+                                    HorizontalAlignment="Right" Padding="4,2" Background="Transparent" BorderThickness="0" CornerRadius="4">
+                                <FontIcon Glyph="&#xE72C;" FontSize="10" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            </Button>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+            </NavigationView.PaneFooter>
 
             <!-- Gezinti Çubuğu İçeriği -->
             <Grid Margin="12,0,12,12">
@@ -139,15 +167,23 @@
                         </Grid>
                     </Border>
 
-                    <!-- Windows 11 Arama Çubuğu -->
-                    <AutoSuggestBox x:Name="SearchBox" Grid.Column="2" 
-                                    Width="240" Margin="6,0,0,0"
-                                    Height="32"
-                                    PlaceholderText="HDrive içinde ara"
-                                    QueryIcon="Find"
-                                    VerticalAlignment="Center"
-                                    CornerRadius="4"
-                                    TextChanged="SearchBox_TextChanged" />
+                    <!-- Windows 11 Arama Çubuğu & Derin Arama Butonu -->
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" Margin="6,0,0,0" VerticalAlignment="Center">
+                        <AutoSuggestBox x:Name="SearchBox" 
+                                        Width="210"
+                                        Height="32"
+                                        PlaceholderText="HDrive içinde ara"
+                                        QueryIcon="Find"
+                                        VerticalAlignment="Center"
+                                        CornerRadius="4"
+                                        TextChanged="SearchBox_TextChanged"
+                                        QuerySubmitted="SearchBox_QuerySubmitted" />
+                        <ToggleButton x:Name="DeepSearchToggle" Width="32" Height="32" Padding="0"
+                                      ToolTipService.ToolTip="Tüm klasörlerde derin arama"
+                                      Click="DeepSearchToggle_Click">
+                            <FontIcon Glyph="&#xE71E;" FontSize="12" />
+                        </ToggleButton>
+                    </StackPanel>
                 </Grid>
 
                 <!-- 1: Komut Çubuğu (Windows 11 Komut Şeridi & Üç Nokta Menüsü) -->
@@ -469,6 +505,11 @@
                             <MenuFlyoutItem Text="Aç" Click="ContextOpen_Click">
                                 <MenuFlyoutItem.Icon>
                                     <FontIcon Glyph="&#xE8E5;" />
+                                </MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem x:Name="ContextPinItem" Text="Kenar Çubuğuna Sabitle" Click="ContextPin_Click" Visibility="Collapsed">
+                                <MenuFlyoutItem.Icon>
+                                    <FontIcon x:Name="ContextPinIcon" Glyph="&#xE718;" />
                                 </MenuFlyoutItem.Icon>
                             </MenuFlyoutItem>
                             <MenuFlyoutItem Text="İndir" Click="ContextDownload_Click">
