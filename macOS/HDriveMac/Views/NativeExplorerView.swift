@@ -28,6 +28,17 @@ public struct ExplorerTab: Identifiable, Equatable {
     }
 }
 
+public struct PinnedFolder: Identifiable, Codable, Equatable {
+    public var id: String { path }
+    public let name: String
+    public let path: String
+    
+    public init(name: String, path: String) {
+        self.name = name
+        self.path = path
+    }
+}
+
 public struct NativeExplorerView: View {
     @ObservedObject var manager = CloudreveManager.shared
     @ObservedObject var mounter = DriveMounter.shared
@@ -63,6 +74,11 @@ public struct NativeExplorerView: View {
     @State private var quickLookURL: URL? = nil
     @State private var renamingFileID: String? = nil
     @State private var renamingText: String = ""
+    
+    // Sabitlenen Favori Klasörler & Kenar Çubuğu
+    @State private var pinnedFolders: [PinnedFolder] = []
+    @State private var isSidebarDropTargeted: Bool = false
+    @State private var isLoadingQuota: Bool = false
     
     // Depolama Kotası & Derin Arama (Deep Search)
     @State private var storageQuota: StorageQuota? = nil
@@ -139,6 +155,7 @@ public struct NativeExplorerView: View {
         .background(ToolbarCustomizer())
         .frame(minWidth: 800, minHeight: 560)
         .onAppear {
+            loadPinnedFolders()
             if let first = tabs.first {
                 activeTabID = first.id
             }
@@ -519,81 +536,193 @@ public struct NativeExplorerView: View {
     
     // MARK: - 1. Sol Menü (Sidebar)
     private var sidebarView: some View {
-        List {
-            if manager.servers.count > 1 {
-                Section("Hesaplar") {
-                    ForEach(manager.servers) { server in
-                        let isActive = manager.activeServer?.id == server.id
-                        Button(action: {
-                            if manager.activeServer?.id != server.id {
-                                manager.setActiveServer(server)
-                                navigateToRoot()
+        VStack(spacing: 0) {
+            List {
+                // HESAPLAR (Birden fazla hesap varsa)
+                if manager.servers.count > 1 {
+                    Section("Hesaplar") {
+                        ForEach(manager.servers) { server in
+                            let isActive = manager.activeServer?.id == server.id
+                            Button(action: {
+                                if manager.activeServer?.id != server.id {
+                                    manager.setActiveServer(server)
+                                    loadPinnedFolders()
+                                    navigateToRoot()
+                                }
+                            }) {
+                                HStack(spacing: 8) {
+                                    Image(systemName: isActive ? "cloud.fill" : "cloud")
+                                        .foregroundColor(isActive ? .indigo : .secondary)
+                                    Text(server.name)
+                                        .font(.system(size: 13, weight: isActive ? .semibold : .regular))
+                                        .foregroundColor(isActive ? .primary : .secondary)
+                                        .lineLimit(1)
+                                    
+                                    Spacer()
+                                    
+                                    if isActive {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .font(.system(size: 11))
+                                            .foregroundColor(.indigo)
+                                    }
+                                }
                             }
-                        }) {
-                            HStack(spacing: 8) {
-                                Image(systemName: isActive ? "cloud.fill" : "cloud")
-                                    .foregroundColor(isActive ? .indigo : .secondary)
-                                Text(server.name)
-                                    .font(.system(size: 13, weight: isActive ? .semibold : .regular))
-                                    .foregroundColor(isActive ? .primary : .secondary)
-                                    .lineLimit(1)
-                                
-                                Spacer()
-                                
-                                if isActive {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .font(.system(size: 11))
-                                        .foregroundColor(.indigo)
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                
+                // KONUMLAR
+                Section("Konumlar") {
+                    let isRoot = currentPath.isEmpty
+                    Button(action: { navigateToRoot() }) {
+                        HStack(spacing: 8) {
+                            Image(systemName: isRoot ? "tray.full.fill" : "tray.full")
+                                .foregroundColor(isRoot ? .accentColor : .secondary)
+                                .font(.system(size: 13))
+                            Text(manager.servers.count > 1 ? "Tüm Dosyalar" : (manager.activeServer?.name ?? "Cloudreve"))
+                                .font(.system(size: 13, weight: isRoot ? .semibold : .regular))
+                                .foregroundColor(isRoot ? .primary : .primary.opacity(0.85))
+                                .lineLimit(1)
+                            Spacer()
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+                
+                // FAVORİLER (Sabitlenen Kısayol Klasörler)
+                Section {
+                    if pinnedFolders.isEmpty {
+                        HStack(spacing: 6) {
+                            Image(systemName: "pin")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                            Text("Klasör sabitlemek için sürükleyin veya sağ tıklayın")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                                .lineLimit(2)
+                        }
+                        .padding(.vertical, 4)
+                    } else {
+                        ForEach(pinnedFolders) { folder in
+                            let isCurrent = currentPath == folder.path
+                            Button(action: { navigateTo(folder.path) }) {
+                                HStack(spacing: 8) {
+                                    Image(systemName: isCurrent ? "folder.fill" : "folder")
+                                        .foregroundColor(isCurrent ? .accentColor : .secondary)
+                                        .font(.system(size: 13))
+                                    
+                                    Text(folder.name)
+                                        .font(.system(size: 13, weight: isCurrent ? .semibold : .regular))
+                                        .foregroundColor(isCurrent ? .primary : .primary.opacity(0.85))
+                                        .lineLimit(1)
+                                    
+                                    Spacer()
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .contextMenu {
+                                Button(action: { navigateTo(folder.path) }) {
+                                    Label("Klasöre Git", systemImage: "folder")
+                                }
+                                Divider()
+                                Button(role: .destructive, action: { unpinFolder(path: folder.path) }) {
+                                    Label("Kenar Çubuğundan Kaldır", systemImage: "pin.slash")
                                 }
                             }
                         }
-                        .buttonStyle(.plain)
+                    }
+                } header: {
+                    HStack {
+                        Text("Favoriler")
+                        Spacer()
+                        if !pinnedFolders.isEmpty {
+                            Text("\(pinnedFolders.count)")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundColor(.secondary)
+                        }
                     }
                 }
-            }
-            
-            Section("Konumlar") {
-                Button(action: { navigateToRoot() }) {
-                    Label(manager.servers.count > 1 ? "Tüm Dosyalar" : (manager.activeServer?.name ?? "Cloudreve"), systemImage: "tray.full.fill")
-                        .foregroundColor(.blue)
+                .onDrop(of: [.plainText, .utf8PlainText, .fileURL], isTargeted: $isSidebarDropTargeted) { providers in
+                    handleSidebarFolderDrop(providers)
                 }
-                .buttonStyle(.plain)
             }
+            .listStyle(.sidebar)
             
-            Section("Araçlar") {
-                Button(action: { showingSettingsSheet = true }) {
-                    Label("Ayarlar...", systemImage: "gearshape")
+            Divider()
+            
+            // SABİT ALT KULLANIM / DEPOLAMA ALANI (Sticky Footer)
+            sidebarStorageFooterView
+        }
+        .navigationSplitViewColumnWidth(min: 190, ideal: 220, max: 260)
+    }
+    
+    // MARK: - Sabit Alt Kullanım / Depolama Bölümü (Sticky Sidebar Footer)
+    private var sidebarStorageFooterView: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let quota = storageQuota {
+                HStack(spacing: 6) {
+                    Image(systemName: "internaldrive.fill")
+                        .font(.system(size: 11))
+                        .foregroundColor(quota.usedPercentage > 0.9 ? .red : (quota.usedPercentage > 0.75 ? .orange : .blue))
+                    
+                    Text("Depolama")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.primary)
+                    
+                    Spacer()
+                    
+                    Text("%\(Int(quota.usedPercentage * 100))")
+                        .font(.system(size: 11, weight: .semibold))
                         .foregroundColor(.secondary)
                 }
-                .buttonStyle(.plain)
-            }
-            
-            if let quota = storageQuota {
-                Section("Depolama") {
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack {
-                            Text("Kullanılan:")
-                                .font(.system(size: 11))
-                                .foregroundColor(.secondary)
-                            Spacer()
-                            Text("\(quota.formattedUsed) / \(quota.formattedTotal)")
-                                .font(.system(size: 11, weight: .medium))
-                        }
-                        
-                        ProgressView(value: quota.usedPercentage)
-                            .progressViewStyle(.linear)
-                            .accentColor(quota.usedPercentage > 0.9 ? .red : (quota.usedPercentage > 0.75 ? .orange : .blue))
-                        
-                        Text("%\(Int(quota.usedPercentage * 100)) dolu")
+                
+                ProgressView(value: quota.usedPercentage)
+                    .progressViewStyle(.linear)
+                    .tint(quota.usedPercentage > 0.9 ? Color.red : (quota.usedPercentage > 0.75 ? Color.orange : Color.blue))
+                    .scaleEffect(x: 1, y: 0.8, anchor: .center)
+                
+                HStack(spacing: 3) {
+                    Text(quota.formattedUsed)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(.primary.opacity(0.85))
+                    
+                    Text("/ \(quota.formattedTotal)")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                    
+                    Spacer()
+                    
+                    Button(action: { loadStorageQuota() }) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 9))
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Depolama bilgisini yenile")
+                }
+            } else {
+                HStack(spacing: 6) {
+                    Image(systemName: "internaldrive")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                    Text("Depolama")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Button(action: { loadStorageQuota() }) {
+                        Image(systemName: "arrow.clockwise")
                             .font(.system(size: 10))
                             .foregroundColor(.secondary)
                     }
-                    .padding(.vertical, 4)
+                    .buttonStyle(.plain)
+                    .help("Depolama bilgisini yenile")
                 }
             }
         }
-        .listStyle(.sidebar)
-        .navigationSplitViewColumnWidth(min: 190, ideal: 215, max: 250)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(Color(NSColor.controlBackgroundColor))
     }
     
     // MARK: - 2. Klasör Yolu Çubuğu (Path Bar)
@@ -672,6 +801,17 @@ public struct NativeExplorerView: View {
                             .foregroundColor(idx == segments.count - 1 ? .primary : .secondary)
                     }
                     .buttonStyle(.plain)
+                    .contextMenu {
+                        if isFolderPinned(path: subPath) {
+                            Button(action: { unpinFolder(path: subPath) }) {
+                                Label("Kenar Çubuğundan Kaldır", systemImage: "pin.slash")
+                            }
+                        } else {
+                            Button(action: { pinFolder(name: segments[idx], path: subPath) }) {
+                                Label("Kenar Çubuğuna Sabitle", systemImage: "pin")
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -948,6 +1088,17 @@ public struct NativeExplorerView: View {
         } else {
             Button(action: { handleDoubleClick(file) }) {
                 Label("Klasörü Aç", systemImage: "folder")
+            }
+            
+            let folderPath = currentPath.isEmpty ? file.name : "\(currentPath)/\(file.name)"
+            if isFolderPinned(path: folderPath) {
+                Button(action: { unpinFolder(path: folderPath) }) {
+                    Label("Kenar Çubuğundan Kaldır", systemImage: "pin.slash")
+                }
+            } else {
+                Button(action: { pinFolder(name: file.name, path: folderPath) }) {
+                    Label("Kenar Çubuğuna Sabitle", systemImage: "pin")
+                }
             }
         }
         
@@ -1523,6 +1674,12 @@ public struct NativeExplorerView: View {
     
     // MARK: - Sürükle ve Bırak (Drag & Drop) Desteği
     private func exportFileForDrag(_ file: RemoteFileItem) -> NSItemProvider {
+        if file.isDirectory {
+            let folderPath = currentPath.isEmpty ? file.name : "\(currentPath)/\(file.name)"
+            let payload = "hdrv-folder:\(file.name)|\(folderPath)"
+            return NSItemProvider(object: payload as NSString)
+        }
+        
         // 1. Yerel eşitleme klasöründe (HDrive - Cloudreve) var mı?
         let syncDir = FolderSyncEngine.shared.localFolderURL
         let relPath = file.href.hasPrefix("/") ? String(file.href.dropFirst()) : file.href
@@ -1541,6 +1698,77 @@ public struct NativeExplorerView: View {
         
         // 3. Önceden indirilmemişse bile dosya URL'i dön
         return NSItemProvider(item: syncFile as NSURL, typeIdentifier: UTType.fileURL.identifier)
+    }
+    
+    // MARK: - Favori Klasörleri Yönetme (Pinned Shortcuts)
+    private var pinnedFoldersKey: String {
+        let serverID = manager.activeServer?.id.uuidString ?? "global"
+        return "HDrive_PinnedFolders_\(serverID)"
+    }
+    
+    private func loadPinnedFolders() {
+        if let data = UserDefaults.standard.data(forKey: pinnedFoldersKey),
+           let items = try? JSONDecoder().decode([PinnedFolder].self, from: data) {
+            self.pinnedFolders = items
+        } else {
+            self.pinnedFolders = []
+        }
+    }
+    
+    private func savePinnedFolders() {
+        if let data = try? JSONEncoder().encode(pinnedFolders) {
+            UserDefaults.standard.set(data, forKey: pinnedFoldersKey)
+        }
+    }
+    
+    private func pinFolder(name: String, path: String) {
+        let cleanPath = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard !cleanPath.isEmpty else { return }
+        if !pinnedFolders.contains(where: { $0.path == cleanPath }) {
+            pinnedFolders.append(PinnedFolder(name: name, path: cleanPath))
+            savePinnedFolders()
+        }
+    }
+    
+    private func unpinFolder(path: String) {
+        let cleanPath = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        pinnedFolders.removeAll(where: { $0.path == cleanPath })
+        savePinnedFolders()
+    }
+    
+    private func isFolderPinned(path: String) -> Bool {
+        let cleanPath = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return pinnedFolders.contains(where: { $0.path == cleanPath })
+    }
+    
+    private func handleSidebarFolderDrop(_ providers: [NSItemProvider]) -> Bool {
+        for provider in providers {
+            _ = provider.loadObject(ofClass: NSString.self) { item, _ in
+                if let str = item as? String, str.hasPrefix("hdrv-folder:") {
+                    let payload = String(str.dropFirst("hdrv-folder:".count))
+                    let parts = payload.components(separatedBy: "|")
+                    if parts.count >= 2 {
+                        let name = parts[0]
+                        let path = parts[1]
+                        DispatchQueue.main.async {
+                            self.pinFolder(name: name, path: path)
+                        }
+                    }
+                }
+            }
+            
+            _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                guard let localURL = url else { return }
+                var isDir: ObjCBool = false
+                if FileManager.default.fileExists(atPath: localURL.path, isDirectory: &isDir), isDir.boolValue {
+                    let folderName = localURL.lastPathComponent
+                    DispatchQueue.main.async {
+                        self.pinFolder(name: folderName, path: folderName)
+                    }
+                }
+            }
+        }
+        return true
     }
     
     private func handleDroppedFiles(_ providers: [NSItemProvider]) {
