@@ -64,6 +64,11 @@ public struct NativeExplorerView: View {
     @State private var renamingFileID: String? = nil
     @State private var renamingText: String = ""
     
+    // Sekme Hover Durumları
+    @State private var hoveredTabID: UUID? = nil
+    @State private var hoveredCloseTabID: UUID? = nil
+    @State private var isPlusHovered: Bool = false
+    
     // Modallar ve Diyaloglar
     @State private var showingSettingsSheet: Bool = false
     @State private var showingDiagnosticsSheet: Bool = false
@@ -88,10 +93,8 @@ public struct NativeExplorerView: View {
         } detail: {
             // SAĞ ANA BÖLÜM (Klasör Dosya Gezgini)
             VStack(spacing: 0) {
-                // Sekmeler Çubuğu (Tabs Bar)
+                // Sekmeler Çubuğu (Finder Birebir Sekmeler)
                 tabBarView
-                
-                Divider()
                 
                 // Klasör Yolu Çubuğu (Finder Path Bar & Arama)
                 pathBarView
@@ -288,71 +291,159 @@ public struct NativeExplorerView: View {
         .frame(width: 0, height: 0)
         .opacity(0)
     }
-    private func tabItemView(tab: ExplorerTab) -> some View {
+    private func tabItemView(tab: ExplorerTab, isFirst: Bool, isLast: Bool) -> some View {
         let isActive = (tab.id == activeTabID)
-        return HStack(spacing: 7) {
-            Image(systemName: tab.path.isEmpty ? "cloud.fill" : "folder.fill")
-                .font(.system(size: 11))
-                .foregroundColor(isActive ? .accentColor : .secondary)
-            
-            Text(tab.title)
-                .font(.system(size: 12, weight: isActive ? .semibold : .regular))
-                .lineLimit(1)
-                .foregroundColor(isActive ? .primary : .secondary)
-            
-            if tabs.count > 1 {
-                Button(action: { closeTab(tab.id) }) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundColor(isActive ? Color.primary.opacity(0.7) : Color.secondary)
-                        .padding(3)
-                        .background(Circle().fill(Color.primary.opacity(isActive ? 0.12 : 0.06)))
-                }
-                .buttonStyle(.plain)
-                .help("Sekmeyi Kapat (⌘W)")
+        let isTabHovered = (hoveredTabID == tab.id)
+        let isCloseHovered = (hoveredCloseTabID == tab.id)
+        
+        return ZStack {
+            // Arka Plan Dolgusu (Finder Mantığı: Aktif sekme alttaki pencereyle tek parça birleşir)
+            if isActive {
+                Color(NSColor.windowBackgroundColor)
+            } else if isTabHovered {
+                Color.primary.opacity(0.04)
+            } else {
+                Color.clear
             }
+            
+            HStack(spacing: 6) {
+                Spacer(minLength: 4)
+                
+                Image(systemName: tab.path.isEmpty ? "cloud.fill" : "folder.fill")
+                    .font(.system(size: 12))
+                    .foregroundColor(isActive ? Color(nsColor: .systemBlue) : .secondary.opacity(0.75))
+                
+                Text(tab.title)
+                    .font(.system(size: 11.5, weight: isActive ? .medium : .regular))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .foregroundColor(isActive ? .primary : .secondary)
+                
+                Spacer(minLength: 4)
+                
+                // Kapatma Butonu (xmark) - Finder tarzı hover veya aktifken görünür
+                if tabs.count > 1 {
+                    Button(action: { closeTab(tab.id) }) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 7.5, weight: .bold))
+                            .foregroundColor(isCloseHovered ? .primary : ((isActive || isTabHovered) ? Color.secondary : Color.clear))
+                            .frame(width: 15, height: 15)
+                            .background(
+                                Circle()
+                                    .fill(isCloseHovered ? Color.primary.opacity(0.14) : Color.clear)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .help("Sekmeyi Kapat (⌘W)")
+                    .onHover { hovering in
+                        hoveredCloseTabID = hovering ? tab.id : nil
+                    }
+                }
+            }
+            .padding(.horizontal, 8)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(isActive ? Color(NSColor.controlBackgroundColor) : Color.clear)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Rectangle())
+        .overlay(
+            // Aktif sekmenin altındaki çizgiyi gizleyip alttaki içeriğe bağlayan Finder katmanı
+            Group {
+                if isActive {
+                    VStack {
+                        Spacer()
+                        Rectangle()
+                            .fill(Color(NSColor.windowBackgroundColor))
+                            .frame(height: 1)
+                    }
+                }
+            }
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(isActive ? Color.accentColor.opacity(0.35) : Color.clear, lineWidth: 1)
+            // Aktif sekmenin sol/sağ sınır çizgileri
+            Group {
+                if isActive {
+                    HStack {
+                        if !isFirst {
+                            Rectangle()
+                                .fill(Color(NSColor.separatorColor).opacity(0.55))
+                                .frame(width: 0.5)
+                        }
+                        Spacer()
+                        Rectangle()
+                            .fill(Color(NSColor.separatorColor).opacity(0.55))
+                            .frame(width: 0.5)
+                    }
+                }
+            }
         )
-        .contentShape(Rectangle())
         .onTapGesture {
             switchToTab(tab.id)
         }
-    }
-
-    private var tabBarView: some View {
-        HStack(spacing: 0) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 4) {
-                    ForEach(tabs) { tab in
-                        tabItemView(tab: tab)
-                    }
-                    
-                    // Yeni Sekme (+) Butonu
-                    Button(action: { addNewTab() }) {
-                        Image(systemName: "plus")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundColor(.secondary)
-                            .padding(6)
-                            .background(RoundedRectangle(cornerRadius: 5).fill(Color.secondary.opacity(0.12)))
-                    }
-                    .buttonStyle(.plain)
-                    .help("Yeni Sekme Aç (⌘T)")
-                    .padding(.leading, 2)
+        .onHover { hovering in
+            hoveredTabID = hovering ? tab.id : nil
+        }
+        .contextMenu {
+            Button(action: { addNewTab() }) {
+                Label("Yeni Sekme", systemImage: "plus")
+            }
+            if tabs.count > 1 {
+                Button(action: { closeTab(tab.id) }) {
+                    Label("Sekmeyi Kapat", systemImage: "xmark")
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
+                Button(action: { closeOtherTabs(except: tab.id) }) {
+                    Label("Diğer Sekmeleri Kapat", systemImage: "xmark.circle")
+                }
             }
         }
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
+    }
+
+    // MARK: - 0. Sekmeler Çubuğu (Finder Birebir Sekme Tasarımı)
+    private var tabBarView: some View {
+        HStack(spacing: 0) {
+            // Sekmeler (Eşit Genişlikte Finder Segmentleri)
+            HStack(spacing: 0) {
+                ForEach(Array(tabs.enumerated()), id: \.element.id) { index, tab in
+                    tabItemView(tab: tab, isFirst: index == 0, isLast: index == tabs.count - 1)
+                    
+                    // İki inaktif sekme arasındaki dikey ince ayırıcı
+                    if index < tabs.count - 1 && activeTabID != tab.id && activeTabID != tabs[index + 1].id {
+                        Rectangle()
+                            .fill(Color(NSColor.separatorColor).opacity(0.45))
+                            .frame(width: 0.5, height: 16)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity)
+            
+            // Yeni Sekme Ekle (+) Butonu (Finder tarzı sağa sabitlenmiş)
+            Button(action: { addNewTab() }) {
+                Image(systemName: "plus")
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundColor(isPlusHovered ? .primary : .secondary)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Yeni Sekme Aç (⌘T)")
+            .background(isPlusHovered ? Color.primary.opacity(0.05) : Color.clear)
+            .overlay(
+                Rectangle()
+                    .fill(Color(NSColor.separatorColor).opacity(0.45))
+                    .frame(width: 0.5, height: 18),
+                alignment: .leading
+            )
+            .onHover { hovering in
+                isPlusHovered = hovering
+            }
+        }
+        .frame(height: 28)
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.85))
+        .overlay(
+            // Alt yatay sınır çizgisi
+            Rectangle()
+                .fill(Color(NSColor.separatorColor).opacity(0.55))
+                .frame(height: 0.5),
+            alignment: .bottom
+        )
     }
     
     // MARK: - Liste Sütun Başlıkları (Click-to-Sort Headers)
@@ -491,7 +582,7 @@ public struct NativeExplorerView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 7)
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.35))
+        .background(Color(NSColor.windowBackgroundColor))
     }
     
     // MARK: - Ekmek Kırıntısı (Breadcrumbs)
@@ -1090,6 +1181,14 @@ public struct NativeExplorerView: View {
             let newIndex = min(index, tabs.count - 1)
             let nextTab = tabs[newIndex]
             switchToTab(nextTab.id)
+        }
+    }
+    
+    private func closeOtherTabs(except id: UUID) {
+        guard tabs.count > 1 else { return }
+        tabs.removeAll { $0.id != id }
+        if activeTabID != id {
+            switchToTab(id)
         }
     }
     
