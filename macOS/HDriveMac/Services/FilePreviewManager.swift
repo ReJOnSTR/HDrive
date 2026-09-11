@@ -80,7 +80,7 @@ public final class FilePreviewManager: ObservableObject {
     @Published public var cachedImages: [String: NSImage] = [:]
     @Published public var loadingPreviewIDs: Set<String> = []
     
-    private let previewCacheDir: URL = {
+    public let previewCacheDir: URL = {
         let paths = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)
         let dir = paths[0].appendingPathComponent("HDrivePreviews", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

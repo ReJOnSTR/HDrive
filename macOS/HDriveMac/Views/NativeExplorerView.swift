@@ -161,6 +161,16 @@ public struct NativeExplorerView: View {
             Button("Oluştur", action: createFolder)
             Button("İptal", role: .cancel) { newFolderName = "" }
         }
+        .alert("Uyarı", isPresented: Binding(
+            get: { statusAlertMessage != nil },
+            set: { if !$0 { statusAlertMessage = nil } }
+        )) {
+            Button("Tamam", role: .cancel) {
+                statusAlertMessage = nil
+            }
+        } message: {
+            Text(statusAlertMessage ?? "")
+        }
     }
     
     // MARK: - Araç Çubuğu ve Kısayollar (Toolbar & Shortcuts)
@@ -929,6 +939,9 @@ public struct NativeExplorerView: View {
     @ViewBuilder
     private func fileContextMenu(_ file: RemoteFileItem) -> some View {
         if !file.isDirectory {
+            Button(action: { openFileDirectly(file) }) {
+                Label("Aç", systemImage: "arrow.up.forward.app")
+            }
             Button(action: { triggerQuickLook(for: file) }) {
                 Label("Görüntüle (Hızlı Bakış)", systemImage: "eye")
             }
@@ -1033,15 +1046,28 @@ public struct NativeExplorerView: View {
         .background(Color(NSColor.controlBackgroundColor))
     }
     
-    // MARK: - Dosyaya Çift Tıklama Mantığı (Doğrudan Quick Look ile Görüntüle - Dosya İndirilmez)
+    // MARK: - Dosyaya Çift Tıklama Mantığı (Mac'in Yerel Programıyla Doğrudan Açar)
     private func handleDoubleClick(_ file: RemoteFileItem) {
         if file.isDirectory {
             // Klasör ise içine gir
             let newPath = currentPath.isEmpty ? file.name : "\(currentPath)/\(file.name)"
             navigateTo(newPath)
         } else {
-            // DOSYA İSE: ASLA YERELE İNDİRME! DOĞRUDAN ANLIK QUICK LOOK İLE GÖRÜNTÜLE!
-            triggerQuickLook(for: file)
+            // Dosya ise Mac'in varsayılan uygulamasıyla (Excel, Word, Preview, VLC vb.) doğrudan aç
+            openFileDirectly(file)
+        }
+    }
+    
+    private func openFileDirectly(_ file: RemoteFileItem) {
+        guard let server = manager.activeServer, !server.serverURL.isEmpty else {
+            statusAlertMessage = "Lütfen önce bir sunucu seçin veya yapılandırın."
+            return
+        }
+        let client = WebDAVClient(config: server)
+        opener.openFileNatively(file: file, client: client) { success, errorMsg in
+            if !success, let msg = errorMsg {
+                self.statusAlertMessage = msg
+            }
         }
     }
     

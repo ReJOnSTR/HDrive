@@ -21,26 +21,57 @@ public final class FileOpener: ObservableObject {
     
     private init() {}
     
-    /// Uzak Cloudreve dosyasını Mac'in varsayılan uygulamasıyla (Word, VLC, Preview, Acrobat vb.) açar
+    /// Uzak Cloudreve dosyasını Mac'in varsayılan uygulamasıyla (Excel, Word, Preview, VLC, Figma vb.) açar
     public func openFileNatively(file: RemoteFileItem, client: WebDAVClient, completion: @escaping (Bool, String?) -> Void) {
-        // 1. Önce Finder'da bağlı bir disk var mı kontrol et
+        // 1. Finder'da bağlı bir ağ diski var mı kontrol et
         if DriveMounter.shared.isMounted, let mountPoint = DriveMounter.shared.mountPoint {
-            let relativeClean = file.href.hasPrefix("/") ? String(file.href.dropFirst()) : file.href
-            let candidateURL = mountPoint.appendingPathComponent(relativeClean)
+            var subPath = file.href
+            if subPath.hasPrefix("/dav") {
+                subPath = String(subPath.dropFirst(4))
+            }
+            subPath = subPath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            let candidateURL = mountPoint.appendingPathComponent(subPath)
             if FileManager.default.fileExists(atPath: candidateURL.path) {
-                // Doğrudan disk üzerinden yerel aç
-                NSWorkspace.shared.open(candidateURL)
+                if NSWorkspace.shared.open(candidateURL) {
+                    completion(true, nil)
+                    return
+                }
+            }
+        }
+        
+        // 2. Senkronize klasörde var mı kontrol et
+        let syncCandidate = FolderSyncEngine.shared.localFolderURL.appendingPathComponent(file.name)
+        if FileManager.default.fileExists(atPath: syncCandidate.path) {
+            if NSWorkspace.shared.open(syncCandidate) {
                 completion(true, nil)
                 return
             }
         }
         
-        // 2. Eğer disk bağlı değilse veya dosya bulunamazsa: Dosyayı önbelleğe indirip yerel programla aç
-        let localFile = cacheDir.appendingPathComponent(file.name)
+        // 3. Önizleme önbelleğinde zaten mevcut ve boyutu geçerli mi?
+        let previewCandidate = FilePreviewManager.shared.previewCacheDir.appendingPathComponent(file.name)
+        if let attrs = try? FileManager.default.attributesOfItem(atPath: previewCandidate.path),
+           let size = attrs[.size] as? Int64, size > 0 {
+            if NSWorkspace.shared.open(previewCandidate) {
+                completion(true, nil)
+                return
+            }
+        }
         
+        // 4. HDriveFiles önbelleğinde zaten mevcut ve boyutu geçerli mi?
+        let localFile = cacheDir.appendingPathComponent(file.name)
+        if let attrs = try? FileManager.default.attributesOfItem(atPath: localFile.path),
+           let size = attrs[.size] as? Int64, size > 0 {
+            if NSWorkspace.shared.open(localFile) {
+                completion(true, nil)
+                return
+            }
+        }
+        
+        // 5. Yerel kopya yoksa arka planda hızlıca indir ve varsayılan Mac uygulamasıyla aç
         DispatchQueue.main.async {
             self.openingFile = file.name
-            self.downloadProgress = 0.1
+            self.downloadProgress = 0.05
         }
         
         client.downloadFile(href: file.href, to: localFile, progress: { progress in
@@ -57,12 +88,14 @@ public final class FileOpener: ObservableObject {
                     return
                 }
                 
-                // Mac'in varsayılan yerel programıyla aç (Preview, Word, VLC, QuickTime vb.)
+                // Mac'in varsayılan yerel programıyla aç (Excel, Word, Preview, VLC vb.)
                 let success = NSWorkspace.shared.open(localFile)
                 if success {
                     completion(true, nil)
                 } else {
-                    completion(false, "Bu dosya formatını açabilecek uygun bir Mac uygulaması bulunamadı.")
+                    // Özel bir varsayılan program tanımlı değilse Finder'da dosyayı seçerek göster
+                    NSWorkspace.shared.activateFileViewerSelecting([localFile])
+                    completion(true, nil)
                 }
             }
         }

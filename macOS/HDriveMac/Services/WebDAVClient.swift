@@ -182,12 +182,43 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, XMLParserDelegate
         task.resume()
     }
     
-    /// Dosya İndirir
+    /// WebDAV indirme adresini güvenli ve doğru biçimde oluşturur
+    public func downloadURL(for href: String) -> URL? {
+        let trimmed = href.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") {
+            if let directURL = URL(string: trimmed) { return directURL }
+            let unencoded = trimmed.removingPercentEncoding ?? trimmed
+            return URL(string: unencoded.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? unencoded)
+        }
+        guard let baseURL = URL(string: config.serverURL) else { return nil }
+        
+        let unencodedHref = trimmed.removingPercentEncoding ?? trimmed
+        let isAbsolute = unencodedHref.hasPrefix("/")
+        let segments = unencodedHref.components(separatedBy: "/").filter { !$0.isEmpty }
+        let encodedPath = (isAbsolute ? "/" : "") + segments.map {
+            $0.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? $0
+        }.joined(separator: "/")
+        
+        var baseComponents = URLComponents(url: baseURL, resolvingAgainstBaseURL: true)
+        let basePath = (baseURL.path.hasSuffix("/") ? String(baseURL.path.dropLast()) : baseURL.path)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        
+        if isAbsolute {
+            if !basePath.isEmpty && !encodedPath.hasPrefix("/" + basePath) {
+                baseComponents?.percentEncodedPath = "/" + basePath + encodedPath
+            } else {
+                baseComponents?.percentEncodedPath = encodedPath
+            }
+            return baseComponents?.url
+        } else {
+            return URL(string: encodedPath, relativeTo: baseURL)?.absoluteURL
+        }
+    }
+    
+    /// Dosya İndirir (HTTP durum kodu kontrolü ve güvenli taşıma)
     public func downloadFile(href: String, to localDestination: URL, progress: @escaping (Double) -> Void, completion: @escaping (Error?) -> Void) {
-        let cleanHref = href.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? href
-        guard let baseURL = URL(string: config.serverURL),
-              let url = URL(string: cleanHref, relativeTo: baseURL)?.absoluteURL ?? URL(string: href) else {
-            completion(NSError(domain: "HDrive", code: 400, userInfo: [NSLocalizedDescriptionKey: "Geçersiz dosya adresi"]))
+        guard let url = downloadURL(for: href) else {
+            completion(NSError(domain: "HDrive", code: 400, userInfo: [NSLocalizedDescriptionKey: "Geçersiz dosya adresi: \(href)"]))
             return
         }
         
@@ -199,12 +230,23 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, XMLParserDelegate
                 DispatchQueue.main.async { completion(error) }
                 return
             }
+            
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 500
+            guard (200...299).contains(statusCode) else {
+                DispatchQueue.main.async {
+                    completion(NSError(domain: "HDrive", code: statusCode, userInfo: [NSLocalizedDescriptionKey: "Sunucu hatası (HTTP \(statusCode)). Dosya indirilemedi."]))
+                }
+                return
+            }
+            
             guard let tempURL = tempURL else {
-                DispatchQueue.main.async { completion(NSError(domain: "HDrive", code: 500, userInfo: [NSLocalizedDescriptionKey: "İndirme dosyası bulunamadı"])) }
+                DispatchQueue.main.async { completion(NSError(domain: "HDrive", code: 500, userInfo: [NSLocalizedDescriptionKey: "İndirilen geçici dosya bulunamadı"])) }
                 return
             }
             
             do {
+                let parentDir = localDestination.deletingLastPathComponent()
+                try FileManager.default.createDirectory(at: parentDir, withIntermediateDirectories: true)
                 try? FileManager.default.removeItem(at: localDestination)
                 try FileManager.default.moveItem(at: tempURL, to: localDestination)
                 DispatchQueue.main.async { completion(nil) }
