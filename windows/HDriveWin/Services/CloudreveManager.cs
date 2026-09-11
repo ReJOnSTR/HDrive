@@ -28,7 +28,19 @@ public class CloudreveManager
         ActiveServer = config;
         try
         {
-            var json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
+            if (!string.IsNullOrEmpty(config.Password))
+            {
+                CredentialService.SavePassword(config.Username, config.Password);
+            }
+
+            var cleanConfig = new ServerConfig
+            {
+                Name = config.Name,
+                ServerURL = config.ServerURL,
+                Username = config.Username,
+                Password = ""
+            };
+            var json = JsonSerializer.Serialize(cleanConfig, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(_configFilePath, json);
         }
         catch { }
@@ -42,7 +54,19 @@ public class CloudreveManager
             {
                 var json = File.ReadAllText(_configFilePath);
                 var cfg = JsonSerializer.Deserialize<ServerConfig>(json);
-                if (cfg != null) return cfg;
+                if (cfg != null)
+                {
+                    var securePass = CredentialService.GetPassword(cfg.Username);
+                    if (!string.IsNullOrEmpty(securePass))
+                    {
+                        cfg.Password = securePass;
+                    }
+                    else if (!string.IsNullOrEmpty(cfg.Password))
+                    {
+                        CredentialService.SavePassword(cfg.Username, cfg.Password);
+                    }
+                    return cfg;
+                }
             }
         }
         catch { }

@@ -360,6 +360,16 @@ public sealed partial class MainWindow : Window
             e.Handled = true;
             await HandleOpenItemAsync(_selectedItem);
         }
+        else if (e.Key == Windows.System.VirtualKey.F2 && _selectedItem != null)
+        {
+            e.Handled = true;
+            await PromptRenameItemAsync(_selectedItem);
+        }
+        else if (e.Key == Windows.System.VirtualKey.Delete && _selectedItem != null)
+        {
+            e.Handled = true;
+            ContextDelete_Click(sender, null);
+        }
     }
 
     private async Task HandleOpenItemAsync(FileItem item)
@@ -814,6 +824,54 @@ public sealed partial class MainWindow : Window
         if (_selectedItem != null && !_selectedItem.IsDirectory)
         {
             await OpenFileAsync(_selectedItem);
+        }
+    }
+
+    private async void ContextRename_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selectedItem != null)
+        {
+            await PromptRenameItemAsync(_selectedItem);
+        }
+    }
+
+    private async Task PromptRenameItemAsync(FileItem item)
+    {
+        var inputTextBox = new TextBox
+        {
+            Text = item.Name,
+            SelectionStart = 0,
+            SelectionLength = item.Name.LastIndexOf('.') > 0 ? item.Name.LastIndexOf('.') : item.Name.Length
+        };
+
+        var renameDialog = new ContentDialog
+        {
+            Title = "Yeniden Adlandır",
+            Content = inputTextBox,
+            PrimaryButtonText = "Yeniden Adlandır",
+            CloseButtonText = "İptal",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = this.Content.XamlRoot
+        };
+
+        var result = await renameDialog.ShowAsync();
+        if (result == ContentDialogResult.Primary)
+        {
+            var newName = inputTextBox.Text?.Trim();
+            if (string.IsNullOrWhiteSpace(newName) || newName == item.Name) return;
+
+            var server = CloudreveManager.Instance.ActiveServer;
+            if (server == null) return;
+
+            var client = new WebDAVClient(server);
+            var parent = _currentPath.TrimEnd('/');
+            var destPath = string.IsNullOrEmpty(parent) ? "/" + newName : parent + "/" + newName;
+
+            var success = await client.MoveAsync(item.Path, destPath);
+            if (success)
+            {
+                await LoadDirectoryAsync(_currentPath);
+            }
         }
     }
 

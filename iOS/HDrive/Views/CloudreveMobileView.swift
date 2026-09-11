@@ -24,6 +24,9 @@ public struct CloudreveMobileView: View {
     @State private var isLoading = false
     @State private var showingNewFolderAlert = false
     @State private var newFolderName = ""
+    @State private var showingRenameAlert = false
+    @State private var itemToRename: RemoteFileItem? = nil
+    @State private var renamingName = ""
     
     // Sıralama Durumları
     @State private var sortField: FileSortField = .name
@@ -108,6 +111,11 @@ public struct CloudreveMobileView: View {
                 TextField("Klasör Adı", text: $newFolderName)
                 Button("Oluştur", action: createFolder)
                 Button("İptal", role: .cancel) { newFolderName = "" }
+            }
+            .alert("Yeniden Adlandır", isPresented: $showingRenameAlert) {
+                TextField("Yeni İsim", text: $renamingName)
+                Button("Tamam", action: commitRename)
+                Button("İptal", role: .cancel) { renamingName = ""; itemToRename = nil }
             }
             .onChange(of: selectedPhotos) { items in
                 uploadSelectedPhotos(items)
@@ -246,6 +254,26 @@ public struct CloudreveMobileView: View {
                                 Label("Sil", systemImage: "trash")
                             }
                         }
+                        .swipeActions(edge: .leading) {
+                            Button {
+                                startRenaming(file)
+                            } label: {
+                                Label("Yeniden Adlandır", systemImage: "pencil")
+                            }
+                            .tint(.orange)
+                        }
+                        .contextMenu {
+                            Button {
+                                startRenaming(file)
+                            } label: {
+                                Label("Yeniden Adlandır", systemImage: "pencil")
+                            }
+                            Button(role: .destructive) {
+                                deleteFile(file)
+                            } label: {
+                                Label("Sil", systemImage: "trash")
+                            }
+                        }
                     }
                 }
                 .listStyle(.plain)
@@ -325,6 +353,35 @@ public struct CloudreveMobileView: View {
         guard let server = manager.activeServer else { return }
         let client = WebDAVClient(config: server)
         client.delete(at: file.href) { error in
+            if error == nil {
+                refreshFiles()
+            }
+        }
+    }
+    
+    private func startRenaming(_ file: RemoteFileItem) {
+        itemToRename = file
+        renamingName = file.name
+        showingRenameAlert = true
+    }
+    
+    private func commitRename() {
+        guard let file = itemToRename, let server = manager.activeServer else { return }
+        let newName = renamingName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !newName.isEmpty, newName != file.name else {
+            itemToRename = nil
+            renamingName = ""
+            return
+        }
+        
+        let client = WebDAVClient(config: server)
+        let basePath = currentPath.isEmpty ? "" : currentPath + "/"
+        let sourcePath = basePath + file.name
+        let destPath = basePath + newName
+        
+        client.move(from: sourcePath, to: destPath, overwrite: false) { error in
+            itemToRename = nil
+            renamingName = ""
             if error == nil {
                 refreshFiles()
             }

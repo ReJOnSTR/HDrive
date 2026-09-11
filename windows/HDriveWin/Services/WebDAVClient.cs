@@ -236,4 +236,22 @@ public class WebDAVClient
             return false;
         }
     }
+
+    public async Task<bool> MoveAsync(string sourceRemotePath, string destRemotePath, bool overwrite = false)
+    {
+        var sourceUri = BuildUri(sourceRemotePath);
+        var destUri = BuildUri(destRemotePath);
+        try
+        {
+            var request = new HttpRequestMessage(new HttpMethod("MOVE"), sourceUri);
+            request.Headers.Add("Destination", destUri.AbsoluteUri);
+            request.Headers.Add("Overwrite", overwrite ? "T" : "F");
+            var response = await _httpClient.SendAsync(request);
+            return response.IsSuccessStatusCode;
+        }
+        catch
+        {
+            return false;
+        }
+    }
 }

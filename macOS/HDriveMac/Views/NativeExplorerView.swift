@@ -56,13 +56,17 @@ public struct NativeExplorerView: View {
     @State private var showPreviewPane: Bool = false
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     
-    // Seçili ve Vurgulanan Dosya
+    // Seçili ve Vurgulanan Dosya (Çoklu Seçim & İsim Değiştirme)
     @State private var selectedFileID: String? = nil
+    @State private var selectedFileIDs: Set<String> = []
     @State private var hoveredFileID: String? = nil
     @State private var quickLookURL: URL? = nil
+    @State private var renamingFileID: String? = nil
+    @State private var renamingText: String = ""
     
     // Modallar ve Diyaloglar
     @State private var showingSettingsSheet: Bool = false
+    @State private var showingDiagnosticsSheet: Bool = false
     @State private var showingNewFolderAlert: Bool = false
     @State private var newFolderName: String = ""
     @State private var statusAlertMessage: String? = nil
@@ -116,128 +120,12 @@ public struct NativeExplorerView: View {
             .background(Color(NSColor.windowBackgroundColor))
             .navigationTitle(currentPath.isEmpty ? (manager.activeServer?.name ?? "Cloudreve") : (currentPath as NSString).lastPathComponent)
             .toolbar {
-                // SOL: Geri & İleri Butonları (Yerleşik Sidebar Aç/Kapa simgesinin hemen yanında sabit)
-                ToolbarItemGroup(placement: .navigation) {
-                    Button(action: goBack) {
-                        Image(systemName: "chevron.left")
-                    }
-                    .disabled(historyIndex <= 0)
-                    .help("Geri")
-                    
-                    Button(action: goForward) {
-                        Image(systemName: "chevron.right")
-                    }
-                    .disabled(historyIndex >= pathHistory.count - 1)
-                    .help("İleri")
-                }
-                
-                // SAĞ: Klasör İşlemleri, Görünüm ve Ayarlar (Sağ üste kilitli)
-                ToolbarItemGroup(placement: .primaryAction) {
-                    // Görünüm Değiştirici (Izgara / Liste)
-                    Picker("Görünüm", selection: $isGridView) {
-                        Image(systemName: "square.grid.2x2").tag(true)
-                        Image(systemName: "list.bullet").tag(false)
-                    }
-                    .pickerStyle(.segmented)
-                    .help("Görünüm Biçimi")
-                    
-                    // Sıralama Menüsü
-                    Menu {
-                        Section("Sıralama Ölçütü") {
-                            ForEach(FileSortField.allCases) { field in
-                                Button(action: { sortField = field }) {
-                                    HStack {
-                                        Text(field.rawValue)
-                                        if sortField == field {
-                                            Image(systemName: "checkmark")
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        
-                        Section("Sıralama Yönü") {
-                            Button(action: { sortAscending = true }) {
-                                HStack {
-                                    Text("Artan (A-Z, Eski-Yeni)")
-                                    if sortAscending {
-                                        Image(systemName: "checkmark")
-                                    }
-                                }
-                            }
-                            Button(action: { sortAscending = false }) {
-                                HStack {
-                                    Text("Azalan (Z-A, Yeni-Eski)")
-                                    if !sortAscending {
-                                        Image(systemName: "checkmark")
-                                    }
-                                }
-                            }
-                        }
-                        
-                        Section {
-                            Toggle("Klasörleri Üstte Tut", isOn: $foldersFirst)
-                        }
-                    } label: {
-                        Image(systemName: "arrow.up.arrow.down")
-                    }
-                    .help("Sırala")
-                    
-                    // Önizleme Bölmesi Butonu
-                    Button(action: togglePreviewPane) {
-                        Image(systemName: "sidebar.right")
-                            .foregroundColor(showPreviewPane ? .accentColor : .primary)
-                    }
-                    .help("Önizleme Bölmesini Göster / Gizle")
-                    
-                    // Yeni Klasör Butonu
-                    Button(action: { showingNewFolderAlert = true }) {
-                        Label("Yeni Klasör", systemImage: "folder.badge.plus")
-                    }
-                    .help("Yeni Klasör Oluştur")
-                    
-                    // Dosya Yükle Butonu
-                    Button(action: uploadFile) {
-                        Label("Yükle", systemImage: "arrow.up.circle.fill")
-                    }
-                    .help("Dosya Yükle")
-                    
-                    // Yenile Butonu
-                    Button(action: { loadDirectory(at: currentPath) }) {
-                        Label("Yenile", systemImage: "arrow.clockwise")
-                    }
-                    .help("Yenile")
-                    
-                    // Ayarlar Dişli Çarkı
-                    Button(action: { showingSettingsSheet = true }) {
-                        Label("Ayarlar", systemImage: "gearshape")
-                    }
-                    .help("Cloudreve Ayarları")
-                }
+                explorerToolbar
             }
             .searchable(text: $searchText, placement: .toolbar, prompt: "Ara...")
             .focusEffectDisabled()
             .quickLookPreview($quickLookURL)
-            .background(
-                Group {
-                    Button(action: { addNewTab() }) { EmptyView() }
-                        .keyboardShortcut("t", modifiers: .command)
-                    
-                    Button(action: { closeTab(activeTabID) }) { EmptyView() }
-                        .keyboardShortcut("w", modifiers: .command)
-                    
-                    Button(action: {
-                        if let selID = selectedFileID, let file = files.first(where: { $0.id == selID }) {
-                            triggerQuickLook(for: file)
-                        }
-                    }) {
-                        EmptyView()
-                    }
-                    .keyboardShortcut(.space, modifiers: [])
-                }
-                .frame(width: 0, height: 0)
-                .opacity(0)
-            )
+            .background(keyboardShortcutsOverlay)
         }
         .background(ToolbarCustomizer())
         .frame(minWidth: 800, minHeight: 560)
@@ -256,6 +144,9 @@ public struct NativeExplorerView: View {
                 loadDirectory(at: currentPath)
             }
         }
+        .sheet(isPresented: $showingDiagnosticsSheet) {
+            DiagnosticsSheetView(isPresented: $showingDiagnosticsSheet)
+        }
         .alert("Yeni Klasör Oluştur", isPresented: $showingNewFolderAlert) {
             TextField("Klasör Adı", text: $newFolderName)
             Button("Oluştur", action: createFolder)
@@ -263,7 +154,140 @@ public struct NativeExplorerView: View {
         }
     }
     
-    // MARK: - 0. Sekmeler Çubuğu (Tabs Bar)
+    // MARK: - Araç Çubuğu ve Kısayollar (Toolbar & Shortcuts)
+    @ToolbarContentBuilder
+    private var explorerToolbar: some ToolbarContent {
+        ToolbarItemGroup(placement: .navigation) {
+            Button(action: goBack) {
+                Image(systemName: "chevron.left")
+            }
+            .disabled(historyIndex <= 0)
+            .help("Geri")
+            
+            Button(action: goForward) {
+                Image(systemName: "chevron.right")
+            }
+            .disabled(historyIndex >= pathHistory.count - 1)
+            .help("İleri")
+        }
+        
+        ToolbarItemGroup(placement: .primaryAction) {
+            Picker("Görünüm", selection: $isGridView) {
+                Image(systemName: "square.grid.2x2").tag(true)
+                Image(systemName: "list.bullet").tag(false)
+            }
+            .pickerStyle(.segmented)
+            .help("Görünüm Biçimi")
+            
+            sortMenu
+            
+            Button(action: togglePreviewPane) {
+                Image(systemName: "sidebar.right")
+                    .foregroundColor(showPreviewPane ? .accentColor : .primary)
+            }
+            .help("Önizleme Bölmesini Göster / Gizle")
+            
+            Button(action: { showingNewFolderAlert = true }) {
+                Label("Yeni Klasör", systemImage: "folder.badge.plus")
+            }
+            .help("Yeni Klasör Oluştur")
+            
+            Button(action: uploadFile) {
+                Label("Yükle", systemImage: "arrow.up.circle.fill")
+            }
+            .help("Dosya Yükle")
+            
+            Button(action: { loadDirectory(at: currentPath) }) {
+                Label("Yenile", systemImage: "arrow.clockwise")
+            }
+            .help("Yenile")
+            
+            Button(action: { showingSettingsSheet = true }) {
+                Label("Ayarlar", systemImage: "gearshape")
+            }
+            .help("Cloudreve Ayarları")
+        }
+    }
+    
+    private var sortMenu: some View {
+        Menu {
+            Section("Sıralama Ölçütü") {
+                ForEach(FileSortField.allCases) { field in
+                    Button(action: { sortField = field }) {
+                        HStack {
+                            Text(field.rawValue)
+                            if sortField == field {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+            }
+            
+            Section("Sıralama Yönü") {
+                Button(action: { sortAscending = true }) {
+                    HStack {
+                        Text("Artan (A-Z, Eski-Yeni)")
+                        if sortAscending {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+                Button(action: { sortAscending = false }) {
+                    HStack {
+                        Text("Azalan (Z-A, Yeni-Eski)")
+                        if !sortAscending {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+            
+            Section {
+                Toggle("Klasörleri Üstte Tut", isOn: $foldersFirst)
+            }
+        } label: {
+            Image(systemName: "arrow.up.arrow.down")
+        }
+        .help("Sırala")
+    }
+    
+    private var keyboardShortcutsOverlay: some View {
+        Group {
+            Button(action: { addNewTab() }) { EmptyView() }
+                .keyboardShortcut("t", modifiers: .command)
+            
+            Button(action: { closeTab(activeTabID) }) { EmptyView() }
+                .keyboardShortcut("w", modifiers: .command)
+            
+            Button(action: selectAllFiles) { EmptyView() }
+                .keyboardShortcut("a", modifiers: .command)
+            
+            Button(action: deleteSelectedFiles) { EmptyView() }
+                .keyboardShortcut(.delete, modifiers: .command)
+            
+            Button(action: {
+                if let sel = selectedFileID, let file = files.first(where: { $0.id == sel }) {
+                    startRenaming(file)
+                }
+            }) { EmptyView() }
+            .keyboardShortcut(.return, modifiers: [])
+            
+            Button(action: clearSelection) { EmptyView() }
+                .keyboardShortcut(.escape, modifiers: [])
+            
+            Button(action: {
+                if let selID = selectedFileID, let file = files.first(where: { $0.id == selID }) {
+                    triggerQuickLook(for: file)
+                }
+            }) {
+                EmptyView()
+            }
+            .keyboardShortcut(.space, modifiers: [])
+        }
+        .frame(width: 0, height: 0)
+        .opacity(0)
+    }
     private func tabItemView(tab: ExplorerTab) -> some View {
         let isActive = (tab.id == activeTabID)
         return HStack(spacing: 7) {
@@ -389,16 +413,72 @@ public struct NativeExplorerView: View {
     // MARK: - 1. Sol Menü (Sidebar)
     private var sidebarView: some View {
         List {
+            Section("Hesaplar") {
+                ForEach(manager.servers) { server in
+                    let isActive = manager.activeServer?.id == server.id
+                    HStack {
+                        Button(action: {
+                            if manager.activeServer?.id != server.id {
+                                manager.setActiveServer(server)
+                                navigateToRoot()
+                            }
+                        }) {
+                            HStack(spacing: 8) {
+                                Image(systemName: isActive ? "cloud.fill" : "cloud")
+                                    .foregroundColor(isActive ? .indigo : .secondary)
+                                Text(server.name)
+                                    .font(.system(size: 13, weight: isActive ? .semibold : .regular))
+                                    .foregroundColor(isActive ? .primary : .secondary)
+                                    .lineLimit(1)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        
+                        Spacer()
+                        
+                        if isActive {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 11))
+                                .foregroundColor(.indigo)
+                        }
+                    }
+                }
+                
+                Button(action: { showingSettingsSheet = true }) {
+                    Label("Hesap Ekle...", systemImage: "plus")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 4)
+            }
+            
             Section("Konumlar") {
                 Button(action: { navigateToRoot() }) {
-                    Label(manager.activeServer?.name ?? "Cloudreve", systemImage: "cloud.fill")
-                        .foregroundColor(.indigo)
+                    Label("Tüm Dosyalar", systemImage: "tray.full.fill")
+                        .foregroundColor(.blue)
+                }
+                .buttonStyle(.plain)
+                
+                Button(action: {
+                    FolderSyncEngine.shared.openLocalFolderInFinder()
+                }) {
+                    Label("Yerel Eşitleme Klasörü", systemImage: "folder.badge.gearshape")
+                        .foregroundColor(.orange)
+                }
+                .buttonStyle(.plain)
+            }
+            
+            Section("Araçlar") {
+                Button(action: { showingDiagnosticsSheet = true }) {
+                    Label("Eşitleme Günlüğü", systemImage: "list.bullet.rectangle")
+                        .foregroundColor(.teal)
                 }
                 .buttonStyle(.plain)
             }
         }
         .listStyle(.sidebar)
-        .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 240)
+        .navigationSplitViewColumnWidth(min: 190, ideal: 215, max: 250)
     }
     
     // MARK: - 2. Klasör Yolu Çubuğu (Path Bar)
@@ -486,7 +566,7 @@ public struct NativeExplorerView: View {
                     Color.clear
                         .contentShape(Rectangle())
                         .onTapGesture {
-                            selectedFileID = nil
+                            clearSelection()
                         }
                 )
             } else {
@@ -509,7 +589,7 @@ public struct NativeExplorerView: View {
                     Color.clear
                         .contentShape(Rectangle())
                         .onTapGesture {
-                            selectedFileID = nil
+                            clearSelection()
                         }
                 )
             }
@@ -525,7 +605,8 @@ public struct NativeExplorerView: View {
     // MARK: - Dosya Izgara Kartı (Finder Görünümü)
     private func fileGridItem(_ file: RemoteFileItem) -> some View {
         let isHovered = hoveredFileID == file.id
-        let isSelected = selectedFileID == file.id
+        let isSelected = selectedFileIDs.contains(file.id) || selectedFileID == file.id
+        let isRenaming = renamingFileID == file.id
         
         return VStack(spacing: 6) {
             ZStack {
@@ -550,12 +631,21 @@ public struct NativeExplorerView: View {
                 }
             }
             
-            Text(file.name)
-                .font(.caption.weight(isSelected ? .semibold : .regular))
-                .foregroundColor(isSelected ? .accentColor : .primary)
-                .lineLimit(2)
-                .multilineTextAlignment(.center)
-                .frame(width: 92)
+            if isRenaming {
+                TextField("Dosya Adı", text: $renamingText, onCommit: {
+                    commitRename(file)
+                })
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+                .font(.caption)
+                .frame(width: 100)
+            } else {
+                Text(file.name)
+                    .font(.caption.weight(isSelected ? .semibold : .regular))
+                    .foregroundColor(isSelected ? .accentColor : .primary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .frame(width: 92)
+            }
             
             Text(file.formattedSize)
                 .font(.caption2)
@@ -580,7 +670,7 @@ public struct NativeExplorerView: View {
         }
         .simultaneousGesture(
             TapGesture().onEnded {
-                selectedFileID = file.id
+                handleFileTap(file)
                 if file.isImage, let server = manager.activeServer {
                     let client = WebDAVClient(config: server)
                     previewManager.loadThumbnail(for: file, client: client)
@@ -601,7 +691,8 @@ public struct NativeExplorerView: View {
     // MARK: - Dosya Liste Satırı
     private func fileRowItem(_ file: RemoteFileItem) -> some View {
         let isHovered = hoveredFileID == file.id
-        let isSelected = selectedFileID == file.id
+        let isSelected = selectedFileIDs.contains(file.id) || selectedFileID == file.id
+        let isRenaming = renamingFileID == file.id
         
         return HStack(spacing: 12) {
             if file.isImage, let img = previewManager.cachedImages[file.id] {
@@ -617,11 +708,20 @@ public struct NativeExplorerView: View {
                     .frame(width: 24)
             }
             
-            Text(file.name)
+            if isRenaming {
+                TextField("Dosya Adı", text: $renamingText, onCommit: {
+                    commitRename(file)
+                })
+                .textFieldStyle(RoundedBorderTextFieldStyle())
                 .font(.body)
-                .foregroundColor(isSelected ? Color.accentColor : .primary)
-                .fontWeight(isSelected ? .medium : .regular)
-                .lineLimit(1)
+                .frame(maxWidth: 240)
+            } else {
+                Text(file.name)
+                    .font(.body)
+                    .foregroundColor(isSelected ? Color.accentColor : .primary)
+                    .fontWeight(isSelected ? .medium : .regular)
+                    .lineLimit(1)
+            }
             
             Spacer()
             
@@ -655,7 +755,7 @@ public struct NativeExplorerView: View {
         }
         .simultaneousGesture(
             TapGesture().onEnded {
-                selectedFileID = file.id
+                handleFileTap(file)
                 if file.isImage, let server = manager.activeServer {
                     let client = WebDAVClient(config: server)
                     previewManager.loadThumbnail(for: file, client: client)
@@ -700,14 +800,28 @@ public struct NativeExplorerView: View {
         
         Divider()
         
+        Button(action: { startRenaming(file) }) {
+            Label("Yeniden Adlandır (Enter)", systemImage: "pencil")
+        }
+        
         if !file.isDirectory {
             Button(action: { downloadFile(file) }) {
                 Label("İndir (İndirilenler Klasörüne)", systemImage: "arrow.down.circle")
             }
         }
         
-        Button(role: .destructive, action: { deleteFile(file) }) {
-            Label("Sil", systemImage: "trash")
+        if selectedFileIDs.count > 1 {
+            Divider()
+            Button(action: { downloadSelectedFiles() }) {
+                Label("\(selectedFileIDs.count) Ögeyi İndir", systemImage: "square.and.arrow.down.on.square")
+            }
+            Button(role: .destructive, action: { deleteSelectedFiles() }) {
+                Label("\(selectedFileIDs.count) Ögeyi Sil", systemImage: "trash")
+            }
+        } else {
+            Button(role: .destructive, action: { deleteFile(file) }) {
+                Label("Sil", systemImage: "trash")
+            }
         }
     }
     
@@ -721,24 +835,61 @@ public struct NativeExplorerView: View {
                     .font(.caption2)
                     .foregroundColor(.indigo)
             } else {
-                Text("\(filteredFiles.count) öge")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
+                HStack(spacing: 6) {
+                    Text("\(filteredFiles.count) öge")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                    
+                    if !selectedFileIDs.isEmpty {
+                        Text("• \(selectedFileIDs.count) seçili")
+                            .font(.caption2.weight(.medium))
+                            .foregroundColor(.accentColor)
+                    }
+                }
+            }
+            
+            if selectedFileIDs.count > 1 {
+                Button(action: { downloadSelectedFiles() }) {
+                    Label("Seçilenleri İndir", systemImage: "arrow.down.circle")
+                        .font(.caption2)
+                }
+                .buttonStyle(BorderlessButtonStyle())
+                .padding(.horizontal, 4)
+                
+                Button(action: { deleteSelectedFiles() }) {
+                    Label("Seçilenleri Sil", systemImage: "trash")
+                        .font(.caption2)
+                        .foregroundColor(.red)
+                }
+                .buttonStyle(BorderlessButtonStyle())
             }
             
             Spacer()
             
-            // Eşitleme ve Finder Durumu
+            // Eşitleme, Ağ ve Finder Durumu
             HStack(spacing: 14) {
+                // Ağ Bağlantı Durumu
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(NetworkMonitor.shared.isConnected ? Color.green : Color.red)
+                        .frame(width: 6, height: 6)
+                    Text(NetworkMonitor.shared.isConnected ? "Çevrimiçi" : "Çevrimdışı")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+                
                 if syncEngine.isSyncEnabled {
-                    HStack(spacing: 4) {
-                        Circle()
-                            .fill(syncEngine.isSyncing ? Color.orange : Color.green)
-                            .frame(width: 6, height: 6)
-                        Text(syncEngine.syncStatus)
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
+                    Button(action: { showingDiagnosticsSheet = true }) {
+                        HStack(spacing: 4) {
+                            Circle()
+                                .fill(syncEngine.isSyncing ? Color.orange : Color.green)
+                                .frame(width: 6, height: 6)
+                            Text(syncEngine.syncStatus)
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
                     }
+                    .buttonStyle(PlainButtonStyle())
                 }
                 
                 HStack(spacing: 4) {
@@ -1034,8 +1185,125 @@ public struct NativeExplorerView: View {
         let client = WebDAVClient(config: server)
         client.delete(at: file.href) { error in
             if error == nil {
+                SyncLogManager.shared.log("Silindi: \(file.name)")
                 loadDirectory(at: currentPath)
+            } else {
+                SyncLogManager.shared.log("Silme hatası: \(file.name) - \(error?.localizedDescription ?? "")", isError: true)
             }
+        }
+    }
+    
+    // MARK: - Çoklu Seçim ve İşlemler
+    private func handleFileTap(_ file: RemoteFileItem) {
+        let flags = NSEvent.modifierFlags
+        if flags.contains(.command) {
+            if selectedFileIDs.contains(file.id) {
+                selectedFileIDs.remove(file.id)
+                if selectedFileID == file.id {
+                    selectedFileID = selectedFileIDs.first
+                }
+            } else {
+                selectedFileIDs.insert(file.id)
+                selectedFileID = file.id
+            }
+        } else if flags.contains(.shift), let anchorID = selectedFileID,
+                  let anchorIdx = filteredFiles.firstIndex(where: { $0.id == anchorID }),
+                  let targetIdx = filteredFiles.firstIndex(where: { $0.id == file.id }) {
+            let start = min(anchorIdx, targetIdx)
+            let end = max(anchorIdx, targetIdx)
+            for idx in start...end {
+                selectedFileIDs.insert(filteredFiles[idx].id)
+            }
+            selectedFileID = file.id
+        } else {
+            selectedFileIDs = [file.id]
+            selectedFileID = file.id
+        }
+    }
+    
+    private func selectAllFiles() {
+        selectedFileIDs = Set(filteredFiles.map { $0.id })
+        if selectedFileID == nil {
+            selectedFileID = filteredFiles.first?.id
+        }
+    }
+    
+    private func clearSelection() {
+        selectedFileIDs.removeAll()
+        selectedFileID = nil
+        renamingFileID = nil
+    }
+    
+    private func startRenaming(_ file: RemoteFileItem) {
+        renamingFileID = file.id
+        renamingText = file.name
+    }
+    
+    private func commitRename(_ file: RemoteFileItem) {
+        guard let server = manager.activeServer else {
+            renamingFileID = nil
+            return
+        }
+        let newName = renamingText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !newName.isEmpty, newName != file.name else {
+            renamingFileID = nil
+            return
+        }
+        
+        let client = WebDAVClient(config: server)
+        let basePath = currentPath.isEmpty ? "" : currentPath + "/"
+        let sourcePath = basePath + file.name
+        let destPath = basePath + newName
+        
+        client.move(from: sourcePath, to: destPath, overwrite: false) { error in
+            renamingFileID = nil
+            if error == nil {
+                SyncLogManager.shared.log("Yeniden adlandırıldı: \(file.name) -> \(newName)")
+                loadDirectory(at: currentPath)
+            } else {
+                SyncLogManager.shared.log("Yeniden adlandırma hatası: \(error?.localizedDescription ?? "")", isError: true)
+            }
+        }
+    }
+    
+    private func deleteSelectedFiles() {
+        let targets = filteredFiles.filter { selectedFileIDs.contains($0.id) }
+        guard !targets.isEmpty, let server = manager.activeServer else { return }
+        
+        let client = WebDAVClient(config: server)
+        let group = DispatchGroup()
+        for file in targets {
+            group.enter()
+            client.delete(at: file.href) { error in
+                if error == nil {
+                    SyncLogManager.shared.log("Silindi: \(file.name)")
+                } else {
+                    SyncLogManager.shared.log("Silme hatası: \(file.name) - \(error?.localizedDescription ?? "")", isError: true)
+                }
+                group.leave()
+            }
+        }
+        group.notify(queue: .main) {
+            clearSelection()
+            loadDirectory(at: currentPath)
+        }
+    }
+    
+    private func downloadSelectedFiles() {
+        let targets = filteredFiles.filter { selectedFileIDs.contains($0.id) && !$0.isDirectory }
+        guard !targets.isEmpty, let server = manager.activeServer else { return }
+        
+        let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first!
+        let client = WebDAVClient(config: server)
+        for file in targets {
+            let dest = downloads.appendingPathComponent(file.name)
+            client.downloadFile(href: file.href, to: dest, progress: { _ in }, completion: { error in
+                if error == nil {
+                    SyncLogManager.shared.log("İndirildi: \(file.name)")
+                } else {
+                    SyncLogManager.shared.log("İndirme hatası: \(file.name) - \(error?.localizedDescription ?? "")", isError: true)
+                }
+            })
         }
     }
     
@@ -1588,6 +1856,79 @@ struct ToolbarCustomizer: NSViewRepresentable {
         for subview in view.subviews {
             removeFocusRings(from: subview)
         }
+    }
+}
+
+// MARK: - Eşitleme ve Sistem Tanılama Sayfası (Diagnostics Sheet)
+struct DiagnosticsSheetView: View {
+    @Binding var isPresented: Bool
+    @ObservedObject var logManager = SyncLogManager.shared
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Label("Eşitleme ve Sistem Tanılama Günlüğü", systemImage: "stethoscope")
+                    .font(.headline)
+                
+                Spacer()
+                
+                Button("Temizle") {
+                    logManager.clear()
+                }
+                .font(.caption)
+                
+                Button("Kapat") {
+                    isPresented = false
+                }
+                .keyboardShortcut(.cancelAction)
+            }
+            
+            Divider()
+            
+            if logManager.logs.isEmpty {
+                VStack(spacing: 8) {
+                    Spacer()
+                    Image(systemName: "checkmark.circle")
+                        .font(.system(size: 36))
+                        .foregroundColor(.secondary)
+                    Text("Henüz bir işlem günlüğü kaydı yok.")
+                        .foregroundColor(.secondary)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 6) {
+                        ForEach(logManager.logs) { (entry: SyncLogEntry) in
+                            HStack(alignment: .top, spacing: 8) {
+                                Circle()
+                                    .fill(statusColor(for: entry.isError))
+                                    .frame(width: 8, height: 8)
+                                    .padding(.top, 4)
+                                
+                                Text(entry.formattedTime)
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundColor(.secondary)
+                                
+                                Text(entry.message)
+                                    .font(.system(size: 12))
+                                    .foregroundColor(entry.isError ? .red : .primary)
+                            }
+                            .padding(.vertical, 2)
+                        }
+                    }
+                    .padding(8)
+                }
+                .background(Color(NSColor.textBackgroundColor))
+                .cornerRadius(6)
+            }
+        }
+        .padding(20)
+        .frame(width: 620, height: 440)
+    }
+    
+    private func statusColor(for isError: Bool) -> Color {
+        return isError ? .red : .green
     }
 }
 

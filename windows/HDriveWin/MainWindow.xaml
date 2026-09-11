@@ -234,7 +234,7 @@
 
                         <!-- 1. Grid Görünümü: Büyük Simgeler (130x130, Orijinal Windows 11 Renkleri) -->
                         <GridView x:Name="FileGridView" 
-                                  SelectionMode="Single"
+                                  SelectionMode="Extended"
                                   SelectionChanged="FileList_SelectionChanged"
                                   DoubleTapped="FileList_DoubleTapped"
                                   KeyDown="FileList_KeyDown"
@@ -288,7 +288,7 @@
 
                         <!-- 2. Grid Görünümü: Orta Simgeler (96x96) -->
                         <GridView x:Name="FileGridViewMedium" 
-                                  SelectionMode="Single"
+                                  SelectionMode="Extended"
                                   SelectionChanged="FileList_SelectionChanged"
                                   DoubleTapped="FileList_DoubleTapped"
                                   KeyDown="FileList_KeyDown"
@@ -335,7 +335,7 @@
 
                         <!-- 3. Liste / Tablo Görünümü (Ayrıntılar) -->
                         <ListView x:Name="FileListView"
-                                  SelectionMode="Single"
+                                  SelectionMode="Extended"
                                   SelectionChanged="FileList_SelectionChanged"
                                   DoubleTapped="FileList_DoubleTapped"
                                   KeyDown="FileList_KeyDown"
@@ -474,6 +474,11 @@
                             <MenuFlyoutItem Text="İndir" Click="ContextDownload_Click">
                                 <MenuFlyoutItem.Icon>
                                     <FontIcon Glyph="&#xE896;" />
+                                </MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem Text="Yeniden Adlandır (F2)" Click="ContextRename_Click">
+                                <MenuFlyoutItem.Icon>
+                                    <FontIcon Glyph="&#xE8AC;" />
                                 </MenuFlyoutItem.Icon>
                             </MenuFlyoutItem>
                             <MenuFlyoutSeparator />

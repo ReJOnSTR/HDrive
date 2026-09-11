@@ -24,6 +24,9 @@ public struct FileBrowserView: View {
     // Eylem Durumları
     @State private var showingNewFolderAlert = false
     @State private var newFolderName = ""
+    @State private var showingRenameAlert = false
+    @State private var itemToRename: FileItem? = nil
+    @State private var renamingName = ""
     @State private var showingDocPicker = false
     @State private var showingPhotoPicker = false
     @State private var selectedPhotos: [PhotosPickerItem] = []
@@ -127,6 +130,11 @@ public struct FileBrowserView: View {
             Button("Oluştur", action: createFolder)
             Button("Vazgeç", role: .cancel) { newFolderName = "" }
         }
+        .alert("Yeniden Adlandır", isPresented: $showingRenameAlert) {
+            TextField("Yeni İsim", text: $renamingName)
+            Button("Tamam", action: commitRename)
+            Button("İptal", role: .cancel) { renamingName = ""; itemToRename = nil }
+        }
         .sheet(isPresented: $showingDocPicker) {
             DocumentPicker(targetDirectory: directoryURL) {
                 loadFiles()
@@ -219,6 +227,13 @@ public struct FileBrowserView: View {
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         deleteButton(for: item)
                     }
+                    .swipeActions(edge: .leading) {
+                        renameButton(for: item)
+                    }
+                    .contextMenu {
+                        renameButton(for: item)
+                        deleteButton(for: item)
+                    }
                 } else {
                     NavigationLink(destination: FileDetailView(file: item)) {
                         fileRow(item)
@@ -226,6 +241,14 @@ public struct FileBrowserView: View {
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         deleteButton(for: item)
                         shareButton(for: item)
+                    }
+                    .swipeActions(edge: .leading) {
+                        renameButton(for: item)
+                    }
+                    .contextMenu {
+                        renameButton(for: item)
+                        shareButton(for: item)
+                        deleteButton(for: item)
                     }
                 }
             }
@@ -323,6 +346,17 @@ public struct FileBrowserView: View {
         .tint(.blue)
     }
     
+    private func renameButton(for item: FileItem) -> some View {
+        Button {
+            itemToRename = item
+            renamingName = item.name
+            showingRenameAlert = true
+        } label: {
+            Label("Yeniden Adlandır", systemImage: "pencil")
+        }
+        .tint(.orange)
+    }
+    
     // MARK: - Boş Durum
     private var emptyFilesView: some View {
         VStack(spacing: 16) {
@@ -364,6 +398,21 @@ public struct FileBrowserView: View {
         let newDir = directoryURL.appendingPathComponent(name, isDirectory: true)
         try? FileManager.default.createDirectory(at: newDir, withIntermediateDirectories: true)
         newFolderName = ""
+        loadFiles()
+    }
+    
+    private func commitRename() {
+        guard let item = itemToRename else { return }
+        let newName = renamingName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !newName.isEmpty, newName != item.name else {
+            itemToRename = nil
+            renamingName = ""
+            return
+        }
+        let dest = item.url.deletingLastPathComponent().appendingPathComponent(newName)
+        try? FileManager.default.moveItem(at: item.url, to: dest)
+        itemToRename = nil
+        renamingName = ""
         loadFiles()
     }
     

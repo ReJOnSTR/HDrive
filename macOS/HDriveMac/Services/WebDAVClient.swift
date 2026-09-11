@@ -281,6 +281,44 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, XMLParserDelegate
             DispatchQueue.main.async { completion(nil) }
         }.resume()
     }
+    
+    /// Dosya veya klasör adını değiştirir / taşır (MOVE)
+    public func move(from sourcePath: String, to destinationPath: String, overwrite: Bool = false, completion: @escaping (Error?) -> Void) {
+        var baseURLString = config.serverURL
+        if !baseURLString.hasSuffix("/") { baseURLString += "/" }
+        let cleanSource = sourcePath.hasPrefix("/") ? String(sourcePath.dropFirst()) : sourcePath
+        let cleanDest = destinationPath.hasPrefix("/") ? String(destinationPath.dropFirst()) : destinationPath
+        
+        let encSource = cleanSource.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? cleanSource
+        let encDest = cleanDest.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? cleanDest
+        
+        guard let sourceURL = URL(string: baseURLString + encSource),
+              let destURL = URL(string: baseURLString + encDest) else {
+            completion(NSError(domain: "WebDAVClient", code: 400, userInfo: [NSLocalizedDescriptionKey: "Geçersiz URL"]))
+            return
+        }
+        
+        var request = URLRequest(url: sourceURL)
+        request.httpMethod = "MOVE"
+        request.setValue(authHeader, forHTTPHeaderField: "Authorization")
+        request.setValue(destURL.absoluteString, forHTTPHeaderField: "Destination")
+        request.setValue(overwrite ? "T" : "F", forHTTPHeaderField: "Overwrite")
+        
+        session.dataTask(with: request) { _, response, error in
+            if let error = error {
+                DispatchQueue.main.async { completion(error) }
+                return
+            }
+            if let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) {
+                DispatchQueue.main.async { completion(nil) }
+            } else {
+                let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+                DispatchQueue.main.async {
+                    completion(NSError(domain: "WebDAVClient", code: code, userInfo: [NSLocalizedDescriptionKey: "Yeniden adlandırma başarısız: HTTP \(code)"]))
+                }
+            }
+        }.resume()
+    }
 }
 
 // MARK: - RFC 4918 WebDAV XML Ayrıştırıcı (Parser)
