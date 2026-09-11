@@ -64,6 +64,12 @@ public struct NativeExplorerView: View {
     @State private var renamingFileID: String? = nil
     @State private var renamingText: String = ""
     
+    // Depolama Kotası & Derin Arama (Deep Search)
+    @State private var storageQuota: StorageQuota? = nil
+    @State private var isDeepSearchEnabled: Bool = false
+    @State private var deepSearchResults: [RemoteFileItem] = []
+    @State private var isDeepSearching: Bool = false
+    
     // Sekme Hover Durumları
     @State private var hoveredTabID: UUID? = nil
     @State private var hoveredCloseTabID: UUID? = nil
@@ -565,6 +571,30 @@ public struct NativeExplorerView: View {
                 }
                 .buttonStyle(.plain)
             }
+            
+            if let quota = storageQuota {
+                Section("Depolama") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("Kullanılan:")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Text("\(quota.formattedUsed) / \(quota.formattedTotal)")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        
+                        ProgressView(value: quota.usedPercentage)
+                            .progressViewStyle(.linear)
+                            .accentColor(quota.usedPercentage > 0.9 ? .red : (quota.usedPercentage > 0.75 ? .orange : .blue))
+                        
+                        Text("%\(Int(quota.usedPercentage * 100)) dolu")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
         }
         .listStyle(.sidebar)
         .navigationSplitViewColumnWidth(min: 190, ideal: 215, max: 250)
@@ -577,6 +607,46 @@ public struct NativeExplorerView: View {
             breadcrumbsView
             
             Spacer()
+            
+            if !searchText.isEmpty {
+                HStack(spacing: 6) {
+                    Text("Kapsam:")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                    
+                    Button(action: {
+                        isDeepSearchEnabled = false
+                    }) {
+                        Text("Bu Klasör")
+                            .font(.system(size: 11, weight: !isDeepSearchEnabled ? .semibold : .regular))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(!isDeepSearchEnabled ? Color.secondary.opacity(0.2) : Color.clear)
+                            .cornerRadius(4)
+                    }
+                    .buttonStyle(.plain)
+                    
+                    Button(action: {
+                        isDeepSearchEnabled = true
+                        performDeepSearch(query: searchText)
+                    }) {
+                        HStack(spacing: 3) {
+                            Text("Tüm Sürücü")
+                                .font(.system(size: 11, weight: isDeepSearchEnabled ? .semibold : .regular))
+                            if isDeepSearching {
+                                ProgressView()
+                                    .scaleEffect(0.5)
+                                    .frame(width: 10, height: 10)
+                            }
+                        }
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(isDeepSearchEnabled ? Color.accentColor.opacity(0.2) : Color.clear)
+                        .cornerRadius(4)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 7)
@@ -1017,8 +1087,8 @@ public struct NativeExplorerView: View {
     
     // MARK: - Gezinti ve Sıralama
     private var filteredFiles: [RemoteFileItem] {
-        var result = files
-        if !searchText.isEmpty {
+        var result = (isDeepSearchEnabled && !searchText.isEmpty) ? deepSearchResults : files
+        if !searchText.isEmpty && !isDeepSearchEnabled {
             result = result.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
         }
         
@@ -1041,18 +1111,14 @@ public struct NativeExplorerView: View {
                     comparison = d1.compare(d2)
                 }
             case .size:
-                let s1 = item1.size
-                let s2 = item2.size
-                if s1 == s2 {
+                if item1.size == item2.size {
                     comparison = item1.name.localizedStandardCompare(item2.name)
-                } else if s1 < s2 {
-                    comparison = .orderedAscending
                 } else {
-                    comparison = .orderedDescending
+                    comparison = item1.size < item2.size ? .orderedAscending : .orderedDescending
                 }
             case .kind:
-                let ext1 = item1.isDirectory ? "" : (item1.name as NSString).pathExtension.lowercased()
-                let ext2 = item2.isDirectory ? "" : (item2.name as NSString).pathExtension.lowercased()
+                let ext1 = (item1.name as NSString).pathExtension
+                let ext2 = (item2.name as NSString).pathExtension
                 if ext1 == ext2 {
                     comparison = item1.name.localizedStandardCompare(item2.name)
                 } else {
@@ -1110,6 +1176,7 @@ public struct NativeExplorerView: View {
         guard let server = manager.activeServer, !server.serverURL.isEmpty else { return }
         isLoading = true
         let client = WebDAVClient(config: server)
+        loadStorageQuota()
         
         client.listFiles(at: path) { result in
             isLoading = false
@@ -1132,6 +1199,64 @@ public struct NativeExplorerView: View {
                 }
             case .failure(let error):
                 print("Listeleme hatası: \(error)")
+            }
+        }
+    }
+    
+    private func loadStorageQuota() {
+        guard let server = manager.activeServer else { return }
+        let client = WebDAVClient(config: server)
+        client.fetchQuota { result in
+            switch result {
+            case .success(let q):
+                self.storageQuota = q
+            case .failure:
+                break
+            }
+        }
+    }
+    
+    private func performDeepSearch(query: String) {
+        guard !query.isEmpty, let server = manager.activeServer else {
+            deepSearchResults = []
+            return
+        }
+        isDeepSearching = true
+        let client = WebDAVClient(config: server)
+        var foundItems: [RemoteFileItem] = []
+        
+        func searchDirectory(path: String, depth: Int, completion: @escaping () -> Void) {
+            if depth > 4 { completion(); return }
+            client.listFiles(at: path) { result in
+                switch result {
+                case .success(let items):
+                    let matching = items.filter { $0.name.localizedCaseInsensitiveContains(query) }
+                    foundItems.append(contentsOf: matching)
+                    
+                    let subDirs = items.filter { $0.isDirectory }
+                    guard !subDirs.isEmpty else { completion(); return }
+                    
+                    let group = DispatchGroup()
+                    for dir in subDirs {
+                        group.enter()
+                        let subPath = path.isEmpty ? dir.name : "\(path)/\(dir.name)"
+                        searchDirectory(path: subPath, depth: depth + 1) {
+                            group.leave()
+                        }
+                    }
+                    group.notify(queue: .main) {
+                        completion()
+                    }
+                case .failure:
+                    completion()
+                }
+            }
+        }
+        
+        searchDirectory(path: "", depth: 0) {
+            DispatchQueue.main.async {
+                self.deepSearchResults = foundItems
+                self.isDeepSearching = false
             }
         }
     }
@@ -1433,18 +1558,57 @@ public struct NativeExplorerView: View {
     }
     
     private func handleDroppedFiles(_ providers: [NSItemProvider]) {
+        guard let server = manager.activeServer else { return }
+        let client = WebDAVClient(config: server)
+        let targetDir = currentPath
+        
         for provider in providers {
             _ = provider.loadObject(ofClass: URL.self) { url, _ in
-                guard let localURL = url, let server = manager.activeServer else { return }
-                let client = WebDAVClient(config: server)
-                let dest = (currentPath.isEmpty ? "" : currentPath + "/") + localURL.lastPathComponent
-                client.uploadFile(localFileURL: localURL, toRemotePath: dest) { error in
-                    if error == nil {
-                        DispatchQueue.main.async {
-                            loadDirectory(at: currentPath)
-                        }
+                guard let localURL = url else { return }
+                self.uploadLocalItemRecursively(localURL: localURL, remoteBaseDir: targetDir, client: client) {
+                    DispatchQueue.main.async {
+                        self.loadDirectory(at: self.currentPath)
                     }
                 }
+            }
+        }
+    }
+    
+    private func uploadLocalItemRecursively(localURL: URL, remoteBaseDir: String, client: WebDAVClient, completion: @escaping () -> Void) {
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: localURL.path, isDirectory: &isDir) else {
+            completion()
+            return
+        }
+        
+        let itemName = localURL.lastPathComponent
+        let targetRemote = remoteBaseDir.isEmpty ? itemName : "\(remoteBaseDir)/\(itemName)"
+        
+        if isDir.boolValue {
+            client.createFolder(at: targetRemote) { _ in
+                guard let subItems = try? FileManager.default.contentsOfDirectory(at: localURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else {
+                    completion()
+                    return
+                }
+                guard !subItems.isEmpty else {
+                    completion()
+                    return
+                }
+                
+                let dispatchGroup = DispatchGroup()
+                for subItem in subItems {
+                    dispatchGroup.enter()
+                    self.uploadLocalItemRecursively(localURL: subItem, remoteBaseDir: targetRemote, client: client) {
+                        dispatchGroup.leave()
+                    }
+                }
+                dispatchGroup.notify(queue: .main) {
+                    completion()
+                }
+            }
+        } else {
+            client.uploadFile(localFileURL: localURL, toRemotePath: targetRemote) { _ in
+                completion()
             }
         }
     }

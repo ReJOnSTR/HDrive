@@ -819,11 +819,71 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Aktif görünümdeki (Liste veya Izgara) tüm seçili öğeleri döner. Hiç seçim yoksa _selectedItem döner.
+    /// </summary>
+    private List<FileItem> GetSelectedItems()
+    {
+        var list = new List<FileItem>();
+        if (FileListView.Visibility == Visibility.Visible && FileListView.SelectedItems != null)
+        {
+            list.AddRange(FileListView.SelectedItems.OfType<FileItem>());
+        }
+        else if (FileGridViewMedium.Visibility == Visibility.Visible && FileGridViewMedium.SelectedItems != null)
+        {
+            list.AddRange(FileGridViewMedium.SelectedItems.OfType<FileItem>());
+        }
+        else if (FileGridView.Visibility == Visibility.Visible && FileGridView.SelectedItems != null)
+        {
+            list.AddRange(FileGridView.SelectedItems.OfType<FileItem>());
+        }
+
+        if (list.Count == 0 && _selectedItem != null)
+        {
+            list.Add(_selectedItem);
+        }
+        return list;
+    }
+
     private async void ContextDownload_Click(object sender, RoutedEventArgs e)
     {
-        if (_selectedItem != null && !_selectedItem.IsDirectory)
+        var itemsToDownload = GetSelectedItems().Where(i => !i.IsDirectory).ToList();
+        if (itemsToDownload.Count == 0) return;
+
+        if (itemsToDownload.Count == 1)
         {
-            await OpenFileAsync(_selectedItem);
+            await OpenFileAsync(itemsToDownload[0]);
+        }
+        else
+        {
+            // Çoklu indirme: Kullanıcıdan hedef klasör seçmesini iste
+            var folderPicker = new Windows.Storage.Pickers.FolderPicker();
+            folderPicker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.Downloads;
+            folderPicker.FileTypeFilter.Add("*");
+
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            WinRT.Interop.InitializeWithWindow.Initialize(folderPicker, hwnd);
+
+            var folder = await folderPicker.PickSingleFolderAsync();
+            if (folder != null)
+            {
+                LoadingRing.IsActive = true;
+                var server = CloudreveManager.Instance.ActiveServer;
+                if (server != null)
+                {
+                    var client = new WebDAVClient(server);
+                    foreach (var item in itemsToDownload)
+                    {
+                        var cachedFile = await client.DownloadFileToCacheAsync(item.Path);
+                        if (!string.IsNullOrEmpty(cachedFile) && File.Exists(cachedFile))
+                        {
+                            var targetPath = Path.Combine(folder.Path, item.Name);
+                            File.Copy(cachedFile, targetPath, true);
+                        }
+                    }
+                }
+                LoadingRing.IsActive = false;
+            }
         }
     }
 
@@ -877,12 +937,17 @@ public sealed partial class MainWindow : Window
 
     private async void ContextDelete_Click(object sender, RoutedEventArgs e)
     {
-        if (_selectedItem == null) return;
+        var itemsToDelete = GetSelectedItems();
+        if (itemsToDelete.Count == 0) return;
+
+        var prompt = itemsToDelete.Count == 1
+            ? $"'{itemsToDelete[0].Name}' öğesini silmek istediğinizden emin misiniz?"
+            : $"Seçili {itemsToDelete.Count} öğeyi kalıcı olarak silmek istediğinizden emin misiniz?";
 
         var confirmDialog = new ContentDialog
         {
             Title = "Silinsin mi?",
-            Content = $"'{_selectedItem.Name}' öğesini silmek istediğinizden emin misiniz?",
+            Content = prompt,
             PrimaryButtonText = "Sil",
             CloseButtonText = "İptal",
             DefaultButton = ContentDialogButton.Close,
@@ -892,15 +957,19 @@ public sealed partial class MainWindow : Window
         var result = await confirmDialog.ShowAsync();
         if (result == ContentDialogResult.Primary)
         {
-            var client = new WebDAVClient(CloudreveManager.Instance.ActiveServer);
-            var success = await client.DeleteAsync(_selectedItem.Path);
-            if (success)
+            LoadingRing.IsActive = true;
+            var server = CloudreveManager.Instance.ActiveServer;
+            if (server == null) { LoadingRing.IsActive = false; return; }
+
+            var client = new WebDAVClient(server);
+
+            FolderSyncEngine.Instance.SuppressWatcher(() =>
             {
-                try
+                foreach (var item in itemsToDelete)
                 {
-                    FolderSyncEngine.Instance.SuppressWatcher(() =>
+                    try
                     {
-                        var rel = _selectedItem.Path.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
+                        var rel = item.Path.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
                         var localTarget = Path.Combine(FolderSyncEngine.Instance.LocalFolderPath, rel);
                         if (File.Exists(localTarget))
                         {
@@ -910,27 +979,39 @@ public sealed partial class MainWindow : Window
                         {
                             Directory.Delete(localTarget, true);
                         }
-                        FolderSyncEngine.Instance.UnregisterRemoteFile(_selectedItem.Path);
-                    });
+                        FolderSyncEngine.Instance.UnregisterRemoteFile(item.Path);
+                    }
+                    catch { }
                 }
-                catch { }
+            });
 
-                await LoadDirectoryAsync(_currentPath);
+            foreach (var item in itemsToDelete)
+            {
+                await client.DeleteAsync(item.Path);
             }
+
+            LoadingRing.IsActive = false;
+            await LoadDirectoryAsync(_currentPath);
         }
     }
 
     #region Sürükle ve Bırak (Drag & Drop) Desteği
 
     /// <summary>
-    /// HDrive içinden Windows Masaüstüne, Explorer'a veya başka programlara dosya sürükleyip kopyalama
+    /// HDrive içinden Windows Masaüstüne, Explorer'a veya başka programlara dosya sürükleyip kopyalama (Çoklu Seçim Destekli)
     /// </summary>
     private async void FileItem_DragStarting(UIElement sender, DragStartingEventArgs e)
     {
         var deferral = e.GetDeferral();
         try
         {
-            if (sender is not FrameworkElement fe || fe.DataContext is not FileItem item)
+            var selectedItems = GetSelectedItems();
+            if (selectedItems.Count == 0 && sender is FrameworkElement fe && fe.DataContext is FileItem singleItem)
+            {
+                selectedItems.Add(singleItem);
+            }
+
+            if (selectedItems.Count == 0)
             {
                 deferral.Complete();
                 return;
@@ -944,34 +1025,47 @@ public sealed partial class MainWindow : Window
             var config = CloudreveManager.Instance.ActiveServer;
             var client = new WebDAVClient(config);
 
-            string? localPath = null;
+            foreach (var item in selectedItems)
+            {
+                string? localPath = null;
+                var relPath = item.Path.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
+                var syncPath = Path.Combine(syncFolder, relPath);
 
-            // 1. Yerel eşitleme klasöründe (HDrive - Cloudreve) mevcut mu?
-            var relPath = item.Path.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
-            var syncPath = Path.Combine(syncFolder, relPath);
-            if (File.Exists(syncPath) || Directory.Exists(syncPath))
-            {
-                localPath = syncPath;
-            }
-            else
-            {
-                // 2. Geçici önbellekte (Cache) var mı?
-                var cachedPath = Path.Combine(cacheDir, Path.GetFileName(item.Path));
-                if (File.Exists(cachedPath))
+                if (File.Exists(syncPath) || Directory.Exists(syncPath))
                 {
-                    localPath = cachedPath;
-                }
-                else if (!item.IsDirectory)
-                {
-                    // 3. Henüz indirilmemişse, dışarı sürükleme için hızla önbelleğe indir
-                    localPath = await client.DownloadFileToCacheAsync(item.Path);
+                    localPath = syncPath;
                 }
                 else
                 {
-                    // Klasör ise yerel geçici klasör aç
-                    var cachedFolderPath = Path.Combine(cacheDir, Path.GetFileName(item.Path.TrimEnd('/')));
-                    Directory.CreateDirectory(cachedFolderPath);
-                    localPath = cachedFolderPath;
+                    var cachedPath = Path.Combine(cacheDir, Path.GetFileName(item.Path));
+                    if (File.Exists(cachedPath))
+                    {
+                        localPath = cachedPath;
+                    }
+                    else if (!item.IsDirectory)
+                    {
+                        localPath = await client.DownloadFileToCacheAsync(item.Path);
+                    }
+                    else
+                    {
+                        var cachedFolderPath = Path.Combine(cacheDir, Path.GetFileName(item.Path.TrimEnd('/')));
+                        Directory.CreateDirectory(cachedFolderPath);
+                        localPath = cachedFolderPath;
+                    }
+                }
+
+                if (!string.IsNullOrEmpty(localPath))
+                {
+                    if (File.Exists(localPath))
+                    {
+                        var sf = await StorageFile.GetFileFromPathAsync(localPath);
+                        storageItems.Add(sf);
+                    }
+                    else if (Directory.Exists(localPath))
+                    {
+                        var sf = await StorageFolder.GetFolderFromPathAsync(localPath);
+                        storageItems.Add(sf);
+                    }
                 }
             }
 

@@ -83,9 +83,26 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, XMLParserDelegate
         return "Basic " + loginData.base64EncodedString()
     }
     
+    /// Göreli yolu güvenli bir şekilde encode ederek tam URL oluşturur (Boşluk ve Türkçe karakterleri destekler)
+    public func buildURL(for relativePath: String) -> URL? {
+        var baseURLString = config.serverURL
+        if !baseURLString.hasSuffix("/") { baseURLString += "/" }
+        
+        let cleanPath = relativePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if cleanPath.isEmpty {
+            return URL(string: baseURLString)
+        }
+        
+        let encodedSegments = cleanPath.components(separatedBy: "/").map { segment in
+            segment.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? segment
+        }
+        let fullPath = encodedSegments.joined(separator: "/")
+        return URL(string: baseURLString + fullPath)
+    }
+
     /// Sunucu bağlantısını test eder
     public func testConnection(completion: @escaping (Bool, String) -> Void) {
-        guard let url = URL(string: config.serverURL) else {
+        guard let url = buildURL(for: "") else {
             completion(false, "Geçersiz sunucu adresi formatı.")
             return
         }
@@ -129,14 +146,8 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, XMLParserDelegate
     
     /// Belirtilen klasördeki dosyaları ve alt klasörleri listeler
     public func listFiles(at relativePath: String = "", completion: @escaping (Result<[RemoteFileItem], Error>) -> Void) {
-        var baseURLString = config.serverURL
-        if !baseURLString.hasSuffix("/") { baseURLString += "/" }
-        
-        var cleanPath = relativePath
-        if cleanPath.hasPrefix("/") { cleanPath = String(cleanPath.dropFirst()) }
-        
-        guard let targetURL = URL(string: baseURLString + cleanPath) else {
-            completion(.failure(NSError(domain: "HDrive", code: 400, userInfo: [NSLocalizedDescriptionKey: "Geçersiz URL"])))
+        guard let targetURL = buildURL(for: relativePath) else {
+            completion(.failure(NSError(domain: "HDrive", code: 400, userInfo: [NSLocalizedDescriptionKey: "Geçersiz URL: \(relativePath)"])))
             return
         }
         
@@ -173,7 +184,9 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, XMLParserDelegate
     
     /// Dosya İndirir
     public func downloadFile(href: String, to localDestination: URL, progress: @escaping (Double) -> Void, completion: @escaping (Error?) -> Void) {
-        guard let url = URL(string: href, relativeTo: URL(string: config.serverURL))?.absoluteURL else {
+        let cleanHref = href.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? href
+        guard let baseURL = URL(string: config.serverURL),
+              let url = URL(string: cleanHref, relativeTo: baseURL)?.absoluteURL ?? URL(string: href) else {
             completion(NSError(domain: "HDrive", code: 400, userInfo: [NSLocalizedDescriptionKey: "Geçersiz dosya adresi"]))
             return
         }
@@ -204,13 +217,7 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, XMLParserDelegate
     
     /// Dosya Yükler (PUT)
     public func uploadFile(localFileURL: URL, toRemotePath: String, completion: @escaping (Error?) -> Void) {
-        var baseURLString = config.serverURL
-        if !baseURLString.hasSuffix("/") { baseURLString += "/" }
-        
-        var cleanPath = toRemotePath
-        if cleanPath.hasPrefix("/") { cleanPath = String(cleanPath.dropFirst()) }
-        
-        guard let targetURL = URL(string: baseURLString + cleanPath) else {
+        guard let targetURL = buildURL(for: toRemotePath) else {
             completion(NSError(domain: "HDrive", code: 400, userInfo: [NSLocalizedDescriptionKey: "Geçersiz hedef adresi"]))
             return
         }
@@ -238,11 +245,10 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, XMLParserDelegate
     
     /// Klasör Oluşturur (MKCOL)
     public func createFolder(at remotePath: String, completion: @escaping (Error?) -> Void) {
-        var baseURLString = config.serverURL
-        if !baseURLString.hasSuffix("/") { baseURLString += "/" }
-        let cleanPath = remotePath.hasPrefix("/") ? String(remotePath.dropFirst()) : remotePath
-        
-        guard let targetURL = URL(string: baseURLString + cleanPath) else { return }
+        guard let targetURL = buildURL(for: remotePath) else {
+            completion(NSError(domain: "HDrive", code: 400, userInfo: [NSLocalizedDescriptionKey: "Geçersiz klasör adresi"]))
+            return
+        }
         
         var request = URLRequest(url: targetURL)
         request.httpMethod = "MKCOL"
@@ -255,19 +261,22 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, XMLParserDelegate
             }
             let status = (response as? HTTPURLResponse)?.statusCode ?? 500
             DispatchQueue.main.async {
-                if status == 201 || status == 200 { completion(nil) }
-                else { completion(NSError(domain: "HDrive", code: status, userInfo: [NSLocalizedDescriptionKey: "Klasör oluşturulamadı: \(status)"])) }
+                if status == 201 || status == 200 || status == 405 {
+                    // 405 Method Not Allowed klasör zaten var demektir, başarı sayılır
+                    completion(nil)
+                } else {
+                    completion(NSError(domain: "HDrive", code: status, userInfo: [NSLocalizedDescriptionKey: "Klasör oluşturulamadı: \(status)"]))
+                }
             }
         }.resume()
     }
     
     /// Dosya/Klasör Siler (DELETE)
     public func delete(at remotePath: String, completion: @escaping (Error?) -> Void) {
-        var baseURLString = config.serverURL
-        if !baseURLString.hasSuffix("/") { baseURLString += "/" }
-        let cleanPath = remotePath.hasPrefix("/") ? String(remotePath.dropFirst()) : remotePath
-        
-        guard let targetURL = URL(string: baseURLString + cleanPath) else { return }
+        guard let targetURL = buildURL(for: remotePath) else {
+            completion(NSError(domain: "HDrive", code: 400, userInfo: [NSLocalizedDescriptionKey: "Geçersiz silme adresi"]))
+            return
+        }
         
         var request = URLRequest(url: targetURL)
         request.httpMethod = "DELETE"
@@ -278,22 +287,21 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, XMLParserDelegate
                 DispatchQueue.main.async { completion(error) }
                 return
             }
-            DispatchQueue.main.async { completion(nil) }
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 500
+            DispatchQueue.main.async {
+                if status >= 200 && status < 300 || status == 404 {
+                    completion(nil)
+                } else {
+                    completion(NSError(domain: "HDrive", code: status, userInfo: [NSLocalizedDescriptionKey: "Silme hatası: \(status)"]))
+                }
+            }
         }.resume()
     }
     
     /// Dosya veya klasör adını değiştirir / taşır (MOVE)
     public func move(from sourcePath: String, to destinationPath: String, overwrite: Bool = false, completion: @escaping (Error?) -> Void) {
-        var baseURLString = config.serverURL
-        if !baseURLString.hasSuffix("/") { baseURLString += "/" }
-        let cleanSource = sourcePath.hasPrefix("/") ? String(sourcePath.dropFirst()) : sourcePath
-        let cleanDest = destinationPath.hasPrefix("/") ? String(destinationPath.dropFirst()) : destinationPath
-        
-        let encSource = cleanSource.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? cleanSource
-        let encDest = cleanDest.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? cleanDest
-        
-        guard let sourceURL = URL(string: baseURLString + encSource),
-              let destURL = URL(string: baseURLString + encDest) else {
+        guard let sourceURL = buildURL(for: sourcePath),
+              let destURL = buildURL(for: destinationPath) else {
             completion(NSError(domain: "WebDAVClient", code: 400, userInfo: [NSLocalizedDescriptionKey: "Geçersiz URL"]))
             return
         }
@@ -318,6 +326,121 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, XMLParserDelegate
                 }
             }
         }.resume()
+    }
+    
+    /// RFC 4331 Depolama Alanı ve Kota Bilgisi Sorgular
+    public func fetchQuota(completion: @escaping (Result<StorageQuota, Error>) -> Void) {
+        guard let url = buildURL(for: "") else {
+            completion(.failure(NSError(domain: "HDrive", code: 400, userInfo: [NSLocalizedDescriptionKey: "Geçersiz URL"])))
+            return
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "PROPFIND"
+        request.setValue("0", forHTTPHeaderField: "Depth")
+        request.setValue(authHeader, forHTTPHeaderField: "Authorization")
+        request.setValue("application/xml; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        
+        let xmlBody = """
+        <?xml version="1.0" encoding="utf-8" ?>
+        <D:propfind xmlns:D="DAV:">
+          <D:prop>
+            <D:quota-available-bytes/>
+            <D:quota-used-bytes/>
+          </D:prop>
+        </D:propfind>
+        """
+        request.httpBody = xmlBody.data(using: .utf8)
+        
+        session.dataTask(with: request) { data, response, error in
+            if let error = error {
+                DispatchQueue.main.async { completion(.failure(error)) }
+                return
+            }
+            guard let data = data else {
+                DispatchQueue.main.async { completion(.failure(NSError(domain: "HDrive", code: 500, userInfo: [NSLocalizedDescriptionKey: "Kota verisi alınamadı"]))) }
+                return
+            }
+            
+            let parser = WebDAVQuotaParser()
+            if let quota = parser.parse(data: data) {
+                DispatchQueue.main.async { completion(.success(quota)) }
+            } else {
+                DispatchQueue.main.async {
+                    completion(.failure(NSError(domain: "HDrive", code: 404, userInfo: [NSLocalizedDescriptionKey: "Kota bilgisi sunucu tarafından desteklenmiyor"])))
+                }
+            }
+        }.resume()
+    }
+}
+
+// MARK: - RFC 4331 Depolama Kota Modeli
+public struct StorageQuota {
+    public let usedBytes: Int64
+    public let availableBytes: Int64
+    
+    public init(usedBytes: Int64, availableBytes: Int64) {
+        self.usedBytes = usedBytes
+        self.availableBytes = availableBytes
+    }
+    
+    public var totalBytes: Int64 {
+        return usedBytes + availableBytes
+    }
+    
+    public var usedPercentage: Double {
+        guard totalBytes > 0 else { return 0.0 }
+        return min(1.0, max(0.0, Double(usedBytes) / Double(totalBytes)))
+    }
+    
+    public var formattedUsed: String {
+        ByteCountFormatter.string(fromByteCount: usedBytes, countStyle: .file)
+    }
+    
+    public var formattedTotal: String {
+        ByteCountFormatter.string(fromByteCount: totalBytes, countStyle: .file)
+    }
+    
+    public var formattedAvailable: String {
+        ByteCountFormatter.string(fromByteCount: availableBytes, countStyle: .file)
+    }
+}
+
+// MARK: - RFC 4331 XML Ayrıştırıcı
+final class WebDAVQuotaParser: NSObject, XMLParserDelegate {
+    private var usedBytes: Int64?
+    private var availableBytes: Int64?
+    private var currentElement = ""
+    private var currentText = ""
+    
+    func parse(data: Data) -> StorageQuota? {
+        let parser = XMLParser(data: data)
+        parser.delegate = self
+        parser.parse()
+        
+        if let used = usedBytes, let available = availableBytes {
+            return StorageQuota(usedBytes: used, availableBytes: available)
+        }
+        return nil
+    }
+    
+    func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?, qualifiedName qName: String?, attributes attributeDict: [String : String] = [:]) {
+        let clean = elementName.components(separatedBy: ":").last?.lowercased() ?? elementName.lowercased()
+        currentElement = clean
+        currentText = ""
+    }
+    
+    func parser(_ parser: XMLParser, foundCharacters string: String) {
+        currentText += string.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    
+    func parser(_ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?, qualifiedName qName: String?) {
+        let clean = elementName.components(separatedBy: ":").last?.lowercased() ?? elementName.lowercased()
+        if clean == "quota-used-bytes" {
+            usedBytes = Int64(currentText)
+        } else if clean == "quota-available-bytes" {
+            availableBytes = Int64(currentText)
+        }
     }
 }
 

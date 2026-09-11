@@ -1,10 +1,16 @@
-//
-//  FolderSyncEngine.swift
-//  HDriveMac - Çift Yönlü (Two-Way) Klasör Senkronizasyonu
-//
-
 import Foundation
 import AppKit
+
+// MARK: - Senkronizasyon Durum Kütüğü (Manifest) Modelleri
+public struct SyncFileRecord: Codable {
+    public let relativePath: String
+    public let size: Int64
+    public let modificationTime: Double
+}
+
+public struct SyncManifest: Codable {
+    public var records: [String: SyncFileRecord] = [:]
+}
 
 public final class FolderSyncEngine: ObservableObject {
     public static let shared = FolderSyncEngine()
@@ -43,8 +49,16 @@ public final class FolderSyncEngine: ObservableObject {
     private var debounceTimer: Timer?
     private var isWatcherSuppressed = false
     
+    private var manifestURL: URL {
+        return localFolderURL.appendingPathComponent(".hdrive_sync.json")
+    }
+    
+    private var manifest: SyncManifest = SyncManifest()
+    
     private init() {
         self.isSyncEnabled = UserDefaults.standard.bool(forKey: "HDrive_isSyncEnabled")
+        self.manifest = loadManifest()
+        
         if isSyncEnabled {
             startSyncTimer()
             startLocalWatcher()
@@ -63,10 +77,26 @@ public final class FolderSyncEngine: ObservableObject {
         }
     }
     
+    private func loadManifest() -> SyncManifest {
+        guard let data = try? Data(contentsOf: manifestURL),
+              let decoded = try? JSONDecoder().decode(SyncManifest.self, from: data) else {
+            return SyncManifest()
+        }
+        return decoded
+    }
+    
+    private func saveManifest() {
+        isWatcherSuppressed = true
+        if let data = try? JSONEncoder().encode(manifest) {
+            try? data.write(to: manifestURL, options: .atomic)
+        }
+        isWatcherSuppressed = false
+    }
+    
     public func startSyncTimer() {
         stopSyncTimer()
-        // Her 60 saniyede bir arka planda periyodik kontrol
-        syncTimer = Timer.scheduledTimer(withTimeInterval: 60.0, repeats: true) { [weak self] _ in
+        // Her 45 saniyede bir arka planda periyodik kontrol
+        syncTimer = Timer.scheduledTimer(withTimeInterval: 45.0, repeats: true) { [weak self] _ in
             self?.syncNow()
         }
     }
@@ -142,6 +172,7 @@ public final class FolderSyncEngine: ObservableObject {
         syncDirectoryTwoWay(remotePath: "", localDirURL: localFolderURL, client: client) { [weak self] error in
             DispatchQueue.main.async {
                 self?.isSyncing = false
+                self?.saveManifest()
                 if let error = error {
                     self?.syncStatus = "Uyarı: \(error.localizedDescription)"
                     SyncLogManager.shared.log("Eşitleme hatası: \(error.localizedDescription)", isError: true)
@@ -151,7 +182,7 @@ public final class FolderSyncEngine: ObservableObject {
                     let timeStr = formatter.string(from: Date())
                     self?.lastSyncDate = Date()
                     self?.syncStatus = "Eşitlendi (\(timeStr))"
-                    SyncLogManager.shared.log("Eşitleme tamamlandı. (\(timeStr))")
+                    SyncLogManager.shared.log("Eşitleme başarıyla tamamlandı. (\(timeStr))")
                 }
             }
         }
@@ -169,20 +200,20 @@ public final class FolderSyncEngine: ObservableObject {
             case .failure(let error):
                 completion(error)
             case .success(let remoteItems):
-                // 1. ADIM: Uzaktan Yerele İndirme (Downstream)
+                // 1. ADIM: Uzaktan Yerele İndirme ve Yerel Silmelerin Sunucuya Gönderilmesi (Downstream & Local Deletions)
                 self.syncDownstream(remoteItems: remoteItems, remotePath: remotePath, localDirURL: localDirURL, client: client) { downError in
                     if let downError = downError {
                         completion(downError)
                         return
                     }
-                    // 2. ADIM: Yerelden Uzaka Yükleme (Upstream)
+                    // 2. ADIM: Yerelden Uzaka Yükleme ve Uzaktaki Silmelerin Yerele Yansıtılması (Upstream & Remote Deletions)
                     self.syncUpstream(remoteItems: remoteItems, remotePath: remotePath, localDirURL: localDirURL, client: client, completion: completion)
                 }
             }
         }
     }
     
-    /// Uzaktaki yeni veya değişen dosyaları yerele çeker
+    /// Uzaktaki yeni veya değişen dosyaları yerele çeker; yerelde silinmişse sunucudan siler
     private func syncDownstream(remoteItems: [RemoteFileItem], remotePath: String, localDirURL: URL, client: WebDAVClient, completion: @escaping (Error?) -> Void) {
         syncItemsSequentially(items: remoteItems, remotePath: remotePath, localDirURL: localDirURL, client: client, index: 0, completion: completion)
     }
@@ -195,34 +226,103 @@ public final class FolderSyncEngine: ObservableObject {
         
         let item = items[index]
         let localTargetURL = localDirURL.appendingPathComponent(item.name)
+        let relPath = remotePath.isEmpty ? item.name : "\(remotePath)/\(item.name)"
         
         if item.isDirectory {
-            let subRemote = remotePath.isEmpty ? item.name : "\(remotePath)/\(item.name)"
-            self.syncDirectoryTwoWay(remotePath: subRemote, localDirURL: localTargetURL, client: client) { [weak self] _ in
+            self.syncDirectoryTwoWay(remotePath: relPath, localDirURL: localTargetURL, client: client) { [weak self] _ in
                 self?.syncItemsSequentially(items: items, remotePath: remotePath, localDirURL: localDirURL, client: client, index: index + 1, completion: completion)
             }
         } else {
-            let shouldDownload: Bool
-            if let attr = try? FileManager.default.attributesOfItem(atPath: localTargetURL.path),
-               let localSize = attr[.size] as? Int64 {
-                shouldDownload = (localSize != item.size)
-            } else {
-                shouldDownload = true
-            }
+            let localExists = FileManager.default.fileExists(atPath: localTargetURL.path)
             
-            if shouldDownload {
-                DispatchQueue.main.async {
-                    self.syncStatus = "İndiriliyor: \(item.name)"
-                    SyncLogManager.shared.log("İndiriliyor: \(item.name)")
-                }
-                self.isWatcherSuppressed = true
-                client.downloadFile(href: item.href, to: localTargetURL, progress: { _ in }) { [weak self] _ in
-                    self?.isWatcherSuppressed = false
-                    self?.syncItemsSequentially(items: items, remotePath: remotePath, localDirURL: localDirURL, client: client, index: index + 1, completion: completion)
+            if !localExists {
+                // Yerelde dosya yok! Daha önce eşitlenip yerelde kullanıcı tarafından silindi mi?
+                if manifest.records[relPath] != nil {
+                    // Kullanıcı dosyayı Mac'inden silmiş! Sunucudan da sil (Tekrar indirme döngüsünü kır)
+                    DispatchQueue.main.async {
+                        self.syncStatus = "Sunucudan siliniyor: \(item.name)"
+                        SyncLogManager.shared.log("Yerelde silinen dosya sunucudan siliniyor: \(relPath)")
+                    }
+                    client.delete(at: relPath) { [weak self] _ in
+                        self?.manifest.records.removeValue(forKey: relPath)
+                        self?.syncItemsSequentially(items: items, remotePath: remotePath, localDirURL: localDirURL, client: client, index: index + 1, completion: completion)
+                    }
+                    return
+                } else {
+                    // Manifestte hiç yok: Sunucuda yeni oluşturulmuş dosya, indir
+                    downloadRemoteFile(item: item, relPath: relPath, localTargetURL: localTargetURL, client: client) { [weak self] in
+                        self?.syncItemsSequentially(items: items, remotePath: remotePath, localDirURL: localDirURL, client: client, index: index + 1, completion: completion)
+                    }
+                    return
                 }
             } else {
+                // Yerelde dosya var: Boyut ve güncelleme kontrolü
+                let attr = try? FileManager.default.attributesOfItem(atPath: localTargetURL.path)
+                let localSize = (attr?[.size] as? Int64) ?? 0
+                let localModDate = (attr?[.modificationDate] as? Date) ?? Date.distantPast
+                let remoteModDate = item.modificationDate ?? Date.distantPast
+                
+                if localSize != item.size {
+                    // Çakışma Kontrolü: Hem yerel hem sunucu son eşitlemeden sonra değişti mi?
+                    if let record = manifest.records[relPath],
+                       localModDate.timeIntervalSince1970 > record.modificationTime + 2.0,
+                       remoteModDate.timeIntervalSince1970 > record.modificationTime + 2.0 {
+                        // ÇAKIŞMA TESPİT EDİLDİ! Yerel dosyayı ezme, sunucudakini 'Çakışan Kopya' olarak kaydet
+                        let formatter = DateFormatter()
+                        formatter.dateFormat = "yyyy-MM-dd_HHmm"
+                        let dateStr = formatter.string(from: Date())
+                        let ext = (item.name as NSString).pathExtension
+                        let base = (item.name as NSString).deletingPathExtension
+                        let extSuffix = ext.isEmpty ? "" : ".\(ext)"
+                        let conflictName = "\(base) (Çakışan Kopya \(dateStr))\(extSuffix)"
+                        let conflictURL = localDirURL.appendingPathComponent(conflictName)
+                        
+                        DispatchQueue.main.async {
+                            self.syncStatus = "Çakışma: \(conflictName)"
+                            SyncLogManager.shared.log("Çakışma tespit edildi: \(item.name) için çakışan kopya oluşturuldu.")
+                        }
+                        
+                        self.isWatcherSuppressed = true
+                        client.downloadFile(href: item.href, to: conflictURL, progress: { _ in }) { [weak self] _ in
+                            self?.isWatcherSuppressed = false
+                            self?.syncItemsSequentially(items: items, remotePath: remotePath, localDirURL: localDirURL, client: client, index: index + 1, completion: completion)
+                        }
+                        return
+                    } else if remoteModDate > localModDate.addingTimeInterval(2.0) {
+                        // Sunucudaki dosya daha yeni, güncelle
+                        downloadRemoteFile(item: item, relPath: relPath, localTargetURL: localTargetURL, client: client) { [weak self] in
+                            self?.syncItemsSequentially(items: items, remotePath: remotePath, localDirURL: localDirURL, client: client, index: index + 1, completion: completion)
+                        }
+                        return
+                    }
+                }
+                
+                // Güncellemeye gerek yok, manifesti tazele
+                manifest.records[relPath] = SyncFileRecord(
+                    relativePath: relPath,
+                    size: localSize,
+                    modificationTime: localModDate.timeIntervalSince1970
+                )
                 self.syncItemsSequentially(items: items, remotePath: remotePath, localDirURL: localDirURL, client: client, index: index + 1, completion: completion)
             }
+        }
+    }
+    
+    private func downloadRemoteFile(item: RemoteFileItem, relPath: String, localTargetURL: URL, client: WebDAVClient, onDone: @escaping () -> Void) {
+        DispatchQueue.main.async {
+            self.syncStatus = "İndiriliyor: \(item.name)"
+            SyncLogManager.shared.log("Sunucudan indiriliyor: \(item.name)")
+        }
+        self.isWatcherSuppressed = true
+        client.downloadFile(href: item.href, to: localTargetURL, progress: { _ in }) { [weak self] error in
+            self?.isWatcherSuppressed = false
+            if error == nil {
+                let attr = try? FileManager.default.attributesOfItem(atPath: localTargetURL.path)
+                let localSize = (attr?[.size] as? Int64) ?? item.size
+                let modDate = (attr?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? Date().timeIntervalSince1970
+                self?.manifest.records[relPath] = SyncFileRecord(relativePath: relPath, size: localSize, modificationTime: modDate)
+            }
+            onDone()
         }
     }
     
@@ -238,6 +338,9 @@ public final class FolderSyncEngine: ObservableObject {
         
         for fileURL in localFiles {
             let name = fileURL.lastPathComponent
+            // .hdrive_sync.json veya geçici dosyaları atla
+            if name.hasPrefix(".") { continue }
+            
             if let remoteItem = remoteMap[name] {
                 // Çakışma ve güncelleme kontrolü
                 if !remoteItem.isDirectory {
@@ -269,22 +372,26 @@ public final class FolderSyncEngine: ObservableObject {
         
         let fileURL = files[index]
         let isDir = (try? fileURL.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+        let folderOrFileName = fileURL.lastPathComponent
+        let relPath = remotePath.isEmpty ? folderOrFileName : "\(remotePath)/\(folderOrFileName)"
         
         if isDir {
-            let folderName = fileURL.lastPathComponent
-            let subRemote = remotePath.isEmpty ? folderName : "\(remotePath)/\(folderName)"
-            client.createFolder(at: subRemote) { [weak self] _ in
+            client.createFolder(at: relPath) { [weak self] _ in
                 self?.uploadLocalFilesSequentially(files: files, remotePath: remotePath, client: client, index: index + 1, completion: completion)
             }
         } else {
-            let dest = (remotePath.isEmpty ? "" : remotePath + "/") + fileURL.lastPathComponent
             DispatchQueue.main.async {
                 self.syncStatus = "Yükleniyor: \(fileURL.lastPathComponent)"
                 SyncLogManager.shared.log("Sunucuya yükleniyor: \(fileURL.lastPathComponent)")
             }
-            client.uploadFile(localFileURL: fileURL, toRemotePath: dest) { [weak self] error in
+            client.uploadFile(localFileURL: fileURL, toRemotePath: relPath) { [weak self] error in
                 if let error = error {
                     SyncLogManager.shared.log("Yükleme uyarısı: \(error.localizedDescription)", isError: true)
+                } else {
+                    let attr = try? FileManager.default.attributesOfItem(atPath: fileURL.path)
+                    let localSize = (attr?[.size] as? Int64) ?? 0
+                    let modDate = (attr?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? Date().timeIntervalSince1970
+                    self?.manifest.records[relPath] = SyncFileRecord(relativePath: relPath, size: localSize, modificationTime: modDate)
                 }
                 self?.uploadLocalFilesSequentially(files: files, remotePath: remotePath, client: client, index: index + 1, completion: completion)
             }

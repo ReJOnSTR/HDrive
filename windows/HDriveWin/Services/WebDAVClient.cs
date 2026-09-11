@@ -254,4 +254,45 @@ public class WebDAVClient
             return false;
         }
     }
+
+    /// <summary>
+    /// RFC 4331 WebDAV depolama kotası ve kullanılan alanı sorgular
+    /// </summary>
+    public async Task<(long usedBytes, long totalBytes)?> GetQuotaAsync()
+    {
+        try
+        {
+            var uri = BuildUri("/");
+            var request = new HttpRequestMessage(new HttpMethod("PROPFIND"), uri)
+            {
+                Headers = { { "Depth", "0" } },
+                Content = new StringContent(
+                    "<?xml version=\"1.0\" encoding=\"utf-8\" ?><D:propfind xmlns:D=\"DAV:\"><D:prop><D:quota-available-bytes/><D:quota-used-bytes/></D:prop></D:propfind>",
+                    Encoding.UTF8,
+                    "application/xml"
+                )
+            };
+
+            var response = await _httpClient.SendAsync(request);
+            if (!response.IsSuccessStatusCode && (int)response.StatusCode != 207) return null;
+
+            var xml = await response.Content.ReadAsStringAsync();
+            var doc = System.Xml.Linq.XDocument.Parse(xml);
+            System.Xml.Linq.XNamespace d = "DAV:";
+            if (doc.Root != null && doc.Root.Name.Namespace != System.Xml.Linq.XNamespace.None)
+            {
+                d = doc.Root.Name.Namespace;
+            }
+
+            var usedStr = doc.Descendants(d + "quota-used-bytes").FirstOrDefault()?.Value;
+            var availStr = doc.Descendants(d + "quota-available-bytes").FirstOrDefault()?.Value;
+
+            if (long.TryParse(usedStr, out long used) && long.TryParse(availStr, out long avail))
+            {
+                return (used, used + avail);
+            }
+        }
+        catch { }
+        return null;
+    }
 }
