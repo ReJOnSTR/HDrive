@@ -78,6 +78,9 @@ jobs:
             iOS/HDrive/Models/FileItem.swift \
             iOS/HDrive/Models/ServerConfig.swift \
             iOS/HDrive/Models/NetworkUtils.swift \
+            iOS/HDrive/Models/KeychainHelper.swift \
+            iOS/HDrive/Models/NetworkMonitor.swift \
+            iOS/HDrive/Models/SyncLogManager.swift \
             iOS/HDrive/Server/BonjourPublisher.swift \
             iOS/HDrive/Server/WebDAVHandler.swift \
             iOS/HDrive/Server/WebDAVServer.swift \
@@ -88,6 +91,8 @@ jobs:
             macOS/HDriveMac/Services/FolderSyncEngine.swift \
             macOS/HDriveMac/Services/BonjourBrowser.swift \
             macOS/HDriveMac/Services/FileOpener.swift \
+            macOS/HDriveMac/Services/FilePreviewManager.swift \
+            macOS/HDriveMac/Services/FileIconProvider.swift \
             macOS/HDriveMac/Views/NativeExplorerView.swift \
             macOS/HDriveMac/HDriveMacApp.swift \
             -o "macOS/HDrive.app/Contents/MacOS/HDrive"
