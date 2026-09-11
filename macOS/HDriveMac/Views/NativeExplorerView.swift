@@ -554,7 +554,7 @@ public struct NativeExplorerView: View {
                                     Image(systemName: isActive ? "cloud.fill" : "cloud")
                                         .foregroundColor(isActive ? .indigo : .secondary)
                                     Text(server.name)
-                                        .font(.system(size: 13, weight: isActive ? .semibold : .regular))
+                                        .font(.system(size: 13))
                                         .foregroundColor(isActive ? .primary : .secondary)
                                         .lineLimit(1)
                                     
@@ -566,6 +566,8 @@ public struct NativeExplorerView: View {
                                             .foregroundColor(.indigo)
                                     }
                                 }
+                                .padding(.vertical, 2)
+                                .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
                         }
@@ -581,17 +583,19 @@ public struct NativeExplorerView: View {
                                 .foregroundColor(isRoot ? .accentColor : .secondary)
                                 .font(.system(size: 13))
                             Text(manager.servers.count > 1 ? "Tüm Dosyalar" : (manager.activeServer?.name ?? "Cloudreve"))
-                                .font(.system(size: 13, weight: isRoot ? .semibold : .regular))
+                                .font(.system(size: 13))
                                 .foregroundColor(isRoot ? .primary : .primary.opacity(0.85))
                                 .lineLimit(1)
                             Spacer()
                         }
+                        .padding(.vertical, 2)
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                 }
                 
                 // FAVORİLER (Sabitlenen Kısayol Klasörler)
-                Section {
+                Section("Favoriler") {
                     if pinnedFolders.isEmpty {
                         HStack(spacing: 6) {
                             Image(systemName: "pin")
@@ -613,12 +617,14 @@ public struct NativeExplorerView: View {
                                         .font(.system(size: 13))
                                     
                                     Text(folder.name)
-                                        .font(.system(size: 13, weight: isCurrent ? .semibold : .regular))
+                                        .font(.system(size: 13))
                                         .foregroundColor(isCurrent ? .primary : .primary.opacity(0.85))
                                         .lineLimit(1)
                                     
                                     Spacer()
                                 }
+                                .padding(.vertical, 2)
+                                .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
                             .contextMenu {
@@ -630,16 +636,6 @@ public struct NativeExplorerView: View {
                                     Label("Kenar Çubuğundan Kaldır", systemImage: "pin.slash")
                                 }
                             }
-                        }
-                    }
-                } header: {
-                    HStack {
-                        Text("Favoriler")
-                        Spacer()
-                        if !pinnedFolders.isEmpty {
-                            Text("\(pinnedFolders.count)")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundColor(.secondary)
                         }
                     }
                 }
@@ -797,7 +793,7 @@ public struct NativeExplorerView: View {
                     let subPath = segments[0...idx].joined(separator: "/")
                     Button(action: { navigateTo(subPath) }) {
                         Text(segments[idx])
-                            .font(.subheadline.weight(idx == segments.count - 1 ? .bold : .regular))
+                            .font(.subheadline)
                             .foregroundColor(idx == segments.count - 1 ? .primary : .secondary)
                     }
                     .buttonStyle(.plain)
@@ -936,7 +932,7 @@ public struct NativeExplorerView: View {
                 .frame(width: 100)
             } else {
                 Text(file.name)
-                    .font(.caption.weight(isSelected ? .semibold : .regular))
+                    .font(.caption)
                     .foregroundColor(isSelected ? .accentColor : .primary)
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
@@ -1015,7 +1011,6 @@ public struct NativeExplorerView: View {
                 Text(file.name)
                     .font(.body)
                     .foregroundColor(isSelected ? Color.accentColor : .primary)
-                    .fontWeight(isSelected ? .medium : .regular)
                     .lineLimit(1)
             }
             
@@ -2198,7 +2193,7 @@ struct CloudreveSettingsSheet: View {
                                         VStack(alignment: .leading, spacing: 2) {
                                             HStack(spacing: 4) {
                                                 Text(server.name.isEmpty ? "Yeni Hesap" : server.name)
-                                                    .font(.system(size: 12, weight: isSelected ? .semibold : .medium))
+                                                    .font(.system(size: 12, weight: .medium))
                                                     .foregroundColor(isSelected ? .white : .primary)
                                                     .lineLimit(1)
                                                 
