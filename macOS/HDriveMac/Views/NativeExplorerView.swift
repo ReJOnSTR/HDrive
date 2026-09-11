@@ -970,7 +970,7 @@ public struct NativeExplorerView: View {
             if let opening = opener.openingFile {
                 ProgressView()
                     .scaleEffect(0.6)
-                Text("'\(opening)' yerel programla açılıyor...")
+                Text("'\(opening)' açılıyor...")
                     .font(.caption2)
                     .foregroundColor(.indigo)
             } else {
@@ -1765,7 +1765,7 @@ public struct NativeExplorerView: View {
                         if previewManager.resolvedLocalURL(for: file) != nil {
                             HStack(spacing: 4) {
                                 Circle().fill(Color.green).frame(width: 6, height: 6)
-                                Text("Yerelde Hazır")
+                                Text("Önizleme Hazır")
                                     .font(.caption.weight(.medium))
                                     .foregroundColor(.green)
                             }
@@ -2108,52 +2108,6 @@ struct CloudreveSettingsSheet: View {
                             }
                             .buttonStyle(.borderedProminent)
                         }
-                        
-                        Divider()
-                        
-                        // Finder & Yerel Klasör Entegrasyonu
-                        VStack(alignment: .leading, spacing: 10) {
-                            HStack {
-                                Label("Finder Entegrasyonu & Yerel Eşitleme", systemImage: "folder.badge.gearshape")
-                                    .font(.subheadline.bold())
-                                Spacer()
-                                Toggle("", isOn: $syncEngine.isSyncEnabled)
-                                    .toggleStyle(.switch)
-                            }
-                            
-                            Text("Dosyalarınızı Mac'inizde '~/HDrive - Cloudreve' klasöründe normal bir klasör gibi tutar. Finder'da doğrudan görebilir ve düzenleyebilirsiniz.")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            
-                            HStack(spacing: 10) {
-                                Button(action: { syncEngine.openLocalFolderInFinder() }) {
-                                    Label("Finder'da Aç", systemImage: "arrow.up.forward.app")
-                                }
-                                .buttonStyle(.bordered)
-                                
-                                if syncEngine.isSyncEnabled {
-                                    Button(action: { syncEngine.syncNow() }) {
-                                        Label("Şimdi Eşitle", systemImage: "arrow.clockwise")
-                                    }
-                                    .buttonStyle(.bordered)
-                                    .disabled(syncEngine.isSyncing)
-                                }
-                                
-                                Spacer()
-                                
-                                HStack(spacing: 4) {
-                                    Circle()
-                                        .fill(syncEngine.isSyncEnabled ? (syncEngine.isSyncing ? Color.orange : Color.green) : Color.gray)
-                                        .frame(width: 8, height: 8)
-                                    Text(syncEngine.syncStatus)
-                                        .font(.caption)
-                                        .foregroundColor(syncEngine.isSyncing ? .orange : .secondary)
-                                }
-                            }
-                        }
-                        .padding(12)
-                        .background(Color(NSColor.controlBackgroundColor))
-                        .cornerRadius(8)
                     }
                     .padding(18)
                 }
