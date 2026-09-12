@@ -168,23 +168,18 @@
                         </Grid>
                     </Border>
 
-                    <!-- Windows 11 Arama Çubuğu & Derin Arama Butonu -->
-                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" Margin="6,0,0,0" VerticalAlignment="Center">
-                        <AutoSuggestBox x:Name="SearchBox" 
-                                        Width="210"
-                                        Height="32"
-                                        PlaceholderText="HDrive içinde ara"
-                                        QueryIcon="Find"
-                                        VerticalAlignment="Center"
-                                        CornerRadius="4"
-                                        TextChanged="SearchBox_TextChanged"
-                                        QuerySubmitted="SearchBox_QuerySubmitted" />
-                        <primitives:ToggleButton x:Name="DeepSearchToggle" Width="32" Height="32" Padding="0"
-                                                  ToolTipService.ToolTip="Tüm klasörlerde derin arama"
-                                                  Click="DeepSearchToggle_Click">
-                            <FontIcon Glyph="&#xE71E;" FontSize="12" />
-                        </primitives:ToggleButton>
-                    </StackPanel>
+                    <!-- Windows 11 Arama Çubuğu -->
+                    <AutoSuggestBox x:Name="SearchBox" 
+                                    Grid.Column="2"
+                                    Width="240"
+                                    Height="32"
+                                    Margin="6,0,0,0"
+                                    PlaceholderText="HDrive içinde ara"
+                                    QueryIcon="Find"
+                                    VerticalAlignment="Center"
+                                    CornerRadius="4"
+                                    TextChanged="SearchBox_TextChanged"
+                                    QuerySubmitted="SearchBox_QuerySubmitted" />
                 </Grid>
 
                 <!-- 1: Komut Çubuğu (Windows 11 Komut Şeridi & Üç Nokta Menüsü) -->

@@ -857,17 +857,7 @@ public sealed partial class MainWindow : Window
 
     private void SearchBox_TextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
     {
-        if (DeepSearchToggle.IsChecked == true)
-        {
-            if (string.IsNullOrWhiteSpace(sender.Text))
-            {
-                ApplySearchFilter("");
-            }
-        }
-        else
-        {
-            ApplySearchFilter(sender.Text);
-        }
+        ApplySearchFilter(sender.Text);
     }
 
     private async void NavView_ItemInvoked(NavigationView sender, NavigationViewItemInvokedEventArgs args)
@@ -1609,31 +1599,9 @@ public sealed partial class MainWindow : Window
 
     #region Derin Arama (Deep Search)
 
-    private async void DeepSearchToggle_Click(object sender, RoutedEventArgs e)
+    private void SearchBox_QuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
     {
-        if (DeepSearchToggle.IsChecked == true)
-        {
-            if (!string.IsNullOrWhiteSpace(SearchBox.Text))
-            {
-                await PerformDeepSearchAsync(SearchBox.Text.Trim());
-            }
-        }
-        else
-        {
-            ApplySearchFilter(SearchBox.Text);
-        }
-    }
-
-    private async void SearchBox_QuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
-    {
-        if (DeepSearchToggle.IsChecked == true && !string.IsNullOrWhiteSpace(args.QueryText))
-        {
-            await PerformDeepSearchAsync(args.QueryText.Trim());
-        }
-        else
-        {
-            ApplySearchFilter(args.QueryText);
-        }
+        ApplySearchFilter(args.QueryText);
     }
 
     private async Task PerformDeepSearchAsync(string query)
