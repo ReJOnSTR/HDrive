@@ -11,6 +11,13 @@
             
             <!-- Global Accent and Fluent Brushes -->
             <SolidColorBrush x:Key="HDriveAccentBrush" Color="#4F46E5" />
+            <SolidColorBrush x:Key="SystemFillColorCriticalBrush" Color="#E81123" />
+
+            <!-- SubtleButtonStyle Fallback -->
+            <Style x:Key="SubtleButtonStyle" TargetType="Button">
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderBrush" Value="Transparent" />
+            </Style>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

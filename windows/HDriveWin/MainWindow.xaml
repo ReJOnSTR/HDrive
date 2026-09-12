@@ -528,7 +528,7 @@
                                 <StackPanel Spacing="8" Margin="0,8,0,0">
                                     <Button x:Name="PreviewOpenButton" Content="Varsayılan Uygulamayla Aç" Style="{ThemeResource AccentButtonStyle}" HorizontalAlignment="Stretch" Click="PreviewOpenButton_Click" />
                                     <Button x:Name="PreviewDownloadButton" Content="İndir ve Kaydet" HorizontalAlignment="Stretch" Click="PreviewDownloadButton_Click" />
-                                    <Button x:Name="PreviewDeleteButton" Content="Sil" Style="{ThemeResource SubtleButtonStyle}" Foreground="{ThemeResource SystemFillColorCriticalBrush}" HorizontalAlignment="Stretch" Click="ContextDelete_Click" />
+                                    <Button x:Name="PreviewDeleteButton" Content="Sil" Foreground="#E81123" HorizontalAlignment="Stretch" Click="ContextDelete_Click" />
                                 </StackPanel>
                             </StackPanel>
                         </ScrollViewer>
