@@ -58,14 +58,23 @@ public sealed partial class MainWindow : Window
         // Başlangıç sekmesi oluştur
         CreateInitialTab();
 
-        // Klavyeden Ctrl+T (Yeni Sekme), Ctrl+W (Sekmeyi Kapat) ve Delete (Seçiliyi Sil) dinleme
+        // Klavyeden Ctrl+T (Yeni Sekme), Ctrl+W (Sekmeyi Kapat), Ctrl+A (Tümünü Seç), Delete (Seçiliyi Sil) ve Esc (Seçimi Temizle) dinleme
         this.Content.KeyDown += (s, e) =>
         {
             var isCtrl = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control)
                 .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
             if (isCtrl)
             {
-                if (e.Key == Windows.System.VirtualKey.T)
+                if (e.Key == Windows.System.VirtualKey.A)
+                {
+                    var focused = Microsoft.UI.Xaml.Input.FocusManager.GetFocusedElement(this.Content.XamlRoot);
+                    if (focused is not TextBox && focused is not AutoSuggestBox && focused is not PasswordBox)
+                    {
+                        e.Handled = true;
+                        SelectAll_Click(s, new RoutedEventArgs());
+                    }
+                }
+                else if (e.Key == Windows.System.VirtualKey.T)
                 {
                     OpenNewTab("");
                     e.Handled = true;
@@ -88,6 +97,10 @@ public sealed partial class MainWindow : Window
                         ContextDelete_Click(s, new RoutedEventArgs());
                     }
                 }
+            }
+            else if (e.Key == Windows.System.VirtualKey.Escape)
+            {
+                ClearSelection();
             }
         };
 
@@ -380,17 +393,112 @@ public sealed partial class MainWindow : Window
 
     private void FileList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        var selected = (sender as ListViewBase)?.SelectedItem as FileItem;
-        if (selected != null)
+        var selectedList = GetSelectedItems();
+        if (selectedList.Count == 1)
         {
-            _selectedItem = selected;
-            UpdatePreviewPane(selected);
+            _selectedItem = selectedList[0];
+            UpdatePreviewPane(_selectedItem);
         }
+        else if (selectedList.Count > 1)
+        {
+            _selectedItem = selectedList.Last();
+            UpdatePreviewPaneForMultipleItems(selectedList);
+        }
+        else
+        {
+            _selectedItem = null;
+            UpdatePreviewPane(null);
+        }
+        UpdateItemCountStatus();
+    }
+
+    private void FileArea_Tapped(object sender, TappedRoutedEventArgs e)
+    {
+        if (e.OriginalSource == sender || 
+            (e.OriginalSource is FrameworkElement fe && fe.DataContext is not FileItem && fe is not Button && fe is not AppBarButton))
+        {
+            ClearSelection();
+        }
+    }
+
+    private void ClearSelection()
+    {
+        var container = GetActiveItemContainer();
+        if (container != null)
+        {
+            container.SelectedItems.Clear();
+            container.SelectedItem = null;
+        }
+        _selectedItem = null;
+        UpdatePreviewPane(null);
+        UpdateItemCountStatus();
+    }
+
+    private void UpdateItemCountStatus()
+    {
+        var total = _items.Count;
+        var selectedItems = GetSelectedItems();
+        if (selectedItems.Count > 1)
+        {
+            long totalSize = selectedItems.Where(i => !i.IsDirectory).Sum(i => i.Size);
+            string formattedSize = FormatByteSize(totalSize);
+            ItemCountText.Text = $"{total} öğe  |  {selectedItems.Count} öğe seçildi ({formattedSize})";
+        }
+        else if (selectedItems.Count == 1)
+        {
+            var item = selectedItems[0];
+            ItemCountText.Text = $"{total} öğe  |  1 öğe seçildi ({(item.IsDirectory ? "Klasör" : item.FormattedSize)})";
+        }
+        else
+        {
+            ItemCountText.Text = $"{total} öğe";
+        }
+    }
+
+    private static string FormatByteSize(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{(bytes / 1024.0):F1} KB";
+        if (bytes < 1024 * 1024 * 1024) return $"{(bytes / (1024.0 * 1024.0)):F1} MB";
+        return $"{(bytes / (1024.0 * 1024.0 * 1024.0)):F2} GB";
+    }
+
+    private void UpdatePreviewPaneForMultipleItems(List<FileItem> selectedItems)
+    {
+        PreviewNameText.Text = $"{selectedItems.Count} Öğe Seçildi";
+        PreviewTypeBadge.Text = "Toplu Seçim";
+        long totalSize = selectedItems.Where(i => !i.IsDirectory).Sum(i => i.Size);
+        PreviewSizeText.Text = FormatByteSize(totalSize);
+        PreviewDateText.Text = "--";
+        PreviewExtensionText.Text = "Karma";
+        PreviewPathText.Text = $"{selectedItems.Count} dosya/klasör seçili";
+
+        PreviewIconImage.Visibility = Visibility.Collapsed;
+        PreviewIcon.Visibility = Visibility.Visible;
+        PreviewIcon.Glyph = "\uE8B3";
+        PreviewImage.Visibility = Visibility.Collapsed;
+
+        PreviewOpenButton.Content = $"{selectedItems.Count} Öğeyi Aç";
+        PreviewDownloadButton.Content = $"{selectedItems.Count} Öğeyi İndir";
+        PreviewDownloadButton.Visibility = Visibility.Visible;
     }
 
     private async void FileList_KeyDown(object sender, KeyRoutedEventArgs e)
     {
-        if (e.Key == Windows.System.VirtualKey.Enter && _selectedItem != null)
+        var isCtrl = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control)
+            .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+
+        if (isCtrl && e.Key == Windows.System.VirtualKey.A)
+        {
+            e.Handled = true;
+            SelectAll_Click(sender, new RoutedEventArgs());
+        }
+        else if (e.Key == Windows.System.VirtualKey.Escape)
+        {
+            e.Handled = true;
+            ClearSelection();
+        }
+        else if (e.Key == Windows.System.VirtualKey.Enter && _selectedItem != null)
         {
             e.Handled = true;
             await HandleOpenItemAsync(_selectedItem);
@@ -1348,9 +1456,9 @@ public sealed partial class MainWindow : Window
 
     private void SelectAll_Click(object sender, RoutedEventArgs e)
     {
-        FileGridView.SelectAll();
-        FileGridViewMedium.SelectAll();
-        FileListView.SelectAll();
+        var container = GetActiveItemContainer();
+        container?.SelectAll();
+        UpdateItemCountStatus();
     }
 
     private async void OpenSettings_Click(object sender, RoutedEventArgs e)

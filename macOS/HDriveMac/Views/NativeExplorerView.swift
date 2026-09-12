@@ -299,6 +299,18 @@ public struct NativeExplorerView: View {
             Button(action: selectAllFiles) { EmptyView() }
                 .keyboardShortcut("a", modifiers: .command)
             
+            Button(action: selectPreviousFile) { EmptyView() }
+                .keyboardShortcut(.upArrow, modifiers: [])
+            
+            Button(action: selectNextFile) { EmptyView() }
+                .keyboardShortcut(.downArrow, modifiers: [])
+            
+            Button(action: expandSelectionUp) { EmptyView() }
+                .keyboardShortcut(.upArrow, modifiers: .shift)
+            
+            Button(action: expandSelectionDown) { EmptyView() }
+                .keyboardShortcut(.downArrow, modifiers: .shift)
+            
             Button(action: deleteSelectedFiles) { EmptyView() }
                 .keyboardShortcut(.delete, modifiers: .command)
             
@@ -899,7 +911,7 @@ public struct NativeExplorerView: View {
     // MARK: - Dosya Izgara Kartı (Finder Görünümü)
     private func fileGridItem(_ file: RemoteFileItem) -> some View {
         let isHovered = hoveredFileID == file.id
-        let isSelected = selectedFileIDs.contains(file.id) || selectedFileID == file.id
+        let isSelected = selectedFileIDs.contains(file.id)
         let isRenaming = renamingFileID == file.id
         
         return VStack(spacing: 6) {
@@ -1553,7 +1565,7 @@ public struct NativeExplorerView: View {
     // MARK: - Çoklu Seçim ve İşlemler
     private func handleFileTap(_ file: RemoteFileItem) {
         let flags = NSEvent.modifierFlags
-        if flags.contains(.command) {
+        if flags.contains(.command) || flags.contains(.control) {
             if selectedFileIDs.contains(file.id) {
                 selectedFileIDs.remove(file.id)
                 if selectedFileID == file.id {
@@ -1563,19 +1575,55 @@ public struct NativeExplorerView: View {
                 selectedFileIDs.insert(file.id)
                 selectedFileID = file.id
             }
-        } else if flags.contains(.shift), let anchorID = selectedFileID,
-                  let anchorIdx = filteredFiles.firstIndex(where: { $0.id == anchorID }),
-                  let targetIdx = filteredFiles.firstIndex(where: { $0.id == file.id }) {
-            let start = min(anchorIdx, targetIdx)
-            let end = max(anchorIdx, targetIdx)
-            for idx in start...end {
-                selectedFileIDs.insert(filteredFiles[idx].id)
+        } else if flags.contains(.shift) {
+            let anchorIdx = (selectedFileID.flatMap { id in filteredFiles.firstIndex(where: { $0.id == id }) }) ?? 0
+            if let targetIdx = filteredFiles.firstIndex(where: { $0.id == file.id }) {
+                let start = min(anchorIdx, targetIdx)
+                let end = max(anchorIdx, targetIdx)
+                selectedFileIDs = Set(filteredFiles[start...end].map { $0.id })
             }
-            selectedFileID = file.id
         } else {
             selectedFileIDs = [file.id]
             selectedFileID = file.id
         }
+    }
+
+    private func selectPreviousFile() {
+        guard !filteredFiles.isEmpty else { return }
+        let currentIdx = selectedFileID.flatMap { id in filteredFiles.firstIndex(where: { $0.id == id }) } ?? 0
+        let newIdx = max(0, currentIdx - 1)
+        let file = filteredFiles[newIdx]
+        selectedFileIDs = [file.id]
+        selectedFileID = file.id
+    }
+
+    private func selectNextFile() {
+        guard !filteredFiles.isEmpty else { return }
+        let currentIdx = selectedFileID.flatMap { id in filteredFiles.firstIndex(where: { $0.id == id }) } ?? -1
+        let newIdx = min(filteredFiles.count - 1, currentIdx + 1)
+        let file = filteredFiles[newIdx]
+        selectedFileIDs = [file.id]
+        selectedFileID = file.id
+    }
+
+    private func expandSelectionUp() {
+        guard !filteredFiles.isEmpty else { return }
+        let anchorIdx = (selectedFileID.flatMap { id in filteredFiles.firstIndex(where: { $0.id == id }) }) ?? 0
+        let currentIdx = selectedFileIDs.compactMap { id in filteredFiles.firstIndex(where: { $0.id == id }) }.min() ?? anchorIdx
+        let newIdx = max(0, currentIdx - 1)
+        let start = min(anchorIdx, newIdx)
+        let end = max(anchorIdx, newIdx)
+        selectedFileIDs = Set(filteredFiles[start...end].map { $0.id })
+    }
+
+    private func expandSelectionDown() {
+        guard !filteredFiles.isEmpty else { return }
+        let anchorIdx = (selectedFileID.flatMap { id in filteredFiles.firstIndex(where: { $0.id == id }) }) ?? 0
+        let currentIdx = selectedFileIDs.compactMap { id in filteredFiles.firstIndex(where: { $0.id == id }) }.max() ?? anchorIdx
+        let newIdx = min(filteredFiles.count - 1, currentIdx + 1)
+        let start = min(anchorIdx, newIdx)
+        let end = max(anchorIdx, newIdx)
+        selectedFileIDs = Set(filteredFiles[start...end].map { $0.id })
     }
     
     private func selectAllFiles() {
