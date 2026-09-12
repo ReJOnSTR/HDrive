@@ -5,6 +5,7 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:models="using:HDriveWin.Models"
+    xmlns:primitives="using:Microsoft.UI.Xaml.Controls.Primitives"
     mc:Ignorable="d"
     Title="HDrive">
 
@@ -178,11 +179,11 @@
                                         CornerRadius="4"
                                         TextChanged="SearchBox_TextChanged"
                                         QuerySubmitted="SearchBox_QuerySubmitted" />
-                        <ToggleButton x:Name="DeepSearchToggle" Width="32" Height="32" Padding="0"
-                                      ToolTipService.ToolTip="Tüm klasörlerde derin arama"
-                                      Click="DeepSearchToggle_Click">
+                        <primitives:ToggleButton x:Name="DeepSearchToggle" Width="32" Height="32" Padding="0"
+                                                  ToolTipService.ToolTip="Tüm klasörlerde derin arama"
+                                                  Click="DeepSearchToggle_Click">
                             <FontIcon Glyph="&#xE71E;" FontSize="12" />
-                        </ToggleButton>
+                        </primitives:ToggleButton>
                     </StackPanel>
                 </Grid>
 

@@ -1303,8 +1303,9 @@ public sealed partial class MainWindow : Window
     {
         var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HDrive");
         Directory.CreateDirectory(dir);
-        var serverId = CloudreveManager.Instance.ActiveServer?.Id.ToString() ?? "global";
-        return Path.Combine(dir, $"pinned_folders_{serverId}.json");
+        var server = CloudreveManager.Instance.ActiveServer;
+        var serverKey = !string.IsNullOrEmpty(server?.Username) ? server.Username.Replace("@", "_").Replace(".", "_") : "global";
+        return Path.Combine(dir, $"pinned_folders_{serverKey}.json");
     }
 
     private void LoadPinnedFolders()
