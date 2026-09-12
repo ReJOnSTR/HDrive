@@ -46,80 +46,144 @@ public sealed partial class MainWindow : Window
 
     public MainWindow()
     {
-        this.InitializeComponent();
-
-        SetupTitleBar();
-
-        FileGridView.ItemsSource = _items;
-        FileGridViewMedium.ItemsSource = _items;
-        FileListView.ItemsSource = _items;
-        PathBreadcrumbBar.ItemsSource = _breadcrumbs;
-
-        // Başlangıç sekmesi oluştur
-        CreateInitialTab();
-
-        // Klavyeden Ctrl+T (Yeni Sekme), Ctrl+W (Sekmeyi Kapat), Ctrl+A (Tümünü Seç), Delete (Seçiliyi Sil) ve Esc (Seçimi Temizle) dinleme
-        this.Content.KeyDown += (s, e) =>
+        try
         {
-            var isCtrl = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control)
-                .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
-            if (isCtrl)
-            {
-                if (e.Key == Windows.System.VirtualKey.A)
-                {
-                    var focused = Microsoft.UI.Xaml.Input.FocusManager.GetFocusedElement(this.Content.XamlRoot);
-                    if (focused is not TextBox && focused is not AutoSuggestBox && focused is not PasswordBox)
-                    {
-                        e.Handled = true;
-                        SelectAll_Click(s, new RoutedEventArgs());
-                    }
-                }
-                else if (e.Key == Windows.System.VirtualKey.T)
-                {
-                    OpenNewTab("");
-                    e.Handled = true;
-                }
-                else if (e.Key == Windows.System.VirtualKey.W)
-                {
-                    CloseCurrentTab();
-                    e.Handled = true;
-                }
-            }
-            else if (e.Key == Windows.System.VirtualKey.Delete)
-            {
-                var focused = Microsoft.UI.Xaml.Input.FocusManager.GetFocusedElement(this.Content.XamlRoot);
-                if (focused is not TextBox && focused is not AutoSuggestBox && focused is not PasswordBox)
-                {
-                    var items = GetSelectedItems();
-                    if (items.Count > 0)
-                    {
-                        e.Handled = true;
-                        ContextDelete_Click(s, new RoutedEventArgs());
-                    }
-                }
-            }
-            else if (e.Key == Windows.System.VirtualKey.Escape)
-            {
-                ClearSelection();
-            }
-        };
-
-        // Senkronizasyon durumunu dinle
-        FolderSyncEngine.Instance.PropertyChanged += (s, e) =>
+            this.InitializeComponent();
+        }
+        catch (Exception ex)
         {
-            if (e.PropertyName == nameof(FolderSyncEngine.SyncStatus))
+            App.LogCrash("MainWindow.InitializeComponent", ex);
+            throw;
+        }
+
+        try
+        {
+            SetupTitleBar();
+        }
+        catch (Exception ex)
+        {
+            App.LogCrash("MainWindow.SetupTitleBar", ex);
+        }
+
+        try
+        {
+            FileGridView.ItemsSource = _items;
+            FileGridViewMedium.ItemsSource = _items;
+            FileListView.ItemsSource = _items;
+            PathBreadcrumbBar.ItemsSource = _breadcrumbs;
+
+            // Başlangıç sekmesi oluştur
+            CreateInitialTab();
+        }
+        catch (Exception ex)
+        {
+            App.LogCrash("MainWindow.TabAndItemsSetup", ex);
+        }
+
+        try
+        {
+            if (this.Content is FrameworkElement rootElement)
             {
-                DispatcherQueue.TryEnqueue(() =>
+                // Klavyeden Ctrl+T (Yeni Sekme), Ctrl+W (Sekmeyi Kapat), Ctrl+A (Tümünü Seç), Delete (Seçiliyi Sil) ve Esc (Seçimi Temizle) dinleme
+                rootElement.KeyDown += (s, e) =>
                 {
-                    SyncStatusText.Text = $"Eşitleme: {FolderSyncEngine.Instance.SyncStatus}";
-                });
+                    var isCtrl = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control)
+                        .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+                    if (isCtrl)
+                    {
+                        if (e.Key == Windows.System.VirtualKey.A)
+                        {
+                            var focused = Microsoft.UI.Xaml.Input.FocusManager.GetFocusedElement(this.Content.XamlRoot);
+                            if (focused is not TextBox && focused is not AutoSuggestBox && focused is not PasswordBox)
+                            {
+                                e.Handled = true;
+                                SelectAll_Click(s, new RoutedEventArgs());
+                            }
+                        }
+                        else if (e.Key == Windows.System.VirtualKey.T)
+                        {
+                            OpenNewTab("");
+                            e.Handled = true;
+                        }
+                        else if (e.Key == Windows.System.VirtualKey.W)
+                        {
+                            CloseCurrentTab();
+                            e.Handled = true;
+                        }
+                    }
+                    else if (e.Key == Windows.System.VirtualKey.Delete)
+                    {
+                        var focused = Microsoft.UI.Xaml.Input.FocusManager.GetFocusedElement(this.Content.XamlRoot);
+                        if (focused is not TextBox && focused is not AutoSuggestBox && focused is not PasswordBox)
+                        {
+                            var items = GetSelectedItems();
+                            if (items.Count > 0)
+                            {
+                                e.Handled = true;
+                                ContextDelete_Click(s, new RoutedEventArgs());
+                            }
+                        }
+                    }
+                    else if (e.Key == Windows.System.VirtualKey.Escape)
+                    {
+                        ClearSelection();
+                    }
+                };
             }
-        };
+        }
+        catch (Exception ex)
+        {
+            App.LogCrash("MainWindow.KeyDownSetup", ex);
+        }
 
-        LoadPinnedFolders();
-        _ = RefreshStorageQuotaAsync();
+        try
+        {
+            // Senkronizasyon durumunu dinle
+            FolderSyncEngine.Instance.PropertyChanged += (s, e) =>
+            {
+                if (e.PropertyName == nameof(FolderSyncEngine.SyncStatus))
+                {
+                    DispatcherQueue?.TryEnqueue(() =>
+                    {
+                        if (SyncStatusText != null)
+                        {
+                            SyncStatusText.Text = $"Eşitleme: {FolderSyncEngine.Instance.SyncStatus}";
+                        }
+                    });
+                }
+            };
+        }
+        catch (Exception ex)
+        {
+            App.LogCrash("MainWindow.FolderSyncEngineSetup", ex);
+        }
 
-        NavView.SelectedItem = AllFilesNavItem;
+        try
+        {
+            LoadPinnedFolders();
+        }
+        catch (Exception ex)
+        {
+            App.LogCrash("MainWindow.LoadPinnedFolders", ex);
+        }
+
+        try
+        {
+            _ = RefreshStorageQuotaAsync();
+        }
+        catch (Exception ex)
+        {
+            App.LogCrash("MainWindow.RefreshStorageQuotaAsync", ex);
+        }
+
+        try
+        {
+            NavView.SelectedItem = AllFilesNavItem;
+        }
+        catch (Exception ex)
+        {
+            App.LogCrash("MainWindow.NavViewSelection", ex);
+        }
     }
 
     #region Windows 11 Sekme (TabView) Yönetimi
@@ -219,13 +283,36 @@ public sealed partial class MainWindow : Window
 
     private void SetupTitleBar()
     {
-        ExtendsContentIntoTitleBar = true;
-        SetTitleBar(CustomDragRegion);
         try
         {
-            AppWindow.SetIcon("app.ico");
+            ExtendsContentIntoTitleBar = true;
+            if (CustomDragRegion != null)
+            {
+                SetTitleBar(CustomDragRegion);
+            }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            App.LogCrash("SetupTitleBar.SetTitleBar", ex);
+        }
+
+        try
+        {
+            var baseDir = AppContext.BaseDirectory;
+            var iconPath = Path.Combine(baseDir, "app.ico");
+            if (File.Exists(iconPath))
+            {
+                AppWindow?.SetIcon(iconPath);
+            }
+            else
+            {
+                AppWindow?.SetIcon("app.ico");
+            }
+        }
+        catch (Exception ex)
+        {
+            App.LogCrash("SetupTitleBar.SetIcon", ex);
+        }
     }
 
     private async void NavigateToPath(string path, bool addToHistory = true)

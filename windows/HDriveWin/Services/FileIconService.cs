@@ -52,18 +52,25 @@ public static class FileIconService
 
     public static BitmapImage? GetIcon(string filename, bool isDirectory, bool large = true)
     {
-        var cacheKey = isDirectory ? "__directory__" : Path.GetExtension(filename).ToLowerInvariant();
-        if (string.IsNullOrEmpty(cacheKey)) cacheKey = "__file__";
-
-        var cache = large ? _largeIconCache : _smallIconCache;
-        if (cache.TryGetValue(cacheKey, out var cached))
+        try
         {
-            return cached;
-        }
+            var cacheKey = isDirectory ? "__directory__" : Path.GetExtension(filename).ToLowerInvariant();
+            if (string.IsNullOrEmpty(cacheKey)) cacheKey = "__file__";
 
-        var image = ExtractShellIcon(cacheKey, isDirectory, large);
-        cache[cacheKey] = image;
-        return image;
+            var cache = large ? _largeIconCache : _smallIconCache;
+            if (cache.TryGetValue(cacheKey, out var cached))
+            {
+                return cached;
+            }
+
+            var image = ExtractShellIcon(cacheKey, isDirectory, large);
+            cache[cacheKey] = image;
+            return image;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static BitmapImage? ExtractShellIcon(string extOrKey, bool isDirectory, bool large)
