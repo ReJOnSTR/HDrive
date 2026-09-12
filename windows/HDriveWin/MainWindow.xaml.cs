@@ -465,7 +465,7 @@ public sealed partial class MainWindow : Window
 
     private void UpdatePreviewPaneForMultipleItems(List<FileItem> selectedItems)
     {
-        PreviewNameText.Text = $"{selectedItems.Count} Öğe Seçildi";
+        PreviewFileName.Text = $"{selectedItems.Count} Öğe Seçildi";
         PreviewTypeBadge.Text = "Toplu Seçim";
         long totalSize = selectedItems.Where(i => !i.IsDirectory).Sum(i => i.Size);
         PreviewSizeText.Text = FormatByteSize(totalSize);
