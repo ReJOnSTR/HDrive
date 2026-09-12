@@ -58,7 +58,7 @@ public sealed partial class MainWindow : Window
         // Başlangıç sekmesi oluştur
         CreateInitialTab();
 
-        // Klavyeden Ctrl+T (Yeni Sekme) ve Ctrl+W (Sekmeyi Kapat) dinleme - UI üzerine yazı/tooltip basmadan çalışır
+        // Klavyeden Ctrl+T (Yeni Sekme), Ctrl+W (Sekmeyi Kapat) ve Delete (Seçiliyi Sil) dinleme
         this.Content.KeyDown += (s, e) =>
         {
             var isCtrl = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control)
@@ -74,6 +74,19 @@ public sealed partial class MainWindow : Window
                 {
                     CloseCurrentTab();
                     e.Handled = true;
+                }
+            }
+            else if (e.Key == Windows.System.VirtualKey.Delete)
+            {
+                var focused = Microsoft.UI.Xaml.Input.FocusManager.GetFocusedElement(this.Content.XamlRoot);
+                if (focused is not TextBox && focused is not AutoSuggestBox && focused is not PasswordBox)
+                {
+                    var items = GetSelectedItems();
+                    if (items.Count > 0)
+                    {
+                        e.Handled = true;
+                        ContextDelete_Click(s, new RoutedEventArgs());
+                    }
                 }
             }
         };
@@ -392,10 +405,14 @@ public sealed partial class MainWindow : Window
             e.Handled = true;
             await PromptRenameItemAsync(_selectedItem);
         }
-        else if (e.Key == Windows.System.VirtualKey.Delete && _selectedItem != null)
+        else if (e.Key == Windows.System.VirtualKey.Delete)
         {
-            e.Handled = true;
-            ContextDelete_Click(sender, new RoutedEventArgs());
+            var items = GetSelectedItems();
+            if (items.Count > 0)
+            {
+                e.Handled = true;
+                ContextDelete_Click(sender, new RoutedEventArgs());
+            }
         }
     }
 
@@ -895,6 +912,15 @@ public sealed partial class MainWindow : Window
         if (e.OriginalSource is FrameworkElement element && element.DataContext is FileItem item)
         {
             _selectedItem = item;
+
+            // Eğer sağ tıklanan öğe mevcut seçimde değilse seçimi bu öğe yap
+            var container = GetActiveItemContainer();
+            if (container != null && !container.SelectedItems.Contains(item))
+            {
+                container.SelectedItems.Clear();
+                container.SelectedItem = item;
+            }
+
             if (item.IsDirectory)
             {
                 ContextPinItem.Visibility = Visibility.Visible;
@@ -925,6 +951,14 @@ public sealed partial class MainWindow : Window
             else
                 await OpenFileAsync(_selectedItem);
         }
+    }
+
+    private ListViewBase? GetActiveItemContainer()
+    {
+        if (FileListView.Visibility == Visibility.Visible) return FileListView;
+        if (FileGridViewMedium.Visibility == Visibility.Visible) return FileGridViewMedium;
+        if (FileGridView.Visibility == Visibility.Visible) return FileGridView;
+        return null;
     }
 
     /// <summary>
@@ -1095,9 +1129,11 @@ public sealed partial class MainWindow : Window
 
             foreach (var item in itemsToDelete)
             {
-                await client.DeleteAsync(item.Path);
+                await client.DeleteAsync(item.Path, item.IsDirectory);
             }
 
+            _selectedItem = null;
+            UpdatePreviewPane(null);
             LoadingRing.IsActive = false;
             await LoadDirectoryAsync(_currentPath);
         }

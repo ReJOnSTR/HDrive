@@ -191,6 +191,7 @@
                 <CommandBar Grid.Row="1" Background="Transparent" DefaultLabelPosition="Right" Margin="0,0,0,4" HorizontalAlignment="Left">
                     <AppBarButton Icon="NewFolder" Label="Yeni Klasör" Click="NewFolderButton_Click" />
                     <AppBarButton Icon="Upload" Label="Yükle" Click="UploadButton_Click" />
+                    <AppBarButton Icon="Delete" Label="Sil" Click="ContextDelete_Click" ToolTipService.ToolTip="Seçili öğeleri sil (Delete)" />
                     <AppBarSeparator />
                     <AppBarButton Icon="View" Label="Görünüm">
                         <AppBarButton.Flyout>
@@ -535,6 +536,7 @@
                                 <StackPanel Spacing="8" Margin="0,8,0,0">
                                     <Button x:Name="PreviewOpenButton" Content="Varsayılan Uygulamayla Aç" Style="{ThemeResource AccentButtonStyle}" HorizontalAlignment="Stretch" Click="PreviewOpenButton_Click" />
                                     <Button x:Name="PreviewDownloadButton" Content="İndir ve Kaydet" HorizontalAlignment="Stretch" Click="PreviewDownloadButton_Click" />
+                                    <Button x:Name="PreviewDeleteButton" Content="Sil" Style="{ThemeResource SubtleButtonStyle}" Foreground="{ThemeResource SystemFillColorCriticalBrush}" HorizontalAlignment="Stretch" Click="ContextDelete_Click" />
                                 </StackPanel>
                             </StackPanel>
                         </ScrollViewer>

@@ -261,23 +261,62 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, XMLParserDelegate
     }
     
     /// Dosya/Klasör Siler (DELETE)
-    public func delete(at remotePath: String, completion: @escaping (Error?) -> Void) {
+    public func delete(at remotePath: String, isDirectory: Bool = false, completion: @escaping (Error?) -> Void) {
+        var path = remotePath
+        if isDirectory && !path.hasSuffix("/") {
+            path += "/"
+        }
+        
+        var cleanPath = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard let baseURL = URL(string: config.serverURL) else {
+            completion(NSError(domain: "HDrive", code: 400, userInfo: [NSLocalizedDescriptionKey: "Geçersiz sunucu adresi"]))
+            return
+        }
+        
+        let basePath = (baseURL.path.hasSuffix("/") ? String(baseURL.path.dropLast()) : baseURL.path)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        
+        if !basePath.isEmpty {
+            if cleanPath == basePath {
+                cleanPath = ""
+            } else if cleanPath.hasPrefix(basePath + "/") {
+                cleanPath = String(cleanPath.dropFirst(basePath.count + 1))
+            }
+        }
+        
         var baseURLString = config.serverURL
         if !baseURLString.hasSuffix("/") { baseURLString += "/" }
-        let cleanPath = remotePath.hasPrefix("/") ? String(remotePath.dropFirst()) : remotePath
         
-        guard let targetURL = URL(string: baseURLString + cleanPath) else { return }
+        let encodedSegments = cleanPath.components(separatedBy: "/").map { segment in
+            let unescaped = segment.removingPercentEncoding ?? segment
+            return unescaped.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? unescaped
+        }
+        let fullPath = encodedSegments.joined(separator: "/")
+        let hasTrailingSlash = path.hasSuffix("/")
+        
+        guard let targetURL = URL(string: baseURLString + fullPath + (hasTrailingSlash ? "/" : "")) else {
+            completion(NSError(domain: "HDrive", code: 400, userInfo: [NSLocalizedDescriptionKey: "Geçersiz silme adresi"]))
+            return
+        }
         
         var request = URLRequest(url: targetURL)
         request.httpMethod = "DELETE"
         request.setValue(authHeader, forHTTPHeaderField: "Authorization")
+        request.setValue("infinity", forHTTPHeaderField: "Depth")
         
         session.dataTask(with: request) { _, response, error in
             if let error = error {
                 DispatchQueue.main.async { completion(error) }
                 return
             }
-            DispatchQueue.main.async { completion(nil) }
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 500
+            DispatchQueue.main.async {
+                if (200...299).contains(status) || status == 404 || status == 204 {
+                    completion(nil)
+                } else {
+                    completion(NSError(domain: "HDrive", code: status, userInfo: [NSLocalizedDescriptionKey: "Silme hatası: \(status)"]))
+                }
+            }
         }.resume()
     }
     

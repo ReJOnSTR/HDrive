@@ -38,13 +38,48 @@ public class WebDAVClient
 
     private Uri BuildUri(string relativePath)
     {
+        var trimmed = relativePath?.Trim() ?? "";
+        if (trimmed.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            return new Uri(trimmed);
+        }
+
         var baseUriStr = _config.ServerURL.TrimEnd('/');
-        var cleanPath = relativePath.TrimStart('/');
+        var cleanPath = trimmed.TrimStart('/');
+
+        // ServerURL'in yol bileşenini kontrol et (Örn: "/dav") ve çift eklemeyi önle
+        if (Uri.TryCreate(_config.ServerURL, UriKind.Absolute, out var baseUri))
+        {
+            var basePath = baseUri.AbsolutePath.Trim('/');
+            if (!string.IsNullOrEmpty(basePath))
+            {
+                if (cleanPath.Equals(basePath, StringComparison.OrdinalIgnoreCase))
+                {
+                    cleanPath = "";
+                }
+                else if (cleanPath.StartsWith(basePath + "/", StringComparison.OrdinalIgnoreCase))
+                {
+                    cleanPath = cleanPath.Substring(basePath.Length + 1);
+                }
+            }
+        }
+
         if (string.IsNullOrEmpty(cleanPath))
         {
             return new Uri(baseUriStr + "/");
         }
-        return new Uri($"{baseUriStr}/{Uri.EscapeDataString(cleanPath).Replace("%2F", "/")}");
+
+        var segments = cleanPath.Split('/', StringSplitOptions.None);
+        var encodedSegments = segments.Select(s => Uri.EscapeDataString(Uri.UnescapeDataString(s)));
+        var encodedPath = string.Join("/", encodedSegments);
+
+        var result = $"{baseUriStr}/{encodedPath}";
+        if (trimmed.EndsWith("/") && !result.EndsWith("/"))
+        {
+            result += "/";
+        }
+        return new Uri(result);
     }
 
     public async Task<(bool Success, string Message)> TestConnectionAsync()
@@ -232,13 +267,34 @@ public class WebDAVClient
         }
     }
 
-    public async Task<bool> DeleteAsync(string remotePath)
+    public async Task<bool> DeleteAsync(string remotePath, bool isDirectory = false)
     {
-        var uri = BuildUri(remotePath);
+        var path = remotePath;
+        if (isDirectory && !path.EndsWith("/"))
+        {
+            path += "/";
+        }
+
+        var uri = BuildUri(path);
         try
         {
-            var response = await _httpClient.DeleteAsync(uri);
-            return response.IsSuccessStatusCode;
+            using var request = new HttpRequestMessage(HttpMethod.Delete, uri);
+            request.Headers.Add("Depth", "infinity");
+            var response = await _httpClient.SendAsync(request);
+
+            if (response.IsSuccessStatusCode || response.StatusCode == System.Net.HttpStatusCode.NotFound || response.StatusCode == System.Net.HttpStatusCode.NoContent)
+            {
+                return true;
+            }
+
+            // Alternatif eğik çizgi ile dene (Bazı WebDAV sunucuları klasörler için / beklerken bazıları beklemez)
+            var altPath = path.EndsWith("/") ? path.TrimEnd('/') : path + "/";
+            var altUri = BuildUri(altPath);
+            using var altRequest = new HttpRequestMessage(HttpMethod.Delete, altUri);
+            altRequest.Headers.Add("Depth", "infinity");
+            var altResponse = await _httpClient.SendAsync(altRequest);
+
+            return altResponse.IsSuccessStatusCode || altResponse.StatusCode == System.Net.HttpStatusCode.NotFound || altResponse.StatusCode == System.Net.HttpStatusCode.NoContent;
         }
         catch
         {

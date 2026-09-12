@@ -469,7 +469,7 @@ public struct CloudreveView: View {
     private func deleteFile(_ file: RemoteFileItem) {
         guard let server = manager.activeServer else { return }
         let client = WebDAVClient(config: server)
-        client.delete(at: file.href) { error in
+        client.delete(at: file.href, isDirectory: file.isDirectory) { error in
             if error == nil {
                 self.refreshFiles()
             }

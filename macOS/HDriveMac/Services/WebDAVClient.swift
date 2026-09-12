@@ -83,21 +83,48 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, XMLParserDelegate
         return "Basic " + loginData.base64EncodedString()
     }
     
-    /// Göreli yolu güvenli bir şekilde encode ederek tam URL oluşturur (Boşluk ve Türkçe karakterleri destekler)
+    /// Göreli veya mutlak yolu güvenli bir şekilde encode ederek tam URL oluşturur (Boşluk, Türkçe karakterler ve sunucu temel yolunu destekler)
     public func buildURL(for relativePath: String) -> URL? {
+        let trimmed = relativePath.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") {
+            let unencoded = trimmed.removingPercentEncoding ?? trimmed
+            return URL(string: unencoded.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? unencoded)
+        }
+
+        guard let baseURL = URL(string: config.serverURL) else { return nil }
+
+        let basePath = (baseURL.path.hasSuffix("/") ? String(baseURL.path.dropLast()) : baseURL.path)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+
+        var cleanPath = trimmed.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if cleanPath.isEmpty {
+            return baseURL
+        }
+
+        // Eğer yol zaten basePath ile başlıyorsa (Örn: "dav/Klasor/dosya.txt" ve basePath="dav"), çift eklemeyi önle
+        if !basePath.isEmpty {
+            if cleanPath == basePath {
+                cleanPath = ""
+            } else if cleanPath.hasPrefix(basePath + "/") {
+                cleanPath = String(cleanPath.dropFirst(basePath.count + 1))
+            }
+        }
+
         var baseURLString = config.serverURL
         if !baseURLString.hasSuffix("/") { baseURLString += "/" }
-        
-        let cleanPath = relativePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+
         if cleanPath.isEmpty {
             return URL(string: baseURLString)
         }
-        
+
         let encodedSegments = cleanPath.components(separatedBy: "/").map { segment in
-            segment.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? segment
+            let unescaped = segment.removingPercentEncoding ?? segment
+            return unescaped.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? unescaped
         }
         let fullPath = encodedSegments.joined(separator: "/")
-        return URL(string: baseURLString + fullPath)
+
+        let hasTrailingSlash = trimmed.hasSuffix("/")
+        return URL(string: baseURLString + fullPath + (hasTrailingSlash ? "/" : ""))
     }
 
     /// Sunucu bağlantısını test eder
@@ -314,8 +341,12 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, XMLParserDelegate
     }
     
     /// Dosya/Klasör Siler (DELETE)
-    public func delete(at remotePath: String, completion: @escaping (Error?) -> Void) {
-        guard let targetURL = buildURL(for: remotePath) else {
+    public func delete(at remotePath: String, isDirectory: Bool = false, completion: @escaping (Error?) -> Void) {
+        var path = remotePath
+        if isDirectory && !path.hasSuffix("/") {
+            path += "/"
+        }
+        guard let targetURL = buildURL(for: path) else {
             completion(NSError(domain: "HDrive", code: 400, userInfo: [NSLocalizedDescriptionKey: "Geçersiz silme adresi"]))
             return
         }
@@ -323,6 +354,7 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, XMLParserDelegate
         var request = URLRequest(url: targetURL)
         request.httpMethod = "DELETE"
         request.setValue(authHeader, forHTTPHeaderField: "Authorization")
+        request.setValue("infinity", forHTTPHeaderField: "Depth")
         
         session.dataTask(with: request) { _, response, error in
             if let error = error {
@@ -331,7 +363,7 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, XMLParserDelegate
             }
             let status = (response as? HTTPURLResponse)?.statusCode ?? 500
             DispatchQueue.main.async {
-                if status >= 200 && status < 300 || status == 404 {
+                if (200...299).contains(status) || status == 404 || status == 204 {
                     completion(nil)
                 } else {
                     completion(NSError(domain: "HDrive", code: status, userInfo: [NSLocalizedDescriptionKey: "Silme hatası: \(status)"]))

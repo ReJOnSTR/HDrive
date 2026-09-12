@@ -302,6 +302,9 @@ public struct NativeExplorerView: View {
             Button(action: deleteSelectedFiles) { EmptyView() }
                 .keyboardShortcut(.delete, modifiers: .command)
             
+            Button(action: deleteSelectedFiles) { EmptyView() }
+                .keyboardShortcut(.delete, modifiers: [])
+            
             Button(action: {
                 if let sel = selectedFileID, let file = files.first(where: { $0.id == sel }) {
                     startRenaming(file)
@@ -1537,7 +1540,7 @@ public struct NativeExplorerView: View {
     private func deleteFile(_ file: RemoteFileItem) {
         guard let server = manager.activeServer else { return }
         let client = WebDAVClient(config: server)
-        client.delete(at: file.href) { error in
+        client.delete(at: file.href, isDirectory: file.isDirectory) { error in
             if error == nil {
                 SyncLogManager.shared.log("Silindi: \(file.name)")
                 loadDirectory(at: currentPath)
@@ -1628,7 +1631,7 @@ public struct NativeExplorerView: View {
         let group = DispatchGroup()
         for file in targets {
             group.enter()
-            client.delete(at: file.href) { error in
+            client.delete(at: file.href, isDirectory: file.isDirectory) { error in
                 if error == nil {
                     SyncLogManager.shared.log("Silindi: \(file.name)")
                 } else {
