@@ -60,7 +60,19 @@ public class FileItem : INotifyPropertyChanged
         }
     }
 
-    public string GlyphIcon => IsDirectory ? "\uE8B7" : GetFileIcon(Name); // Windows 11 Segoe Fluent Icons
+    public Microsoft.UI.Xaml.Media.Imaging.BitmapImage? IconImage =>
+        Services.FileIconService.GetIcon(Name, IsDirectory, large: true);
+
+    public Microsoft.UI.Xaml.Media.Imaging.BitmapImage? IconImageSmall =>
+        Services.FileIconService.GetIcon(Name, IsDirectory, large: false);
+
+    public Microsoft.UI.Xaml.Visibility HasIconImageVisibility =>
+        IconImage != null ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
+
+    public Microsoft.UI.Xaml.Visibility HasNoIconImageVisibility =>
+        IconImage != null ? Microsoft.UI.Xaml.Visibility.Collapsed : Microsoft.UI.Xaml.Visibility.Visible;
+
+    public string GlyphIcon => IsDirectory ? "\uE8B7" : GetFileIcon(Name); // Windows 11 Segoe Fluent Icons Fallback
 
     public Microsoft.UI.Xaml.Media.SolidColorBrush IconBrush => new(GetFileColor(Name, IsDirectory));
 

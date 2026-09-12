@@ -304,9 +304,15 @@
                                                 <RowDefinition Height="Auto" />
                                             </Grid.RowDefinitions>
 
-                                            <FontIcon Grid.Row="0" Glyph="{x:Bind GlyphIcon}" FontSize="44"
-                                                      Foreground="{x:Bind IconBrush}"
-                                                      HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                            <Grid Grid.Row="0" Width="48" Height="48" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                <Image Source="{x:Bind IconImage}" Width="48" Height="48" Stretch="Uniform"
+                                                       Visibility="{x:Bind HasIconImageVisibility}"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                                <FontIcon Glyph="{x:Bind GlyphIcon}" FontSize="40"
+                                                          Foreground="{x:Bind IconBrush}"
+                                                          Visibility="{x:Bind HasNoIconImageVisibility}"
+                                                          HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                            </Grid>
 
                                             <TextBlock Grid.Row="1" Text="{x:Bind Name}" 
                                                        FontWeight="SemiBold"
@@ -362,9 +368,15 @@
                                                 <RowDefinition Height="Auto" />
                                             </Grid.RowDefinitions>
 
-                                            <FontIcon Grid.Row="0" Glyph="{x:Bind GlyphIcon}" FontSize="32"
-                                                      Foreground="{x:Bind IconBrush}"
-                                                      HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                            <Grid Grid.Row="0" Width="36" Height="36" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                <Image Source="{x:Bind IconImage}" Width="36" Height="36" Stretch="Uniform"
+                                                       Visibility="{x:Bind HasIconImageVisibility}"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                                <FontIcon Glyph="{x:Bind GlyphIcon}" FontSize="30"
+                                                          Foreground="{x:Bind IconBrush}"
+                                                          Visibility="{x:Bind HasNoIconImageVisibility}"
+                                                          HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                            </Grid>
 
                                             <TextBlock Grid.Row="1" Text="{x:Bind Name}" 
                                                        FontWeight="Normal"
@@ -430,8 +442,15 @@
                                         </Grid.ColumnDefinitions>
 
                                         <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10">
-                                            <FontIcon Glyph="{x:Bind GlyphIcon}" FontSize="16" 
-                                                      Foreground="{x:Bind IconBrush}" />
+                                            <Grid Width="20" Height="20" VerticalAlignment="Center">
+                                                <Image Source="{x:Bind IconImageSmall}" Width="16" Height="16" Stretch="Uniform"
+                                                       Visibility="{x:Bind HasIconImageVisibility}"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                                <FontIcon Glyph="{x:Bind GlyphIcon}" FontSize="16" 
+                                                          Foreground="{x:Bind IconBrush}"
+                                                          Visibility="{x:Bind HasNoIconImageVisibility}"
+                                                          HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                            </Grid>
                                             <TextBlock Text="{x:Bind Name}" VerticalAlignment="Center" 
                                                        TextTrimming="CharacterEllipsis" />
                                         </StackPanel>
@@ -472,6 +491,7 @@
                                 <!-- Önizleme Görsel Kartı -->
                                 <Border Height="180" Background="{ThemeResource LayerFillColorDefaultBrush}" CornerRadius="8" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
                                     <Grid HorizontalAlignment="Center" VerticalAlignment="Center">
+                                        <Image x:Name="PreviewIconImage" Width="72" Height="72" Stretch="Uniform" Visibility="Collapsed" />
                                         <FontIcon x:Name="PreviewIcon" Glyph="&#xE8A5;" FontSize="72" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
                                         <Image x:Name="PreviewImage" Stretch="Uniform" MaxHeight="170" Visibility="Collapsed" />
                                     </Grid>

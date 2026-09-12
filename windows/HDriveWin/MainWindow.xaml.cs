@@ -636,6 +636,7 @@ public sealed partial class MainWindow : Window
             PreviewExtensionText.Text = "--";
             PreviewPathText.Text = "--";
             PreviewImage.Visibility = Visibility.Collapsed;
+            PreviewIconImage.Visibility = Visibility.Collapsed;
             PreviewIcon.Visibility = Visibility.Visible;
             return;
         }
@@ -647,8 +648,19 @@ public sealed partial class MainWindow : Window
         PreviewExtensionText.Text = string.IsNullOrEmpty(item.Extension) ? (item.IsDirectory ? "Klasör" : "Bilinmeyen") : item.Extension;
         PreviewPathText.Text = item.Path;
 
-        PreviewIcon.Glyph = item.GlyphIcon;
-        PreviewIcon.Foreground = item.IconBrush;
+        if (item.IconImage != null)
+        {
+            PreviewIconImage.Source = item.IconImage;
+            PreviewIconImage.Visibility = Visibility.Visible;
+            PreviewIcon.Visibility = Visibility.Collapsed;
+        }
+        else
+        {
+            PreviewIconImage.Visibility = Visibility.Collapsed;
+            PreviewIcon.Visibility = Visibility.Visible;
+            PreviewIcon.Glyph = item.GlyphIcon;
+            PreviewIcon.Foreground = item.IconBrush;
+        }
 
         if (item.IsImage)
         {
@@ -661,17 +673,25 @@ public sealed partial class MainWindow : Window
                     PreviewImage.Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(cachedFile));
                     PreviewImage.Visibility = Visibility.Visible;
                     PreviewIcon.Visibility = Visibility.Collapsed;
+                    PreviewIconImage.Visibility = Visibility.Collapsed;
                 }
                 catch
                 {
                     PreviewImage.Visibility = Visibility.Collapsed;
-                    PreviewIcon.Visibility = Visibility.Visible;
+                    if (item.IconImage != null)
+                    {
+                        PreviewIconImage.Visibility = Visibility.Visible;
+                        PreviewIcon.Visibility = Visibility.Collapsed;
+                    }
+                    else
+                    {
+                        PreviewIcon.Visibility = Visibility.Visible;
+                    }
                 }
             }
             else
             {
                 PreviewImage.Visibility = Visibility.Collapsed;
-                PreviewIcon.Visibility = Visibility.Visible;
 
                 _ = Task.Run(async () =>
                 {
@@ -688,6 +708,7 @@ public sealed partial class MainWindow : Window
                                     PreviewImage.Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(downloaded));
                                     PreviewImage.Visibility = Visibility.Visible;
                                     PreviewIcon.Visibility = Visibility.Collapsed;
+                                    PreviewIconImage.Visibility = Visibility.Collapsed;
                                 }
                                 catch { }
                             }
@@ -699,7 +720,6 @@ public sealed partial class MainWindow : Window
         else
         {
             PreviewImage.Visibility = Visibility.Collapsed;
-            PreviewIcon.Visibility = Visibility.Visible;
         }
 
         if (item.IsDirectory)
