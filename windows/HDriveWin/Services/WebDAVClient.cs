@@ -99,6 +99,7 @@ public class WebDAVClient
             }
 
             var responses = doc.Descendants(d + "response");
+            var cleanTarget = uri.AbsolutePath.TrimEnd('/');
             bool isFirst = true;
 
             foreach (var resp in responses)
@@ -106,14 +107,17 @@ public class WebDAVClient
                 var href = resp.Element(d + "href")?.Value ?? "";
                 if (string.IsNullOrEmpty(href)) continue;
 
-                // İlk öğe dizinin kendisidir, atla
-                if (isFirst)
+                var decodedHref = Uri.UnescapeDataString(href);
+                var cleanHref = decodedHref.TrimEnd('/');
+
+                // İstek atılan klasörün kendisini atla (ilk öğe veya hedef yol eşleşmesi)
+                if (isFirst || cleanHref.Equals(cleanTarget, StringComparison.OrdinalIgnoreCase))
                 {
                     isFirst = false;
                     continue;
                 }
+                isFirst = false;
 
-                var decodedHref = Uri.UnescapeDataString(href);
                 var isDirectory = resp.Descendants(d + "collection").Any() || decodedHref.EndsWith("/");
 
                 var displayName = resp.Descendants(d + "displayname").FirstOrDefault()?.Value;
@@ -140,6 +144,8 @@ public class WebDAVClient
                 }
 
                 var itemPath = relativePath.TrimEnd('/') + "/" + displayName;
+                if (items.Any(i => i.Path.Equals(itemPath, StringComparison.OrdinalIgnoreCase))) continue;
+
                 items.Add(new FileItem
                 {
                     Name = displayName,
@@ -151,6 +157,9 @@ public class WebDAVClient
             }
         }
         catch { }
+
+        // Mükerrer öğeleri temizle
+        items = items.GroupBy(x => x.Path, StringComparer.OrdinalIgnoreCase).Select(g => g.First()).ToList();
 
         // Klasörleri önce, sonra dosyaları alfabetik sırala
         items.Sort((a, b) =>

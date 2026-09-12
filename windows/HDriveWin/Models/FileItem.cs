@@ -118,16 +118,17 @@ public class FileItem : INotifyPropertyChanged
         return ext switch
         {
             ".pdf" => "\uEA90",
-            ".docx" or ".doc" => "\uE8A5",
-            ".xlsx" or ".xls" => "\uF1C5",
+            ".docx" or ".doc" or ".rtf" => "\uE8A5",
+            ".xlsx" or ".xls" or ".csv" or ".xlsm" => "\uE9F9", // Excel Tablo / Çalışma Sayfası (Segoe Fluent Icons)
             ".pptx" or ".ppt" => "\uE8B9",
             ".fig" or ".figjam" or ".sketch" => "\uE790", // Design Icon (Palette/Shape)
             ".psd" or ".psb" or ".ai" or ".eps" => "\uEB9F", // Image Design
-            ".zip" or ".rar" or ".7z" or ".tar" or ".gz" => "\uF012",
-            ".png" or ".jpg" or ".jpeg" or ".gif" or ".webp" or ".svg" => "\uEB9F",
-            ".mp4" or ".mov" or ".mkv" or ".avi" => "\uE714",
+            ".zip" or ".rar" or ".7z" or ".tar" or ".gz" => "\uE8B7",
+            ".png" or ".jpg" or ".jpeg" or ".gif" or ".webp" or ".svg" or ".bmp" => "\uEB9F",
+            ".mp4" or ".mov" or ".mkv" or ".avi" or ".wmv" => "\uE714",
             ".mp3" or ".wav" or ".flac" or ".m4a" => "\uEC4F",
-            ".txt" or ".md" or ".json" or ".xml" => "\uE8C4",
+            ".txt" or ".log" => "\uE8C4",
+            ".json" or ".xml" or ".html" or ".css" or ".js" or ".ts" or ".cs" => "\uE943",
             _ => "\uE8A5"
         };
     }

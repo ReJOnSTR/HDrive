@@ -58,22 +58,25 @@ public sealed partial class MainWindow : Window
         // Başlangıç sekmesi oluştur
         CreateInitialTab();
 
-        // Ctrl+T (Yeni Sekme) ve Ctrl+W (Sekmeyi Kapat) klavye kısayolları
-        var newTabAccelerator = new Microsoft.UI.Xaml.Input.KeyboardAccelerator
+        // Klavyeden Ctrl+T (Yeni Sekme) ve Ctrl+W (Sekmeyi Kapat) dinleme - UI üzerine yazı/tooltip basmadan çalışır
+        this.Content.KeyDown += (s, e) =>
         {
-            Key = Windows.System.VirtualKey.T,
-            Modifiers = Windows.System.VirtualKeyModifiers.Control
+            var isCtrl = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control)
+                .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+            if (isCtrl)
+            {
+                if (e.Key == Windows.System.VirtualKey.T)
+                {
+                    OpenNewTab("");
+                    e.Handled = true;
+                }
+                else if (e.Key == Windows.System.VirtualKey.W)
+                {
+                    CloseCurrentTab();
+                    e.Handled = true;
+                }
+            }
         };
-        newTabAccelerator.Invoked += (s, e) => { OpenNewTab(""); e.Handled = true; };
-        this.Content.KeyboardAccelerators.Add(newTabAccelerator);
-
-        var closeTabAccelerator = new Microsoft.UI.Xaml.Input.KeyboardAccelerator
-        {
-            Key = Windows.System.VirtualKey.W,
-            Modifiers = Windows.System.VirtualKeyModifiers.Control
-        };
-        closeTabAccelerator.Invoked += (s, e) => { CloseCurrentTab(); e.Handled = true; };
-        this.Content.KeyboardAccelerators.Add(closeTabAccelerator);
 
         // Senkronizasyon durumunu dinle
         FolderSyncEngine.Instance.PropertyChanged += (s, e) =>
@@ -129,7 +132,7 @@ public sealed partial class MainWindow : Window
 
         UpdateNavigationButtons();
         UpdateBreadcrumbs(_currentPath);
-        _ = LoadDirectoryAsync(_currentPath);
+        // Not: ExplorerTabs.SelectedItem = newTab tetiklendiğinde ExplorerTabs_SelectionChanged otomatik olarak LoadDirectoryAsync çağırır
     }
 
     public void CloseCurrentTab()
@@ -255,17 +258,31 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private int _loadSessionId = 0;
+
     private async Task LoadDirectoryAsync(string path)
     {
+        var sessionId = ++_loadSessionId;
         LoadingRing.IsActive = true;
-        _items.Clear();
-        _allItems.Clear();
 
         var config = CloudreveManager.Instance.ActiveServer;
-        var client = new WebDAVClient(config);
+        if (config == null)
+        {
+            LoadingRing.IsActive = false;
+            return;
+        }
 
+        var client = new WebDAVClient(config);
         var list = await client.ListDirectoryAsync(path);
-        _allItems.AddRange(list);
+
+        // Eğer başka bir gezinme başladıysa bu eski isteğin sonucunu yoksay
+        if (sessionId != _loadSessionId) return;
+
+        _allItems.Clear();
+        var uniqueList = list.GroupBy(x => x.Path, StringComparer.OrdinalIgnoreCase)
+                             .Select(g => g.First())
+                             .ToList();
+        _allItems.AddRange(uniqueList);
 
         ApplySearchFilter(SearchBox.Text);
 
