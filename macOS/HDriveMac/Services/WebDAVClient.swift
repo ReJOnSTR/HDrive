@@ -217,29 +217,7 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, XMLParserDelegate
             let unencoded = trimmed.removingPercentEncoding ?? trimmed
             return URL(string: unencoded.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? unencoded)
         }
-        guard let baseURL = URL(string: config.serverURL) else { return nil }
-        
-        let unencodedHref = trimmed.removingPercentEncoding ?? trimmed
-        let isAbsolute = unencodedHref.hasPrefix("/")
-        let segments = unencodedHref.components(separatedBy: "/").filter { !$0.isEmpty }
-        let encodedPath = (isAbsolute ? "/" : "") + segments.map {
-            $0.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? $0
-        }.joined(separator: "/")
-        
-        var baseComponents = URLComponents(url: baseURL, resolvingAgainstBaseURL: true)
-        let basePath = (baseURL.path.hasSuffix("/") ? String(baseURL.path.dropLast()) : baseURL.path)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        
-        if isAbsolute {
-            if !basePath.isEmpty && !encodedPath.hasPrefix("/" + basePath) {
-                baseComponents?.percentEncodedPath = "/" + basePath + encodedPath
-            } else {
-                baseComponents?.percentEncodedPath = encodedPath
-            }
-            return baseComponents?.url
-        } else {
-            return URL(string: encodedPath, relativeTo: baseURL)?.absoluteURL
-        }
+        return buildURL(for: trimmed)
     }
     
     /// Dosya İndirir (HTTP durum kodu kontrolü ve güvenli taşıma)

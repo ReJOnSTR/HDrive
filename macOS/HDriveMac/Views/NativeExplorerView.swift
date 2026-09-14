@@ -1533,13 +1533,19 @@ public struct NativeExplorerView: View {
             if error != nil {
                 client.downloadFile(href: file.href, to: target, progress: { _ in }) { err2 in
                     isLoading = false
-                    if err2 == nil {
+                    if err2 == nil && FileManager.default.fileExists(atPath: target.path) {
+                        SyncLogManager.shared.log("İndirildi: \(file.name)")
                         NSWorkspace.shared.selectFile(target.path, inFileViewerRootedAtPath: downloads.path)
+                    } else {
+                        SyncLogManager.shared.log("İndirme hatası: \(file.name) - \(err2?.localizedDescription ?? "")", isError: true)
                     }
                 }
             } else {
                 isLoading = false
-                NSWorkspace.shared.selectFile(target.path, inFileViewerRootedAtPath: downloads.path)
+                if FileManager.default.fileExists(atPath: target.path) {
+                    SyncLogManager.shared.log("İndirildi: \(file.name)")
+                    NSWorkspace.shared.selectFile(target.path, inFileViewerRootedAtPath: downloads.path)
+                }
             }
         }
     }
@@ -1748,7 +1754,7 @@ public struct NativeExplorerView: View {
             let dest = downloads.appendingPathComponent(file.name)
             let relPath = currentPath.isEmpty ? file.name : "\(currentPath)/\(file.name)"
             client.downloadFile(href: relPath, to: dest, progress: { _ in }, completion: { error in
-                if error == nil {
+                if error == nil && FileManager.default.fileExists(atPath: dest.path) {
                     lock.lock()
                     downloadedURLs.append(dest)
                     lock.unlock()
@@ -1756,7 +1762,7 @@ public struct NativeExplorerView: View {
                     group.leave()
                 } else {
                     client.downloadFile(href: file.href, to: dest, progress: { _ in }, completion: { err2 in
-                        if err2 == nil {
+                        if err2 == nil && FileManager.default.fileExists(atPath: dest.path) {
                             lock.lock()
                             downloadedURLs.append(dest)
                             lock.unlock()
