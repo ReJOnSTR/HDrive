@@ -1758,9 +1758,8 @@ public sealed partial class MainWindow : Window
     /// <summary>
     /// HDrive içinden Windows Masaüstüne, Explorer'a veya başka programlara dosya sürükleyip kopyalama (Çoklu Seçim Destekli Yerel Sürükleme)
     /// </summary>
-    private async void FileList_DragItemsStarting(object sender, DragItemsStartingEventArgs e)
+    private void FileList_DragItemsStarting(object sender, DragItemsStartingEventArgs e)
     {
-        var deferral = e.GetDeferral();
         try
         {
             var selectedItems = e.Items?.OfType<FileItem>().ToList() ?? new List<FileItem>();
@@ -1771,7 +1770,6 @@ public sealed partial class MainWindow : Window
 
             if (selectedItems.Count == 0)
             {
-                deferral.Complete();
                 return;
             }
 
@@ -1785,9 +1783,6 @@ public sealed partial class MainWindow : Window
             var syncFolder = FolderSyncEngine.Instance.LocalFolderPath;
             var cacheDir = Path.Combine(Path.GetTempPath(), "HDriveCache");
             Directory.CreateDirectory(cacheDir);
-
-            var config = CloudreveManager.Instance.ActiveServer;
-            var client = new WebDAVClient(config);
 
             foreach (var item in selectedItems)
             {
@@ -1806,11 +1801,7 @@ public sealed partial class MainWindow : Window
                     {
                         localPath = cachedPath;
                     }
-                    else if (!item.IsDirectory)
-                    {
-                        localPath = await client.DownloadFileToCacheAsync(item.Path);
-                    }
-                    else
+                    else if (item.IsDirectory)
                     {
                         var cachedFolderPath = Path.Combine(cacheDir, Path.GetFileName(item.Path.TrimEnd('/')));
                         Directory.CreateDirectory(cachedFolderPath);
@@ -1822,12 +1813,12 @@ public sealed partial class MainWindow : Window
                 {
                     if (File.Exists(localPath))
                     {
-                        var sf = await StorageFile.GetFileFromPathAsync(localPath);
+                        var sf = StorageFile.GetFileFromPathAsync(localPath).AsTask().GetAwaiter().GetResult();
                         storageItems.Add(sf);
                     }
                     else if (Directory.Exists(localPath))
                     {
-                        var sf = await StorageFolder.GetFolderFromPathAsync(localPath);
+                        var sf = StorageFolder.GetFolderFromPathAsync(localPath).AsTask().GetAwaiter().GetResult();
                         storageItems.Add(sf);
                     }
                 }
@@ -1842,10 +1833,6 @@ public sealed partial class MainWindow : Window
         catch (Exception ex)
         {
             Debug.WriteLine($"DragStarting error: {ex.Message}");
-        }
-        finally
-        {
-            deferral.Complete();
         }
     }
 
