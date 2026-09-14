@@ -84,21 +84,38 @@ public sealed partial class MainWindow : Window
         {
             if (this.Content is FrameworkElement rootElement)
             {
-                // Klavyeden Ctrl+T (Yeni Sekme), Ctrl+W (Sekmeyi Kapat), Ctrl+A (Tümünü Seç), Delete (Seçiliyi Sil) ve Esc (Seçimi Temizle) dinleme
+                // Klavyeden Explorer Kısayolları (Ctrl+C, Ctrl+X, Ctrl+V, F2, Alt+Enter, Ctrl+A, Ctrl+T, Ctrl+W, Delete, Esc)
                 rootElement.KeyDown += (s, e) =>
                 {
                     var isCtrl = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control)
                         .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+                    var isAlt = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Menu)
+                        .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+
+                    var focused = Microsoft.UI.Xaml.Input.FocusManager.GetFocusedElement(this.Content.XamlRoot);
+                    var isTypingInBox = focused is TextBox || focused is AutoSuggestBox || focused is PasswordBox;
+
                     if (isCtrl)
                     {
-                        if (e.Key == Windows.System.VirtualKey.A)
+                        if (e.Key == Windows.System.VirtualKey.A && !isTypingInBox)
                         {
-                            var focused = Microsoft.UI.Xaml.Input.FocusManager.GetFocusedElement(this.Content.XamlRoot);
-                            if (focused is not TextBox && focused is not AutoSuggestBox && focused is not PasswordBox)
-                            {
-                                e.Handled = true;
-                                SelectAll_Click(s, new RoutedEventArgs());
-                            }
+                            e.Handled = true;
+                            SelectAll_Click(s, new RoutedEventArgs());
+                        }
+                        else if (e.Key == Windows.System.VirtualKey.C && !isTypingInBox)
+                        {
+                            e.Handled = true;
+                            CopySelectedItemsToClipboard();
+                        }
+                        else if (e.Key == Windows.System.VirtualKey.X && !isTypingInBox)
+                        {
+                            e.Handled = true;
+                            CutSelectedItemsToClipboard();
+                        }
+                        else if (e.Key == Windows.System.VirtualKey.V && !isTypingInBox)
+                        {
+                            e.Handled = true;
+                            _ = PasteFromClipboardAsync();
                         }
                         else if (e.Key == Windows.System.VirtualKey.T)
                         {
@@ -111,17 +128,23 @@ public sealed partial class MainWindow : Window
                             e.Handled = true;
                         }
                     }
-                    else if (e.Key == Windows.System.VirtualKey.Delete)
+                    else if (isAlt && e.Key == Windows.System.VirtualKey.Enter && !isTypingInBox)
                     {
-                        var focused = Microsoft.UI.Xaml.Input.FocusManager.GetFocusedElement(this.Content.XamlRoot);
-                        if (focused is not TextBox && focused is not AutoSuggestBox && focused is not PasswordBox)
+                        e.Handled = true;
+                        _ = ShowPropertiesAsync(GetSelectedItems().FirstOrDefault() ?? _selectedItem);
+                    }
+                    else if (e.Key == Windows.System.VirtualKey.F2 && !isTypingInBox)
+                    {
+                        e.Handled = true;
+                        BeginInlineRename(GetSelectedItems().FirstOrDefault() ?? _selectedItem);
+                    }
+                    else if (e.Key == Windows.System.VirtualKey.Delete && !isTypingInBox)
+                    {
+                        var items = GetSelectedItems();
+                        if (items.Count > 0)
                         {
-                            var items = GetSelectedItems();
-                            if (items.Count > 0)
-                            {
-                                e.Handled = true;
-                                ContextDelete_Click(s, new RoutedEventArgs());
-                            }
+                            e.Handled = true;
+                            ContextDelete_Click(s, new RoutedEventArgs());
                         }
                     }
                     else if (e.Key == Windows.System.VirtualKey.Escape)
@@ -151,6 +174,32 @@ public sealed partial class MainWindow : Window
                         }
                     });
                 }
+            };
+
+            // Canlı Harici Uygulama Düzenleme (In-Place Edit Auto-Sync) Dinleyicisi
+            LiveEditWatcherService.Instance.FileAutoSynced += (s, e) =>
+            {
+                DispatcherQueue?.TryEnqueue(async () =>
+                {
+                    if (e.Success)
+                    {
+                        if (SyncStatusText != null)
+                        {
+                            SyncStatusText.Text = $"Otomatik Eşitlendi: {e.FileName}";
+                        }
+                        if (e.RemoteDirectory == _currentPath)
+                        {
+                            await LoadDirectoryAsync(_currentPath);
+                        }
+                    }
+                    else
+                    {
+                        if (SyncStatusText != null)
+                        {
+                            SyncStatusText.Text = $"Otomatik eşitleme başarısız: {e.FileName}";
+                        }
+                    }
+                });
             };
         }
         catch (Exception ex)
@@ -645,6 +694,9 @@ public sealed partial class MainWindow : Window
                         FileName = localPath,
                         UseShellExecute = true
                     });
+
+                    // Canlı Harici Düzenleme Takibi: Harici programda Ctrl+S yapıldığında Cloudreve'e otomatik geri yükle
+                    LiveEditWatcherService.Instance.WatchFile(localPath, item.Path, _currentPath);
                 }
                 catch (Exception ex)
                 {
@@ -655,6 +707,8 @@ public sealed partial class MainWindow : Window
                         Arguments = $"/select,\"{localPath}\"",
                         UseShellExecute = true
                     });
+
+                    LiveEditWatcherService.Instance.WatchFile(localPath, item.Path, _currentPath);
                 }
             }
         }
@@ -1214,53 +1268,404 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async void ContextRename_Click(object sender, RoutedEventArgs e)
+    #region Yerinde Yeniden Adlandırma (F2 Inline Rename)
+
+    private void ContextRename_Click(object sender, RoutedEventArgs e)
     {
-        if (_selectedItem != null)
+        var item = GetSelectedItems().FirstOrDefault() ?? _selectedItem;
+        if (item != null)
         {
-            await PromptRenameItemAsync(_selectedItem);
+            BeginInlineRename(item);
         }
     }
 
-    private async Task PromptRenameItemAsync(FileItem item)
+    private void BeginInlineRename(FileItem? item)
     {
-        var inputTextBox = new TextBox
+        if (item == null) return;
+
+        // Diğer tüm öğelerin düzenleme durumunu kapat
+        foreach (var it in _items)
         {
-            Text = item.Name,
-            SelectionStart = 0,
-            SelectionLength = item.Name.LastIndexOf('.') > 0 ? item.Name.LastIndexOf('.') : item.Name.Length
-        };
-
-        var renameDialog = new ContentDialog
-        {
-            Title = "Yeniden Adlandır",
-            Content = inputTextBox,
-            PrimaryButtonText = "Yeniden Adlandır",
-            CloseButtonText = "İptal",
-            DefaultButton = ContentDialogButton.Primary,
-            XamlRoot = this.Content.XamlRoot
-        };
-
-        var result = await renameDialog.ShowAsync();
-        if (result == ContentDialogResult.Primary)
-        {
-            var newName = inputTextBox.Text?.Trim();
-            if (string.IsNullOrWhiteSpace(newName) || newName == item.Name) return;
-
-            var server = CloudreveManager.Instance.ActiveServer;
-            if (server == null) return;
-
-            var client = new WebDAVClient(server);
-            var parent = _currentPath.TrimEnd('/');
-            var destPath = string.IsNullOrEmpty(parent) ? "/" + newName : parent + "/" + newName;
-
-            var success = await client.MoveAsync(item.Path, destPath);
-            if (success)
+            if (it != item && it.IsEditing)
             {
-                await LoadDirectoryAsync(_currentPath);
+                it.IsEditing = false;
+            }
+        }
+
+        item.EditingName = item.Name;
+        item.IsEditing = true;
+    }
+
+    private void InlineRenameTextBox_Loaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is TextBox textBox)
+        {
+            textBox.Focus(FocusState.Programmatic);
+            var text = textBox.Text ?? "";
+            var dotIndex = text.LastIndexOf('.');
+            if (dotIndex > 0)
+            {
+                textBox.Select(0, dotIndex);
+            }
+            else
+            {
+                textBox.SelectAll();
             }
         }
     }
+
+    private async void InlineRenameTextBox_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (sender is TextBox textBox && textBox.DataContext is FileItem item)
+        {
+            if (e.Key == Windows.System.VirtualKey.Enter)
+            {
+                e.Handled = true;
+                await CommitInlineRenameAsync(item, textBox.Text);
+            }
+            else if (e.Key == Windows.System.VirtualKey.Escape)
+            {
+                e.Handled = true;
+                CancelInlineRename(item);
+            }
+        }
+    }
+
+    private async void InlineRenameTextBox_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (sender is TextBox textBox && textBox.DataContext is FileItem item && item.IsEditing)
+        {
+            await CommitInlineRenameAsync(item, textBox.Text);
+        }
+    }
+
+    private void CancelInlineRename(FileItem item)
+    {
+        item.IsEditing = false;
+        item.EditingName = item.Name;
+    }
+
+    private async Task CommitInlineRenameAsync(FileItem item, string newNameText)
+    {
+        if (!item.IsEditing) return;
+        item.IsEditing = false;
+
+        var newName = newNameText?.Trim();
+        if (string.IsNullOrWhiteSpace(newName) || newName == item.Name)
+        {
+            return;
+        }
+
+        var server = CloudreveManager.Instance.ActiveServer;
+        if (server == null) return;
+
+        var client = new WebDAVClient(server);
+        var parent = _currentPath.TrimEnd('/');
+        var destPath = string.IsNullOrEmpty(parent) ? "/" + newName : parent + "/" + newName;
+
+        LoadingRing.IsActive = true;
+        var success = await client.MoveAsync(item.Path, destPath);
+        LoadingRing.IsActive = false;
+
+        if (success)
+        {
+            item.Name = newName;
+            item.Path = destPath;
+            await LoadDirectoryAsync(_currentPath);
+        }
+    }
+
+    #endregion
+
+    #region Sistem Panosu İşlemleri (Ctrl+C, Ctrl+X, Ctrl+V)
+
+    private readonly List<FileItem> _clipboardItems = new();
+    private bool _isClipboardCut = false;
+
+    private void ContextCopy_Click(object sender, RoutedEventArgs e)
+    {
+        CopySelectedItemsToClipboard();
+    }
+
+    private void ContextCut_Click(object sender, RoutedEventArgs e)
+    {
+        CutSelectedItemsToClipboard();
+    }
+
+    private async void ContextPaste_Click(object sender, RoutedEventArgs e)
+    {
+        await PasteFromClipboardAsync();
+    }
+
+    private void CopySelectedItemsToClipboard()
+    {
+        var selected = GetSelectedItems();
+        if (selected.Count == 0) return;
+
+        foreach (var it in _items) it.IsCut = false;
+        _clipboardItems.Clear();
+        _clipboardItems.AddRange(selected);
+        _isClipboardCut = false;
+
+        try
+        {
+            var dp = new DataPackage();
+            dp.RequestedOperation = DataPackageOperation.Copy;
+            dp.SetText(string.Join("\n", selected.Select(s => s.Path)));
+            Clipboard.SetContent(dp);
+
+            if (SyncStatusText != null)
+            {
+                SyncStatusText.Text = $"{selected.Count} öğe panoya kopyalandı";
+            }
+        }
+        catch { }
+    }
+
+    private void CutSelectedItemsToClipboard()
+    {
+        var selected = GetSelectedItems();
+        if (selected.Count == 0) return;
+
+        foreach (var it in _items) it.IsCut = false;
+        _clipboardItems.Clear();
+        _clipboardItems.AddRange(selected);
+        _isClipboardCut = true;
+
+        foreach (var it in selected)
+        {
+            it.IsCut = true;
+        }
+
+        try
+        {
+            var dp = new DataPackage();
+            dp.RequestedOperation = DataPackageOperation.Move;
+            dp.SetText(string.Join("\n", selected.Select(s => s.Path)));
+            Clipboard.SetContent(dp);
+
+            if (SyncStatusText != null)
+            {
+                SyncStatusText.Text = $"{selected.Count} öğe kesildi";
+            }
+        }
+        catch { }
+    }
+
+    private async Task PasteFromClipboardAsync()
+    {
+        var server = CloudreveManager.Instance.ActiveServer;
+        if (server == null) return;
+        var client = new WebDAVClient(server);
+
+        // 1. Windows Sistem Panosundan dışarıdan kopyalanan dosyaları kontrol et
+        try
+        {
+            var clipData = Clipboard.GetContent();
+            if (clipData.Contains(StandardDataFormats.StorageItems))
+            {
+                var storageItems = await clipData.GetStorageItemsAsync();
+                if (storageItems != null && storageItems.Count > 0)
+                {
+                    LoadingRing.IsActive = true;
+                    int successCount = 0;
+                    foreach (var it in storageItems)
+                    {
+                        if (it is Windows.Storage.StorageFile file)
+                        {
+                            var ok = await client.UploadFileAsync(file.Path, _currentPath);
+                            if (ok) successCount++;
+                        }
+                    }
+                    LoadingRing.IsActive = false;
+                    if (SyncStatusText != null)
+                    {
+                        SyncStatusText.Text = $"{successCount} dosya panodan yüklendi";
+                    }
+                    await LoadDirectoryAsync(_currentPath);
+                    return;
+                }
+            }
+        }
+        catch { }
+
+        // 2. HDrive içi kesme / kopyalama yapıştırma işlemi
+        if (_clipboardItems.Count > 0)
+        {
+            LoadingRing.IsActive = true;
+            var parent = _currentPath.TrimEnd('/');
+
+            foreach (var item in _clipboardItems)
+            {
+                var destPath = string.IsNullOrEmpty(parent) ? "/" + item.Name : parent + "/" + item.Name;
+                if (item.Path.Equals(destPath, StringComparison.OrdinalIgnoreCase)) continue;
+
+                if (_isClipboardCut)
+                {
+                    await client.MoveAsync(item.Path, destPath);
+                }
+                else
+                {
+                    var local = await client.DownloadFileToCacheAsync(item.Path);
+                    if (!string.IsNullOrEmpty(local) && File.Exists(local))
+                    {
+                        await client.UploadFileAsync(local, _currentPath);
+                    }
+                }
+            }
+
+            foreach (var it in _items) it.IsCut = false;
+            _clipboardItems.Clear();
+            _isClipboardCut = false;
+            LoadingRing.IsActive = false;
+
+            await LoadDirectoryAsync(_currentPath);
+        }
+    }
+
+    #endregion
+
+    #region Dosya Özellikleri (Alt+Enter / Properties)
+
+    private async void ContextProperties_Click(object sender, RoutedEventArgs e)
+    {
+        var item = GetSelectedItems().FirstOrDefault() ?? _selectedItem;
+        if (item != null)
+        {
+            await ShowPropertiesAsync(item);
+        }
+    }
+
+    private async Task ShowPropertiesAsync(FileItem? item)
+    {
+        if (item == null) return;
+
+        try
+        {
+            var dialog = new FilePropertiesDialog(item)
+            {
+                XamlRoot = this.Content.XamlRoot
+            };
+            await dialog.ShowAsync();
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"ShowProperties error: {ex.Message}");
+        }
+    }
+
+    #endregion
+
+    #region Fare ile Çerçeve Çizerek Çoklu Seçim (Marquee / Rubber-Band Selection)
+
+    private bool _isMarqueeSelecting = false;
+    private Windows.Foundation.Point _marqueeStartPoint;
+
+    private void FileArea_PointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        var point = e.GetCurrentPoint(FileAreaGrid);
+        if (point.Properties.IsLeftButtonPressed)
+        {
+            if (e.OriginalSource is FrameworkElement element && element.DataContext is FileItem)
+            {
+                return;
+            }
+
+            _isMarqueeSelecting = true;
+            _marqueeStartPoint = point.Position;
+
+            Canvas.SetLeft(SelectionBox, _marqueeStartPoint.X);
+            Canvas.SetTop(SelectionBox, _marqueeStartPoint.Y);
+            SelectionBox.Width = 0;
+            SelectionBox.Height = 0;
+            SelectionBox.Visibility = Visibility.Visible;
+
+            FileAreaGrid.CapturePointer(e.Pointer);
+
+            var isCtrl = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control)
+                .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+            var isShift = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Shift)
+                .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+
+            if (!isCtrl && !isShift)
+            {
+                ClearSelection();
+            }
+
+            e.Handled = true;
+        }
+    }
+
+    private void FileArea_PointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_isMarqueeSelecting) return;
+
+        var currentPoint = e.GetCurrentPoint(FileAreaGrid).Position;
+
+        var left = Math.Min(_marqueeStartPoint.X, currentPoint.X);
+        var top = Math.Min(_marqueeStartPoint.Y, currentPoint.Y);
+        var width = Math.Abs(currentPoint.X - _marqueeStartPoint.X);
+        var height = Math.Abs(currentPoint.Y - _marqueeStartPoint.Y);
+
+        Canvas.SetLeft(SelectionBox, left);
+        Canvas.SetTop(SelectionBox, top);
+        SelectionBox.Width = width;
+        SelectionBox.Height = height;
+
+        if (width > 4 && height > 4)
+        {
+            UpdateMarqueeSelection(new Windows.Foundation.Rect(left, top, width, height));
+        }
+
+        e.Handled = true;
+    }
+
+    private void FileArea_PointerReleased(object sender, PointerRoutedEventArgs e)
+    {
+        if (_isMarqueeSelecting)
+        {
+            _isMarqueeSelecting = false;
+            SelectionBox.Visibility = Visibility.Collapsed;
+            try
+            {
+                FileAreaGrid.ReleasePointerCapture(e.Pointer);
+            }
+            catch { }
+            e.Handled = true;
+        }
+    }
+
+    private void UpdateMarqueeSelection(Windows.Foundation.Rect marqueeRect)
+    {
+        var container = GetActiveItemContainer();
+        if (container == null) return;
+
+        for (int i = 0; i < container.Items.Count; i++)
+        {
+            if (container.ContainerFromIndex(i) is FrameworkElement itemElement && itemElement.DataContext is FileItem item)
+            {
+                var transform = itemElement.TransformToVisual(FileAreaGrid);
+                var bounds = transform.TransformBounds(new Windows.Foundation.Rect(0, 0, itemElement.ActualWidth, itemElement.ActualHeight));
+
+                bool intersects = RectIntersects(marqueeRect, bounds);
+                if (intersects)
+                {
+                    if (!container.SelectedItems.Contains(item))
+                    {
+                        container.SelectedItems.Add(item);
+                    }
+                }
+            }
+        }
+        UpdateItemCountStatus();
+    }
+
+    private static bool RectIntersects(Windows.Foundation.Rect r1, Windows.Foundation.Rect r2)
+    {
+        return !(r2.Left > r1.Right || r2.Right < r1.Left || r2.Top > r1.Bottom || r2.Bottom < r1.Top);
+    }
+
+    #endregion
 
     private async void ContextDelete_Click(object sender, RoutedEventArgs e)
     {

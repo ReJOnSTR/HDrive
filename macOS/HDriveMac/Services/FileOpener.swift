@@ -91,13 +91,65 @@ public final class FileOpener: ObservableObject {
                 // Mac'in varsayılan yerel programıyla aç (Excel, Word, Preview, VLC vb.)
                 let success = NSWorkspace.shared.open(localFile)
                 if success {
+                    self.watchForLiveEdits(localFile: localFile, remoteHref: file.href, client: client)
                     completion(true, nil)
                 } else {
                     // Özel bir varsayılan program tanımlı değilse Finder'da dosyayı seçerek göster
                     NSWorkspace.shared.activateFileViewerSelecting([localFile])
+                    self.watchForLiveEdits(localFile: localFile, remoteHref: file.href, client: client)
                     completion(true, nil)
                 }
             }
         }
+    }
+
+    // MARK: - Canlı Dosya İzleyici (In-Place Edit Auto-Sync)
+
+    private var fileWatchers: [String: DispatchSourceFileSystemObject] = [:]
+    private var lastModifiedDates: [String: Date] = [:]
+
+    private func watchForLiveEdits(localFile: URL, remoteHref: String, client: WebDAVClient) {
+        let path = localFile.path
+        if let existing = fileWatchers[path] {
+            existing.cancel()
+        }
+        
+        lastModifiedDates[path] = (try? localFile.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? Date()
+
+        let fileDescriptor = open(path, O_EVTONLY)
+        guard fileDescriptor >= 0 else { return }
+
+        let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fileDescriptor, eventMask: [.write, .extend, .attrib], queue: DispatchQueue.global(qos: .utility))
+        
+        var debounceWorkItem: DispatchWorkItem?
+        
+        source.setEventHandler { [weak self] in
+            guard let self = self else { return }
+            
+            debounceWorkItem?.cancel()
+            let workItem = DispatchWorkItem {
+                let currentModDate = (try? localFile.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? Date()
+                if let lastDate = self.lastModifiedDates[path], currentModDate <= lastDate {
+                    return
+                }
+                self.lastModifiedDates[path] = currentModDate
+                
+                // Cloudreve'e otomatik geri yükle
+                client.uploadFile(localFileURL: localFile, toRemotePath: remoteHref) { err in
+                    if err == nil {
+                        print("[HDrive LiveEdit] Otomatik eşitlendi: \(localFile.lastPathComponent)")
+                    }
+                }
+            }
+            debounceWorkItem = workItem
+            DispatchQueue.global().asyncAfter(deadline: .now() + 1.2, execute: workItem)
+        }
+
+        source.setCancelHandler {
+            close(fileDescriptor)
+        }
+
+        fileWatchers[path] = source
+        source.resume()
     }
 }

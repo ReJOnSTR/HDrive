@@ -260,10 +260,25 @@
                     </Grid.ColumnDefinitions>
 
                     <!-- Sol Taraf: Dosya Görünümleri -->
-                    <Grid Grid.Column="0" Background="Transparent" Tapped="FileArea_Tapped">
+                    <Grid x:Name="FileAreaGrid" Grid.Column="0" Background="Transparent" 
+                          Tapped="FileArea_Tapped"
+                          PointerPressed="FileArea_PointerPressed"
+                          PointerMoved="FileArea_PointerMoved"
+                          PointerReleased="FileArea_PointerReleased"
+                          PointerCanceled="FileArea_PointerReleased">
                         <!-- Yükleniyor Halkası -->
                         <ProgressRing x:Name="LoadingRing" IsActive="False" Width="40" Height="40" 
                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+
+                        <!-- Fare ile Çerçeve Çizerek Çoklu Seçim (Marquee / Rubber-Band Selection Canvas) -->
+                        <Canvas x:Name="SelectionCanvas" IsHitTestVisible="False" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                            <Rectangle x:Name="SelectionBox"
+                                       Fill="#330078D4"
+                                       Stroke="#0078D4"
+                                       StrokeThickness="1"
+                                       RadiusX="2" RadiusY="2"
+                                       Visibility="Collapsed" />
+                        </Canvas>
 
                         <!-- 1. Grid Görünümü: Büyük Simgeler (Windows 11 Yerel Gezgin Hover & Seçim Stili) -->
                         <GridView x:Name="FileGridView" 
@@ -291,7 +306,8 @@
                                             Padding="8" Margin="0"
                                             DoubleTapped="Item_DoubleTapped"
                                             CanDrag="True"
-                                            DragStarting="FileItem_DragStarting">
+                                            DragStarting="FileItem_DragStarting"
+                                            Opacity="{x:Bind Opacity, Mode=OneWay}">
                                         <Grid>
                                             <Grid.RowDefinitions>
                                                 <RowDefinition Height="*" />
@@ -309,6 +325,7 @@
                                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
                                             </Grid>
 
+                                            <!-- Normal İsim -->
                                             <TextBlock Grid.Row="1" Text="{x:Bind Name}" 
                                                        FontWeight="SemiBold"
                                                        FontSize="12"
@@ -316,7 +333,20 @@
                                                        MaxLines="2"
                                                        TextAlignment="Center"
                                                        HorizontalAlignment="Center"
-                                                       Margin="0,4,0,0" />
+                                                       Margin="0,4,0,0"
+                                                       Visibility="{x:Bind NormalVisibility, Mode=OneWay}" />
+
+                                            <!-- Yerinde Yeniden Adlandırma Metin Kutusu (F2 Inline Rename) -->
+                                            <TextBox Grid.Row="1" Text="{x:Bind EditingName, Mode=TwoWay}"
+                                                     FontSize="11"
+                                                     TextAlignment="Center"
+                                                     HorizontalAlignment="Stretch"
+                                                     Margin="0,2,0,0"
+                                                     Padding="4,2,4,2"
+                                                     Visibility="{x:Bind EditingVisibility, Mode=OneWay}"
+                                                     Loaded="InlineRenameTextBox_Loaded"
+                                                     KeyDown="InlineRenameTextBox_KeyDown"
+                                                     LostFocus="InlineRenameTextBox_LostFocus" />
 
                                             <TextBlock Grid.Row="2" Text="{x:Bind FormattedSize}" 
                                                        Style="{ThemeResource CaptionTextBlockStyle}"
@@ -355,7 +385,8 @@
                                             Padding="6" Margin="0"
                                             DoubleTapped="Item_DoubleTapped"
                                             CanDrag="True"
-                                            DragStarting="FileItem_DragStarting">
+                                            DragStarting="FileItem_DragStarting"
+                                            Opacity="{x:Bind Opacity, Mode=OneWay}">
                                         <Grid>
                                             <Grid.RowDefinitions>
                                                 <RowDefinition Height="*" />
@@ -372,6 +403,7 @@
                                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
                                             </Grid>
 
+                                            <!-- Normal İsim -->
                                             <TextBlock Grid.Row="1" Text="{x:Bind Name}" 
                                                        FontWeight="Normal"
                                                        FontSize="11"
@@ -379,7 +411,20 @@
                                                        MaxLines="1"
                                                        TextAlignment="Center"
                                                        HorizontalAlignment="Center"
-                                                       Margin="0,2,0,0" />
+                                                       Margin="0,2,0,0"
+                                                       Visibility="{x:Bind NormalVisibility, Mode=OneWay}" />
+
+                                            <!-- Yerinde Yeniden Adlandırma (F2) -->
+                                            <TextBox Grid.Row="1" Text="{x:Bind EditingName, Mode=TwoWay}"
+                                                     FontSize="10"
+                                                     TextAlignment="Center"
+                                                     HorizontalAlignment="Stretch"
+                                                     Margin="0,1,0,0"
+                                                     Padding="2,1,2,1"
+                                                     Visibility="{x:Bind EditingVisibility, Mode=OneWay}"
+                                                     Loaded="InlineRenameTextBox_Loaded"
+                                                     KeyDown="InlineRenameTextBox_KeyDown"
+                                                     LostFocus="InlineRenameTextBox_LostFocus" />
                                         </Grid>
                                     </Border>
                                 </DataTemplate>
@@ -426,7 +471,8 @@
                                           Background="Transparent"
                                           DoubleTapped="Item_DoubleTapped"
                                           CanDrag="True"
-                                          DragStarting="FileItem_DragStarting">
+                                          DragStarting="FileItem_DragStarting"
+                                          Opacity="{x:Bind Opacity, Mode=OneWay}">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*" />
                                             <ColumnDefinition Width="150" />
@@ -445,7 +491,17 @@
                                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
                                             </Grid>
                                             <TextBlock Text="{x:Bind Name}" VerticalAlignment="Center" 
-                                                       TextTrimming="CharacterEllipsis" />
+                                                       TextTrimming="CharacterEllipsis"
+                                                       Visibility="{x:Bind NormalVisibility, Mode=OneWay}" />
+                                            <TextBox Text="{x:Bind EditingName, Mode=TwoWay}"
+                                                     VerticalAlignment="Center"
+                                                     FontSize="12"
+                                                     MinWidth="160"
+                                                     Padding="4,2,4,2"
+                                                     Visibility="{x:Bind EditingVisibility, Mode=OneWay}"
+                                                     Loaded="InlineRenameTextBox_Loaded"
+                                                     KeyDown="InlineRenameTextBox_KeyDown"
+                                                     LostFocus="InlineRenameTextBox_LostFocus" />
                                         </StackPanel>
 
                                         <TextBlock Grid.Column="1" Text="{x:Bind FormattedDate}" VerticalAlignment="Center"
@@ -534,10 +590,10 @@
                         </ScrollViewer>
                     </Border>
 
-                    <!-- Sağ Tık Menüsü (Flyout) -->
+                    <!-- Sağ Tık Menüsü (Yerel Dosya Gezgini Stili) -->
                     <Grid.ContextFlyout>
                         <MenuFlyout>
-                            <MenuFlyoutItem Text="Aç" Click="ContextOpen_Click">
+                            <MenuFlyoutItem Text="Aç (Enter)" Click="ContextOpen_Click">
                                 <MenuFlyoutItem.Icon>
                                     <FontIcon Glyph="&#xE8E5;" />
                                 </MenuFlyoutItem.Icon>
@@ -547,7 +603,7 @@
                                     <FontIcon x:Name="ContextPinIcon" Glyph="&#xE718;" />
                                 </MenuFlyoutItem.Icon>
                             </MenuFlyoutItem>
-                            <MenuFlyoutItem Text="İndir" Click="ContextDownload_Click">
+                            <MenuFlyoutItem Text="İndir ve Kaydet" Click="ContextDownload_Click">
                                 <MenuFlyoutItem.Icon>
                                     <FontIcon Glyph="&#xE896;" />
                                 </MenuFlyoutItem.Icon>
@@ -558,9 +614,31 @@
                                 </MenuFlyoutItem.Icon>
                             </MenuFlyoutItem>
                             <MenuFlyoutSeparator />
-                            <MenuFlyoutItem Text="Sil" Click="ContextDelete_Click">
+                            <MenuFlyoutItem Text="Kes (Ctrl+X)" Click="ContextCut_Click">
                                 <MenuFlyoutItem.Icon>
-                                    <FontIcon Glyph="&#xE74D;" />
+                                    <FontIcon Glyph="&#xE8C6;" />
+                                </MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem Text="Kopyala (Ctrl+C)" Click="ContextCopy_Click">
+                                <MenuFlyoutItem.Icon>
+                                    <FontIcon Glyph="&#xE8C8;" />
+                                </MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem Text="Yapıştır (Ctrl+V)" Click="ContextPaste_Click">
+                                <MenuFlyoutItem.Icon>
+                                    <FontIcon Glyph="&#xE77F;" />
+                                </MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutSeparator />
+                            <MenuFlyoutItem Text="Sil (Delete)" Click="ContextDelete_Click">
+                                <MenuFlyoutItem.Icon>
+                                    <FontIcon Glyph="&#xE74D;" Foreground="#E81123" />
+                                </MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutSeparator />
+                            <MenuFlyoutItem Text="Özellikler (Alt+Enter)" Click="ContextProperties_Click">
+                                <MenuFlyoutItem.Icon>
+                                    <FontIcon Glyph="&#xE946;" />
                                 </MenuFlyoutItem.Icon>
                             </MenuFlyoutItem>
                         </MenuFlyout>

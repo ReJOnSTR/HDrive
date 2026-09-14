@@ -60,6 +60,48 @@ public class FileItem : INotifyPropertyChanged
         }
     }
 
+    private bool _isEditing;
+    public bool IsEditing
+    {
+        get => _isEditing;
+        set
+        {
+            if (SetProperty(ref _isEditing, value))
+            {
+                OnPropertyChanged(nameof(EditingVisibility));
+                OnPropertyChanged(nameof(NormalVisibility));
+            }
+        }
+    }
+
+    private string _editingName = string.Empty;
+    public string EditingName
+    {
+        get => _editingName;
+        set => SetProperty(ref _editingName, value);
+    }
+
+    private bool _isCut;
+    public bool IsCut
+    {
+        get => _isCut;
+        set
+        {
+            if (SetProperty(ref _isCut, value))
+            {
+                OnPropertyChanged(nameof(Opacity));
+            }
+        }
+    }
+
+    public double Opacity => IsCut ? 0.45 : 1.0;
+
+    public Microsoft.UI.Xaml.Visibility EditingVisibility =>
+        IsEditing ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
+
+    public Microsoft.UI.Xaml.Visibility NormalVisibility =>
+        IsEditing ? Microsoft.UI.Xaml.Visibility.Collapsed : Microsoft.UI.Xaml.Visibility.Visible;
+
     public Microsoft.UI.Xaml.Media.Imaging.BitmapImage? IconImage =>
         Services.FileIconService.GetIcon(Name, IsDirectory, large: true);
 
