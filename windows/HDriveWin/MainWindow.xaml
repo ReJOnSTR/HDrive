@@ -266,6 +266,33 @@
                           PointerMoved="FileArea_PointerMoved"
                           PointerReleased="FileArea_PointerReleased"
                           PointerCanceled="FileArea_PointerReleased">
+                        <!-- Windows 11 Dosya Gezgini Anında Seçim Çerçevesi (0ms Gecikme) Fırçaları -->
+                        <Grid.Resources>
+                            <SolidColorBrush x:Key="GridViewItemBackgroundSelected" Color="#220078D4" />
+                            <SolidColorBrush x:Key="GridViewItemBackgroundSelectedPointerOver" Color="#2E0078D4" />
+                            <SolidColorBrush x:Key="GridViewItemBackgroundSelectedPressed" Color="#380078D4" />
+                            <SolidColorBrush x:Key="GridViewItemBackgroundPointerOver" Color="#10000000" />
+                            <SolidColorBrush x:Key="GridViewItemBorderBrushSelected" Color="#660078D4" />
+                            <SolidColorBrush x:Key="GridViewItemBorderBrushSelectedPointerOver" Color="#880078D4" />
+                            <SolidColorBrush x:Key="GridViewItemBorderBrushSelectedPressed" Color="#AA0078D4" />
+                            <SolidColorBrush x:Key="GridViewItemCheckThemeFill" Color="Transparent" />
+                            <SolidColorBrush x:Key="GridViewItemCheckThemeFillPointerOver" Color="Transparent" />
+                            <SolidColorBrush x:Key="GridViewItemCheckThemeFillSelected" Color="Transparent" />
+                            <Thickness x:Key="GridViewItemBorderThemeThickness">1</Thickness>
+
+                            <SolidColorBrush x:Key="ListViewItemBackgroundSelected" Color="#220078D4" />
+                            <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPointerOver" Color="#2E0078D4" />
+                            <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPressed" Color="#380078D4" />
+                            <SolidColorBrush x:Key="ListViewItemBackgroundPointerOver" Color="#10000000" />
+                            <SolidColorBrush x:Key="ListViewItemBorderBrushSelected" Color="#660078D4" />
+                            <SolidColorBrush x:Key="ListViewItemBorderBrushSelectedPointerOver" Color="#880078D4" />
+                            <SolidColorBrush x:Key="ListViewItemBorderBrushSelectedPressed" Color="#AA0078D4" />
+                            <SolidColorBrush x:Key="ListViewItemCheckThemeFill" Color="Transparent" />
+                            <SolidColorBrush x:Key="ListViewItemCheckThemeFillPointerOver" Color="Transparent" />
+                            <SolidColorBrush x:Key="ListViewItemCheckThemeFillSelected" Color="Transparent" />
+                            <Thickness x:Key="ListViewItemBorderThemeThickness">1</Thickness>
+                        </Grid.Resources>
+
                         <!-- Yükleniyor Halkası -->
                         <ProgressRing x:Name="LoadingRing" IsActive="False" Width="40" Height="40" 
                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
@@ -283,6 +310,8 @@
                         <!-- 1. Grid Görünümü: Büyük Simgeler (Windows 11 Yerel Gezgin Hover & Seçim Stili) -->
                         <GridView x:Name="FileGridView" 
                                   SelectionMode="Extended"
+                                  CanDragItems="True"
+                                  DragItemsStarting="FileList_DragItemsStarting"
                                   SelectionChanged="FileList_SelectionChanged"
                                   DoubleTapped="FileList_DoubleTapped"
                                   KeyDown="FileList_KeyDown"
@@ -293,20 +322,18 @@
                                   Visibility="Visible">
                             <GridView.ItemContainerStyle>
                                 <Style TargetType="GridViewItem">
-                                    <Setter Property="CornerRadius" Value="8" />
-                                    <Setter Property="Margin" Value="3" />
+                                    <Setter Property="CornerRadius" Value="6" />
+                                    <Setter Property="Margin" Value="2" />
                                     <Setter Property="Padding" Value="0" />
+                                    <Setter Property="BorderThickness" Value="1" />
                                 </Style>
                             </GridView.ItemContainerStyle>
                             <GridView.ItemTemplate>
                                 <DataTemplate x:DataType="models:FileItem">
                                     <Border Background="Transparent"
-                                            CornerRadius="8"
+                                            CornerRadius="6"
                                             Width="120" Height="120"
                                             Padding="8" Margin="0"
-                                            DoubleTapped="Item_DoubleTapped"
-                                            CanDrag="True"
-                                            DragStarting="FileItem_DragStarting"
                                             Opacity="{x:Bind Opacity, Mode=OneWay}">
                                         <Grid>
                                             <Grid.RowDefinitions>
@@ -362,6 +389,8 @@
                         <!-- 2. Grid Görünümü: Orta Simgeler (96x96, Yerel Hover) -->
                         <GridView x:Name="FileGridViewMedium" 
                                   SelectionMode="Extended"
+                                  CanDragItems="True"
+                                  DragItemsStarting="FileList_DragItemsStarting"
                                   SelectionChanged="FileList_SelectionChanged"
                                   DoubleTapped="FileList_DoubleTapped"
                                   KeyDown="FileList_KeyDown"
@@ -375,6 +404,7 @@
                                     <Setter Property="CornerRadius" Value="6" />
                                     <Setter Property="Margin" Value="2" />
                                     <Setter Property="Padding" Value="0" />
+                                    <Setter Property="BorderThickness" Value="1" />
                                 </Style>
                             </GridView.ItemContainerStyle>
                             <GridView.ItemTemplate>
@@ -383,9 +413,6 @@
                                             CornerRadius="6"
                                             Width="92" Height="92"
                                             Padding="6" Margin="0"
-                                            DoubleTapped="Item_DoubleTapped"
-                                            CanDrag="True"
-                                            DragStarting="FileItem_DragStarting"
                                             Opacity="{x:Bind Opacity, Mode=OneWay}">
                                         <Grid>
                                             <Grid.RowDefinitions>
@@ -434,6 +461,8 @@
                         <!-- 3. Liste / Tablo Görünümü (Ayrıntılar - Yerel Dosya Gezgini Satır Hover Stili) -->
                         <ListView x:Name="FileListView"
                                   SelectionMode="Extended"
+                                  CanDragItems="True"
+                                  DragItemsStarting="FileList_DragItemsStarting"
                                   SelectionChanged="FileList_SelectionChanged"
                                   DoubleTapped="FileList_DoubleTapped"
                                   KeyDown="FileList_KeyDown"
@@ -449,6 +478,7 @@
                                     <Setter Property="Margin" Value="4,1,4,1" />
                                     <Setter Property="MinHeight" Value="32" />
                                     <Setter Property="Padding" Value="0" />
+                                    <Setter Property="BorderThickness" Value="1" />
                                 </Style>
                             </ListView.ItemContainerStyle>
                             <ListView.Header>
@@ -469,9 +499,6 @@
                                 <DataTemplate x:DataType="models:FileItem">
                                     <Grid Padding="8,6,8,6"
                                           Background="Transparent"
-                                          DoubleTapped="Item_DoubleTapped"
-                                          CanDrag="True"
-                                          DragStarting="FileItem_DragStarting"
                                           Opacity="{x:Bind Opacity, Mode=OneWay}">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*" />

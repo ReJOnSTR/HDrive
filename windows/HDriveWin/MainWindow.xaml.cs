@@ -501,7 +501,16 @@ public sealed partial class MainWindow : Window
     private async void FileList_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
     {
         e.Handled = true;
-        var item = _selectedItem ?? (sender as ListViewBase)?.SelectedItem as FileItem;
+        FileItem? item = null;
+        if (e.OriginalSource is FrameworkElement fe && fe.DataContext is FileItem fi)
+        {
+            item = fi;
+        }
+        else
+        {
+            item = _selectedItem ?? (sender as ListViewBase)?.SelectedItem as FileItem;
+        }
+
         if (item != null)
         {
             await HandleOpenItemAsync(item);
@@ -545,7 +554,7 @@ public sealed partial class MainWindow : Window
             _selectedItem = null;
             UpdatePreviewPane(null);
         }
-        UpdateItemCountStatus();
+        UpdateItemCountStatus(selectedList);
     }
 
     private void FileArea_Tapped(object sender, TappedRoutedEventArgs e)
@@ -570,10 +579,10 @@ public sealed partial class MainWindow : Window
         UpdateItemCountStatus();
     }
 
-    private void UpdateItemCountStatus()
+    private void UpdateItemCountStatus(List<FileItem>? selectedItems = null)
     {
         var total = _items.Count;
-        var selectedItems = GetSelectedItems();
+        selectedItems ??= GetSelectedItems();
         if (selectedItems.Count > 1)
         {
             long totalSize = selectedItems.Where(i => !i.IsDirectory).Sum(i => i.Size);
@@ -601,6 +610,8 @@ public sealed partial class MainWindow : Window
 
     private void UpdatePreviewPaneForMultipleItems(List<FileItem> selectedItems)
     {
+        if (PreviewPane == null || PreviewPane.Visibility != Visibility.Visible) return;
+
         PreviewFileName.Text = $"{selectedItems.Count} Öğe Seçildi";
         PreviewTypeBadge.Text = "Toplu Seçim";
         long totalSize = selectedItems.Where(i => !i.IsDirectory).Sum(i => i.Size);
@@ -893,6 +904,8 @@ public sealed partial class MainWindow : Window
 
     private void UpdatePreviewPane(FileItem? item)
     {
+        if (PreviewPane == null || PreviewPane.Visibility != Visibility.Visible) return;
+
         if (item == null)
         {
             PreviewFileName.Text = "Dosya Seçilmedi";
@@ -1561,12 +1574,23 @@ public sealed partial class MainWindow : Window
     private bool _isMarqueeSelecting = false;
     private Windows.Foundation.Point _marqueeStartPoint;
 
+    private static bool IsItemOrChildOfItem(DependencyObject? obj)
+    {
+        while (obj != null && obj is not ListViewBase)
+        {
+            if (obj is GridViewItem or ListViewItem) return true;
+            if (obj is FrameworkElement fe && fe.DataContext is FileItem) return true;
+            obj = VisualTreeHelper.GetParent(obj);
+        }
+        return false;
+    }
+
     private void FileArea_PointerPressed(object sender, PointerRoutedEventArgs e)
     {
         var point = e.GetCurrentPoint(FileAreaGrid);
         if (point.Properties.IsLeftButtonPressed)
         {
-            if (e.OriginalSource is FrameworkElement element && element.DataContext is FileItem)
+            if (e.OriginalSource is DependencyObject dep && IsItemOrChildOfItem(dep))
             {
                 return;
             }
@@ -1732,7 +1756,101 @@ public sealed partial class MainWindow : Window
     #region Sürükle ve Bırak (Drag & Drop) Desteği
 
     /// <summary>
-    /// HDrive içinden Windows Masaüstüne, Explorer'a veya başka programlara dosya sürükleyip kopyalama (Çoklu Seçim Destekli)
+    /// HDrive içinden Windows Masaüstüne, Explorer'a veya başka programlara dosya sürükleyip kopyalama (Çoklu Seçim Destekli Yerel Sürükleme)
+    /// </summary>
+    private async void FileList_DragItemsStarting(object sender, DragItemsStartingEventArgs e)
+    {
+        var deferral = e.GetDeferral();
+        try
+        {
+            var selectedItems = e.Items?.OfType<FileItem>().ToList() ?? new List<FileItem>();
+            if (selectedItems.Count == 0)
+            {
+                selectedItems = GetSelectedItems();
+            }
+
+            if (selectedItems.Count == 0)
+            {
+                deferral.Complete();
+                return;
+            }
+
+            if (selectedItems.Count == 1 && selectedItems[0].IsDirectory)
+            {
+                e.Data.Properties["HDrive_Folder_Name"] = selectedItems[0].Name;
+                e.Data.Properties["HDrive_Folder_Path"] = selectedItems[0].Path;
+            }
+
+            var storageItems = new List<IStorageItem>();
+            var syncFolder = FolderSyncEngine.Instance.LocalFolderPath;
+            var cacheDir = Path.Combine(Path.GetTempPath(), "HDriveCache");
+            Directory.CreateDirectory(cacheDir);
+
+            var config = CloudreveManager.Instance.ActiveServer;
+            var client = new WebDAVClient(config);
+
+            foreach (var item in selectedItems)
+            {
+                string? localPath = null;
+                var relPath = item.Path.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
+                var syncPath = Path.Combine(syncFolder, relPath);
+
+                if (File.Exists(syncPath) || Directory.Exists(syncPath))
+                {
+                    localPath = syncPath;
+                }
+                else
+                {
+                    var cachedPath = Path.Combine(cacheDir, Path.GetFileName(item.Path));
+                    if (File.Exists(cachedPath))
+                    {
+                        localPath = cachedPath;
+                    }
+                    else if (!item.IsDirectory)
+                    {
+                        localPath = await client.DownloadFileToCacheAsync(item.Path);
+                    }
+                    else
+                    {
+                        var cachedFolderPath = Path.Combine(cacheDir, Path.GetFileName(item.Path.TrimEnd('/')));
+                        Directory.CreateDirectory(cachedFolderPath);
+                        localPath = cachedFolderPath;
+                    }
+                }
+
+                if (!string.IsNullOrEmpty(localPath))
+                {
+                    if (File.Exists(localPath))
+                    {
+                        var sf = await StorageFile.GetFileFromPathAsync(localPath);
+                        storageItems.Add(sf);
+                    }
+                    else if (Directory.Exists(localPath))
+                    {
+                        var sf = await StorageFolder.GetFolderFromPathAsync(localPath);
+                        storageItems.Add(sf);
+                    }
+                }
+            }
+
+            if (storageItems.Count > 0)
+            {
+                e.Data.SetStorageItems(storageItems);
+                e.Data.RequestedOperation = DataPackageOperation.Copy | DataPackageOperation.Move;
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"DragStarting error: {ex.Message}");
+        }
+        finally
+        {
+            deferral.Complete();
+        }
+    }
+
+    /// <summary>
+    /// Eski UIElement drag tetikleyicisi (Gerektiğinde geriye dönük uyumluluk için korunur)
     /// </summary>
     private async void FileItem_DragStarting(UIElement sender, DragStartingEventArgs e)
     {

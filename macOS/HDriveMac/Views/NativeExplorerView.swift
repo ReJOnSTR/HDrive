@@ -74,6 +74,8 @@ public struct NativeExplorerView: View {
     @State private var quickLookURL: URL? = nil
     @State private var renamingFileID: String? = nil
     @State private var renamingText: String = ""
+    @State private var lastClickTime: Date = Date.distantPast
+    @State private var lastClickedFileID: String? = nil
     
     // Sabitlenen Favori Klasörler & Kenar Çubuğu
     @State private var pinnedFolders: [PinnedFolder] = []
@@ -977,16 +979,9 @@ public struct NativeExplorerView: View {
         }
         .simultaneousGesture(
             TapGesture().onEnded {
-                handleFileTap(file)
-                if file.isImage, let server = manager.activeServer {
-                    let client = WebDAVClient(config: server)
-                    previewManager.loadThumbnail(for: file, client: client)
-                }
+                handleFileClick(file)
             }
         )
-        .onTapGesture(count: 2) {
-            handleDoubleClick(file)
-        }
         .onDrag {
             exportFileForDrag(file)
         }
@@ -1061,16 +1056,9 @@ public struct NativeExplorerView: View {
         }
         .simultaneousGesture(
             TapGesture().onEnded {
-                handleFileTap(file)
-                if file.isImage, let server = manager.activeServer {
-                    let client = WebDAVClient(config: server)
-                    previewManager.loadThumbnail(for: file, client: client)
-                }
+                handleFileClick(file)
             }
         )
-        .onTapGesture(count: 2) {
-            handleDoubleClick(file)
-        }
         .onDrag {
             exportFileForDrag(file)
         }
@@ -1562,7 +1550,28 @@ public struct NativeExplorerView: View {
         }
     }
     
-    // MARK: - Çoklu Seçim ve İşlemler
+    // MARK: - Çoklu Seçim ve Anında Tıklama / Çift Tıklama İşlemleri
+    private func handleFileClick(_ file: RemoteFileItem) {
+        let now = Date()
+        let isDoubleClick = (lastClickedFileID == file.id) && (now.timeIntervalSince(lastClickTime) < 0.35)
+        
+        // İlk tıklamada anında (0ms) seçimi güncelle, çerçeve/vurgu anında gelsin
+        handleFileTap(file)
+        
+        if isDoubleClick {
+            lastClickTime = Date.distantPast
+            lastClickedFileID = nil
+            handleDoubleClick(file)
+        } else {
+            lastClickTime = now
+            lastClickedFileID = file.id
+            if file.isImage, let server = manager.activeServer {
+                let client = WebDAVClient(config: server)
+                previewManager.loadThumbnail(for: file, client: client)
+            }
+        }
+    }
+
     private func handleFileTap(_ file: RemoteFileItem) {
         let flags = NSEvent.modifierFlags
         if flags.contains(.command) || flags.contains(.control) {
