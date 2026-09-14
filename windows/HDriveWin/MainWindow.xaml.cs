@@ -218,6 +218,15 @@ public sealed partial class MainWindow : Window
 
         try
         {
+            LoadViewSettings();
+        }
+        catch (Exception ex)
+        {
+            App.LogCrash("MainWindow.LoadViewSettings", ex);
+        }
+
+        try
+        {
             _ = RefreshStorageQuotaAsync();
         }
         catch (Exception ex)
@@ -780,25 +789,81 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    public enum ExplorerViewMode
+    {
+        Large,
+        Medium,
+        Details
+    }
+
+    private ExplorerViewMode _currentViewMode = ExplorerViewMode.Large;
+
+    private string GetViewSettingsFilePath()
+    {
+        var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HDrive");
+        Directory.CreateDirectory(dir);
+        return Path.Combine(dir, "view_settings.txt");
+    }
+
+    private void LoadViewSettings()
+    {
+        try
+        {
+            var filePath = GetViewSettingsFilePath();
+            if (File.Exists(filePath))
+            {
+                var text = File.ReadAllText(filePath).Trim();
+                if (Enum.TryParse<ExplorerViewMode>(text, true, out var mode))
+                {
+                    ApplyViewMode(mode, save: false);
+                    return;
+                }
+            }
+        }
+        catch { }
+        ApplyViewMode(ExplorerViewMode.Large, save: false);
+    }
+
+    private void SaveViewSettings(ExplorerViewMode mode)
+    {
+        try
+        {
+            var filePath = GetViewSettingsFilePath();
+            File.WriteAllText(filePath, mode.ToString());
+        }
+        catch { }
+    }
+
+    private void ApplyViewMode(ExplorerViewMode mode, bool save = true)
+    {
+        _currentViewMode = mode;
+        if (FileGridView != null) FileGridView.Visibility = (mode == ExplorerViewMode.Large) ? Visibility.Visible : Visibility.Collapsed;
+        if (FileGridViewMedium != null) FileGridViewMedium.Visibility = (mode == ExplorerViewMode.Medium) ? Visibility.Visible : Visibility.Collapsed;
+        if (FileListView != null) FileListView.Visibility = (mode == ExplorerViewMode.Details) ? Visibility.Visible : Visibility.Collapsed;
+
+        if (ViewLargeItem != null) ViewLargeItem.IsChecked = (mode == ExplorerViewMode.Large);
+        if (ViewMediumItem != null) ViewMediumItem.IsChecked = (mode == ExplorerViewMode.Medium);
+        if (ViewDetailsItem != null) ViewDetailsItem.IsChecked = (mode == ExplorerViewMode.Details);
+
+        if (save)
+        {
+            SaveViewSettings(mode);
+        }
+    }
+
     private void ViewLarge_Click(object sender, RoutedEventArgs e)
     {
-        FileGridView.Visibility = Visibility.Visible;
-        FileGridViewMedium.Visibility = Visibility.Collapsed;
-        FileListView.Visibility = Visibility.Collapsed;
+        ApplyViewMode(ExplorerViewMode.Large);
     }
 
     private void ViewMedium_Click(object sender, RoutedEventArgs e)
     {
-        FileGridView.Visibility = Visibility.Collapsed;
-        FileGridViewMedium.Visibility = Visibility.Visible;
-        FileListView.Visibility = Visibility.Collapsed;
+        ApplyViewMode(ExplorerViewMode.Medium);
     }
 
     private void ViewDetails_Click(object sender, RoutedEventArgs e)
     {
-        FileGridView.Visibility = Visibility.Collapsed;
-        FileGridViewMedium.Visibility = Visibility.Collapsed;
-        FileListView.Visibility = Visibility.Visible;
+        ApplyViewMode(ExplorerViewMode.Details);
     }
 
     private void SortByName_Click(object sender, RoutedEventArgs e)

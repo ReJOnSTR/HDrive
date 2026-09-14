@@ -191,15 +191,15 @@
                     <AppBarButton Icon="View" Label="Görünüm">
                         <AppBarButton.Flyout>
                             <MenuFlyout>
-                                <MenuFlyoutItem Text="Büyük Simgeler" Click="ViewLarge_Click">
-                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE80A;" /></MenuFlyoutItem.Icon>
-                                </MenuFlyoutItem>
-                                <MenuFlyoutItem Text="Orta Simgeler" Click="ViewMedium_Click">
-                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE7F4;" /></MenuFlyoutItem.Icon>
-                                </MenuFlyoutItem>
-                                <MenuFlyoutItem Text="Ayrıntılar" Click="ViewDetails_Click">
-                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8C0;" /></MenuFlyoutItem.Icon>
-                                </MenuFlyoutItem>
+                                <ToggleMenuFlyoutItem x:Name="ViewLargeItem" Text="Büyük Simgeler" IsChecked="True" Click="ViewLarge_Click">
+                                    <ToggleMenuFlyoutItem.Icon><FontIcon Glyph="&#xE80A;" /></ToggleMenuFlyoutItem.Icon>
+                                </ToggleMenuFlyoutItem>
+                                <ToggleMenuFlyoutItem x:Name="ViewMediumItem" Text="Orta Simgeler" Click="ViewMedium_Click">
+                                    <ToggleMenuFlyoutItem.Icon><FontIcon Glyph="&#xE7F4;" /></ToggleMenuFlyoutItem.Icon>
+                                </ToggleMenuFlyoutItem>
+                                <ToggleMenuFlyoutItem x:Name="ViewDetailsItem" Text="Ayrıntılar" Click="ViewDetails_Click">
+                                    <ToggleMenuFlyoutItem.Icon><FontIcon Glyph="&#xE8C0;" /></ToggleMenuFlyoutItem.Icon>
+                                </ToggleMenuFlyoutItem>
                             </MenuFlyout>
                         </AppBarButton.Flyout>
                     </AppBarButton>

@@ -52,9 +52,9 @@ public struct NativeExplorerView: View {
     @State private var activeTabID: UUID = initialTab.id
     
     // Sıralama (Sort)
-    @State private var sortField: FileSortField = .name
-    @State private var sortAscending: Bool = true
-    @State private var foldersFirst: Bool = true
+    @AppStorage("hdrive_sortField") private var sortField: FileSortField = .name
+    @AppStorage("hdrive_sortAscending") private var sortAscending: Bool = true
+    @AppStorage("hdrive_foldersFirst") private var foldersFirst: Bool = true
     
     // Klasör Gezintisi
     @State private var currentPath: String = ""
@@ -63,8 +63,8 @@ public struct NativeExplorerView: View {
     @State private var files: [RemoteFileItem] = []
     @State private var isLoading: Bool = false
     @State private var searchText: String = ""
-    @State private var isGridView: Bool = true
-    @State private var showPreviewPane: Bool = false
+    @AppStorage("hdrive_isGridView") private var isGridView: Bool = true
+    @AppStorage("hdrive_showPreviewPane") private var showPreviewPane: Bool = false
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     
     // Seçili ve Vurgulanan Dosya (Çoklu Seçim & İsim Değiştirme)
