@@ -1133,7 +1133,7 @@ public struct NativeExplorerView: View {
         }
     }
     
-    // MARK: - 4. Alt Durum Çubuğu
+    // MARK: - 4. Alt Durum Çubuğu (Yerel macOS Finder Görünümü)
     private var bottomStatusBarView: some View {
         HStack {
             if let opening = opener.openingFile {
@@ -1148,24 +1148,26 @@ public struct NativeExplorerView: View {
                         .font(.caption2)
                         .foregroundColor(.secondary)
                     
-                    if !selectedFileIDs.isEmpty {
-                        Text("• \(selectedFileIDs.count) seçili")
+                    let selCount = selectedFileIDs.count > 0 ? selectedFileIDs.count : (selectedFileID != nil ? 1 : 0)
+                    if selCount > 0 {
+                        Text("• \(selCount) seçili")
                             .font(.caption2.weight(.medium))
                             .foregroundColor(.accentColor)
                     }
                 }
             }
             
-            if selectedFileIDs.count > 1 {
+            let selCount = selectedFileIDs.count > 0 ? selectedFileIDs.count : (selectedFileID != nil ? 1 : 0)
+            if selCount > 0 {
                 Button(action: { downloadSelectedFiles() }) {
-                    Label("Seçilenleri İndir", systemImage: "arrow.down.circle")
+                    Label(selCount > 1 ? "\(selCount) Ögeyi İndir" : "İndir", systemImage: "arrow.down.circle")
                         .font(.caption2)
                 }
                 .buttonStyle(BorderlessButtonStyle())
                 .padding(.horizontal, 4)
                 
                 Button(action: { deleteSelectedFiles() }) {
-                    Label("Seçilenleri Sil", systemImage: "trash")
+                    Label(selCount > 1 ? "\(selCount) Ögeyi Sil" : "Sil", systemImage: "trash")
                         .font(.caption2)
                         .foregroundColor(.red)
                 }
@@ -1174,26 +1176,15 @@ public struct NativeExplorerView: View {
             
             Spacer()
             
-            // Eşitleme, Ağ ve Finder Durumu
-            HStack(spacing: 14) {
-                // Ağ Bağlantı Durumu
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(NetworkMonitor.shared.isConnected ? Color.green : Color.red)
-                        .frame(width: 6, height: 6)
-                    Text(NetworkMonitor.shared.isConnected ? "Çevrimiçi" : "Çevrimdışı")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                }
-                
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(Color.blue)
-                        .frame(width: 6, height: 6)
-                    Text("Canlı Bulut Modu (İndirmesiz)")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                }
+            // Yerel Finder Hissiyatı: Kullanılabilir Depolama Alanı veya Sunucu Adı
+            if let quota = storageQuota {
+                Text("\(quota.formattedAvailable) kullanılabilir / \(quota.formattedTotal)")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            } else if let server = manager.activeServer {
+                Text(server.name)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
             }
         }
         .padding(.horizontal, 16)
@@ -1536,8 +1527,18 @@ public struct NativeExplorerView: View {
         let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first!
         let target = downloads.appendingPathComponent(file.name)
         let client = WebDAVClient(config: server)
-        client.downloadFile(href: file.href, to: target, progress: { _ in }) { error in
-            if error == nil {
+        let relPath = currentPath.isEmpty ? file.name : "\(currentPath)/\(file.name)"
+        isLoading = true
+        client.downloadFile(href: relPath, to: target, progress: { _ in }) { error in
+            if error != nil {
+                client.downloadFile(href: file.href, to: target, progress: { _ in }) { err2 in
+                    isLoading = false
+                    if err2 == nil {
+                        NSWorkspace.shared.selectFile(target.path, inFileViewerRootedAtPath: downloads.path)
+                    }
+                }
+            } else {
+                isLoading = false
                 NSWorkspace.shared.selectFile(target.path, inFileViewerRootedAtPath: downloads.path)
             }
         }
@@ -1546,12 +1547,25 @@ public struct NativeExplorerView: View {
     private func deleteFile(_ file: RemoteFileItem) {
         guard let server = manager.activeServer else { return }
         let client = WebDAVClient(config: server)
-        client.delete(at: file.href, isDirectory: file.isDirectory) { error in
-            if error == nil {
-                SyncLogManager.shared.log("Silindi: \(file.name)")
-                loadDirectory(at: currentPath)
+        let relPath = currentPath.isEmpty ? file.name : "\(currentPath)/\(file.name)"
+        isLoading = true
+        client.delete(at: relPath, isDirectory: file.isDirectory) { error in
+            if error != nil {
+                client.delete(at: file.href, isDirectory: file.isDirectory) { err2 in
+                    isLoading = false
+                    if err2 == nil {
+                        SyncLogManager.shared.log("Silindi: \(file.name)")
+                        clearSelection()
+                        loadDirectory(at: currentPath)
+                    } else {
+                        SyncLogManager.shared.log("Silme hatası: \(file.name) - \(err2?.localizedDescription ?? "")", isError: true)
+                    }
+                }
             } else {
-                SyncLogManager.shared.log("Silme hatası: \(file.name) - \(error?.localizedDescription ?? "")", isError: true)
+                isLoading = false
+                SyncLogManager.shared.log("Silindi: \(file.name)")
+                clearSelection()
+                loadDirectory(at: currentPath)
             }
         }
     }
@@ -1687,43 +1701,80 @@ public struct NativeExplorerView: View {
     }
     
     private func deleteSelectedFiles() {
-        let targets = filteredFiles.filter { selectedFileIDs.contains($0.id) }
+        let targets = filteredFiles.filter { selectedFileIDs.contains($0.id) || selectedFileID == $0.id }
         guard !targets.isEmpty, let server = manager.activeServer else { return }
         
+        isLoading = true
         let client = WebDAVClient(config: server)
         let group = DispatchGroup()
         for file in targets {
             group.enter()
-            client.delete(at: file.href, isDirectory: file.isDirectory) { error in
-                if error == nil {
-                    SyncLogManager.shared.log("Silindi: \(file.name)")
+            let relPath = currentPath.isEmpty ? file.name : "\(currentPath)/\(file.name)"
+            client.delete(at: relPath, isDirectory: file.isDirectory) { error in
+                if error != nil {
+                    // Fallback olarak file.href dene
+                    client.delete(at: file.href, isDirectory: file.isDirectory) { _ in
+                        group.leave()
+                    }
                 } else {
-                    SyncLogManager.shared.log("Silme hatası: \(file.name) - \(error?.localizedDescription ?? "")", isError: true)
+                    SyncLogManager.shared.log("Silindi: \(file.name)")
+                    group.leave()
                 }
-                group.leave()
             }
         }
         group.notify(queue: .main) {
+            isLoading = false
             clearSelection()
             loadDirectory(at: currentPath)
         }
     }
     
     private func downloadSelectedFiles() {
-        let targets = filteredFiles.filter { selectedFileIDs.contains($0.id) && !$0.isDirectory }
+        let targets = filteredFiles.filter { selectedFileIDs.contains($0.id) || selectedFileID == $0.id }
         guard !targets.isEmpty, let server = manager.activeServer else { return }
+        
+        let fileTargets = targets.filter { !$0.isDirectory }
+        guard !fileTargets.isEmpty else { return }
         
         let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first!
         let client = WebDAVClient(config: server)
-        for file in targets {
+        isLoading = true
+        let group = DispatchGroup()
+        var downloadedURLs: [URL] = []
+        let lock = NSLock()
+        
+        for file in fileTargets {
+            group.enter()
             let dest = downloads.appendingPathComponent(file.name)
-            client.downloadFile(href: file.href, to: dest, progress: { _ in }, completion: { error in
+            let relPath = currentPath.isEmpty ? file.name : "\(currentPath)/\(file.name)"
+            client.downloadFile(href: relPath, to: dest, progress: { _ in }, completion: { error in
                 if error == nil {
+                    lock.lock()
+                    downloadedURLs.append(dest)
+                    lock.unlock()
                     SyncLogManager.shared.log("İndirildi: \(file.name)")
+                    group.leave()
                 } else {
-                    SyncLogManager.shared.log("İndirme hatası: \(file.name) - \(error?.localizedDescription ?? "")", isError: true)
+                    client.downloadFile(href: file.href, to: dest, progress: { _ in }, completion: { err2 in
+                        if err2 == nil {
+                            lock.lock()
+                            downloadedURLs.append(dest)
+                            lock.unlock()
+                            SyncLogManager.shared.log("İndirildi: \(file.name)")
+                        } else {
+                            SyncLogManager.shared.log("İndirme hatası: \(file.name) - \(err2?.localizedDescription ?? "")", isError: true)
+                        }
+                        group.leave()
+                    })
                 }
             })
+        }
+        
+        group.notify(queue: .main) {
+            isLoading = false
+            if !downloadedURLs.isEmpty {
+                NSWorkspace.shared.activateFileViewerSelecting(downloadedURLs)
+            }
         }
     }
     
