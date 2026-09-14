@@ -647,7 +647,7 @@ public sealed partial class MainWindow : Window
         else if (e.Key == Windows.System.VirtualKey.F2 && _selectedItem != null)
         {
             e.Handled = true;
-            await PromptRenameItemAsync(_selectedItem);
+            BeginInlineRename(_selectedItem);
         }
         else if (e.Key == Windows.System.VirtualKey.Delete)
         {
