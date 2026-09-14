@@ -133,6 +133,16 @@ public sealed partial class MainWindow : Window
                         e.Handled = true;
                         _ = ShowPropertiesAsync(GetSelectedItems().FirstOrDefault() ?? _selectedItem);
                     }
+                    else if (isAlt && e.Key == Windows.System.VirtualKey.P)
+                    {
+                        e.Handled = true;
+                        TogglePreviewPane();
+                    }
+                    else if (e.Key == Windows.System.VirtualKey.Space && !isTypingInBox)
+                    {
+                        e.Handled = true;
+                        TogglePreviewPane();
+                    }
                     else if (e.Key == Windows.System.VirtualKey.F2 && !isTypingInBox)
                     {
                         e.Handled = true;
@@ -621,21 +631,29 @@ public sealed partial class MainWindow : Window
     {
         if (PreviewPane == null || PreviewPane.Visibility != Visibility.Visible) return;
 
+        if (PreviewEmptyState != null) PreviewEmptyState.Visibility = Visibility.Collapsed;
+        if (PreviewContentState != null) PreviewContentState.Visibility = Visibility.Visible;
+
         PreviewFileName.Text = $"{selectedItems.Count} Öğe Seçildi";
-        PreviewTypeBadge.Text = "Toplu Seçim";
+        PreviewTypeBadge.Text = "Çoklu Seçim";
         long totalSize = selectedItems.Where(i => !i.IsDirectory).Sum(i => i.Size);
         PreviewSizeText.Text = FormatByteSize(totalSize);
         PreviewDateText.Text = "--";
         PreviewExtensionText.Text = "Karma";
         PreviewPathText.Text = $"{selectedItems.Count} dosya/klasör seçili";
 
-        PreviewIconImage.Visibility = Visibility.Collapsed;
-        PreviewIcon.Visibility = Visibility.Visible;
-        PreviewIcon.Glyph = "\uE8B3";
-        PreviewImage.Visibility = Visibility.Collapsed;
+        if (PreviewTextScroll != null) PreviewTextScroll.Visibility = Visibility.Collapsed;
+        if (PreviewImage != null) PreviewImage.Visibility = Visibility.Collapsed;
+        if (PreviewIconContainer != null) PreviewIconContainer.Visibility = Visibility.Visible;
+        if (PreviewIconImage != null) PreviewIconImage.Visibility = Visibility.Collapsed;
+        if (PreviewIcon != null)
+        {
+            PreviewIcon.Visibility = Visibility.Visible;
+            PreviewIcon.Glyph = "\uE8B3";
+        }
 
         PreviewOpenButton.Content = $"{selectedItems.Count} Öğeyi Aç";
-        PreviewDownloadButton.Content = $"{selectedItems.Count} Öğeyi İndir";
+        PreviewDownloadButton.Content = $"{selectedItems.Count} Öğeyi İndir...";
         PreviewDownloadButton.Visibility = Visibility.Visible;
     }
 
@@ -796,13 +814,19 @@ public sealed partial class MainWindow : Window
         Details
     }
 
+    public class ViewSettingsModel
+    {
+        public ExplorerViewMode ViewMode { get; set; } = ExplorerViewMode.Large;
+        public bool ShowPreviewPane { get; set; } = false;
+    }
+
     private ExplorerViewMode _currentViewMode = ExplorerViewMode.Large;
 
     private string GetViewSettingsFilePath()
     {
         var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HDrive");
         Directory.CreateDirectory(dir);
-        return Path.Combine(dir, "view_settings.txt");
+        return Path.Combine(dir, "view_settings.json");
     }
 
     private void LoadViewSettings()
@@ -812,26 +836,56 @@ public sealed partial class MainWindow : Window
             var filePath = GetViewSettingsFilePath();
             if (File.Exists(filePath))
             {
-                var text = File.ReadAllText(filePath).Trim();
-                if (Enum.TryParse<ExplorerViewMode>(text, true, out var mode))
+                var json = File.ReadAllText(filePath).Trim();
+                var settings = System.Text.Json.JsonSerializer.Deserialize<ViewSettingsModel>(json);
+                if (settings != null)
                 {
-                    ApplyViewMode(mode, save: false);
+                    ApplyViewMode(settings.ViewMode, save: false);
+                    SetPreviewPaneVisibility(settings.ShowPreviewPane, save: false);
                     return;
                 }
             }
         }
         catch { }
         ApplyViewMode(ExplorerViewMode.Large, save: false);
+        SetPreviewPaneVisibility(false, save: false);
     }
 
-    private void SaveViewSettings(ExplorerViewMode mode)
+    private void SaveCurrentSettings()
     {
         try
         {
+            var settings = new ViewSettingsModel
+            {
+                ViewMode = _currentViewMode,
+                ShowPreviewPane = (PreviewPane?.Visibility == Visibility.Visible)
+            };
             var filePath = GetViewSettingsFilePath();
-            File.WriteAllText(filePath, mode.ToString());
+            var json = System.Text.Json.JsonSerializer.Serialize(settings);
+            File.WriteAllText(filePath, json);
         }
         catch { }
+    }
+
+    private void TogglePreviewPane()
+    {
+        var isVisible = PreviewPane.Visibility == Visibility.Visible;
+        SetPreviewPaneVisibility(!isVisible, save: true);
+    }
+
+    private void SetPreviewPaneVisibility(bool visible, bool save = true)
+    {
+        if (PreviewPane == null) return;
+        PreviewPane.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        if (PreviewPaneToggle != null) PreviewPaneToggle.IsChecked = visible;
+        if (visible)
+        {
+            UpdatePreviewPane(_selectedItem);
+        }
+        if (save)
+        {
+            SaveCurrentSettings();
+        }
     }
 
     private void ApplyViewMode(ExplorerViewMode mode, bool save = true)
@@ -847,7 +901,7 @@ public sealed partial class MainWindow : Window
 
         if (save)
         {
-            SaveViewSettings(mode);
+            SaveCurrentSettings();
         }
     }
 
@@ -952,19 +1006,12 @@ public sealed partial class MainWindow : Window
 
     private void PreviewPaneToggle_Click(object sender, RoutedEventArgs e)
     {
-        var isVisible = PreviewPane.Visibility == Visibility.Visible;
-        PreviewPane.Visibility = isVisible ? Visibility.Collapsed : Visibility.Visible;
-        PreviewPaneToggle.IsChecked = !isVisible;
-        if (!isVisible && _selectedItem != null)
-        {
-            UpdatePreviewPane(_selectedItem);
-        }
+        TogglePreviewPane();
     }
 
     private void ClosePreviewPane_Click(object sender, RoutedEventArgs e)
     {
-        PreviewPane.Visibility = Visibility.Collapsed;
-        PreviewPaneToggle.IsChecked = false;
+        SetPreviewPaneVisibility(false, save: true);
     }
 
     private void UpdatePreviewPane(FileItem? item)
@@ -973,17 +1020,13 @@ public sealed partial class MainWindow : Window
 
         if (item == null)
         {
-            PreviewFileName.Text = "Dosya Seçilmedi";
-            PreviewTypeBadge.Text = "Bilinmeyen";
-            PreviewSizeText.Text = "--";
-            PreviewDateText.Text = "--";
-            PreviewExtensionText.Text = "--";
-            PreviewPathText.Text = "--";
-            PreviewImage.Visibility = Visibility.Collapsed;
-            PreviewIconImage.Visibility = Visibility.Collapsed;
-            PreviewIcon.Visibility = Visibility.Visible;
+            if (PreviewEmptyState != null) PreviewEmptyState.Visibility = Visibility.Visible;
+            if (PreviewContentState != null) PreviewContentState.Visibility = Visibility.Collapsed;
             return;
         }
+
+        if (PreviewEmptyState != null) PreviewEmptyState.Visibility = Visibility.Collapsed;
+        if (PreviewContentState != null) PreviewContentState.Visibility = Visibility.Visible;
 
         PreviewFileName.Text = item.Name;
         PreviewTypeBadge.Text = item.TypeDescription;
@@ -991,6 +1034,10 @@ public sealed partial class MainWindow : Window
         PreviewDateText.Text = item.FormattedDate;
         PreviewExtensionText.Text = string.IsNullOrEmpty(item.Extension) ? (item.IsDirectory ? "Klasör" : "Bilinmeyen") : item.Extension;
         PreviewPathText.Text = item.Path;
+
+        if (PreviewTextScroll != null) PreviewTextScroll.Visibility = Visibility.Collapsed;
+        if (PreviewImage != null) PreviewImage.Visibility = Visibility.Collapsed;
+        if (PreviewIconContainer != null) PreviewIconContainer.Visibility = Visibility.Visible;
 
         if (item.IconImage != null)
         {
@@ -1006,6 +1053,19 @@ public sealed partial class MainWindow : Window
             PreviewIcon.Foreground = item.IconBrush;
         }
 
+        if (item.IsDirectory)
+        {
+            PreviewOpenButton.Content = "Klasöre Git";
+            PreviewDownloadButton.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        PreviewOpenButton.Content = item.IsPdf ? "PDF'i Aç / Önizle" : "Varsayılan Uygulamayla Aç";
+        PreviewDownloadButton.Visibility = Visibility.Visible;
+
+        var ext = item.Extension?.TrimStart('.').ToLowerInvariant() ?? "";
+        bool isText = new[] { "txt", "md", "json", "xml", "csv", "log", "cs", "py", "js", "ts", "html", "css", "yml", "yaml", "sql", "ini", "sh", "bat" }.Contains(ext);
+
         if (item.IsImage)
         {
             var cacheDir = Path.Combine(Path.GetTempPath(), "HDriveCache");
@@ -1016,27 +1076,12 @@ public sealed partial class MainWindow : Window
                 {
                     PreviewImage.Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(cachedFile));
                     PreviewImage.Visibility = Visibility.Visible;
-                    PreviewIcon.Visibility = Visibility.Collapsed;
-                    PreviewIconImage.Visibility = Visibility.Collapsed;
+                    PreviewIconContainer.Visibility = Visibility.Collapsed;
                 }
-                catch
-                {
-                    PreviewImage.Visibility = Visibility.Collapsed;
-                    if (item.IconImage != null)
-                    {
-                        PreviewIconImage.Visibility = Visibility.Visible;
-                        PreviewIcon.Visibility = Visibility.Collapsed;
-                    }
-                    else
-                    {
-                        PreviewIcon.Visibility = Visibility.Visible;
-                    }
-                }
+                catch { }
             }
             else
             {
-                PreviewImage.Visibility = Visibility.Collapsed;
-
                 _ = Task.Run(async () =>
                 {
                     var client = new WebDAVClient(CloudreveManager.Instance.ActiveServer);
@@ -1051,8 +1096,7 @@ public sealed partial class MainWindow : Window
                                 {
                                     PreviewImage.Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(downloaded));
                                     PreviewImage.Visibility = Visibility.Visible;
-                                    PreviewIcon.Visibility = Visibility.Collapsed;
-                                    PreviewIconImage.Visibility = Visibility.Collapsed;
+                                    PreviewIconContainer.Visibility = Visibility.Collapsed;
                                 }
                                 catch { }
                             }
@@ -1061,20 +1105,48 @@ public sealed partial class MainWindow : Window
                 });
             }
         }
-        else
+        else if (isText && item.Size < 5 * 1024 * 1024)
         {
-            PreviewImage.Visibility = Visibility.Collapsed;
-        }
-
-        if (item.IsDirectory)
-        {
-            PreviewOpenButton.Content = "Klasöre Git";
-            PreviewDownloadButton.Visibility = Visibility.Collapsed;
-        }
-        else
-        {
-            PreviewOpenButton.Content = item.IsPdf ? "PDF'i Aç / Önizle" : "Varsayılan Uygulamayla Aç";
-            PreviewDownloadButton.Visibility = Visibility.Visible;
+            var cacheDir = Path.Combine(Path.GetTempPath(), "HDriveCache");
+            var cachedFile = Path.Combine(cacheDir, Path.GetFileName(item.Path));
+            if (File.Exists(cachedFile))
+            {
+                try
+                {
+                    var content = File.ReadAllText(cachedFile);
+                    if (content.Length > 8000) content = content.Substring(0, 8000) + "\n\n... (Önizleme sınırı)";
+                    PreviewTextContent.Text = content;
+                    PreviewTextScroll.Visibility = Visibility.Visible;
+                    PreviewIconContainer.Visibility = Visibility.Collapsed;
+                }
+                catch { }
+            }
+            else
+            {
+                _ = Task.Run(async () =>
+                {
+                    var client = new WebDAVClient(CloudreveManager.Instance.ActiveServer);
+                    var downloaded = await client.DownloadFileToCacheAsync(item.Path);
+                    if (!string.IsNullOrEmpty(downloaded) && File.Exists(downloaded))
+                    {
+                        DispatcherQueue.TryEnqueue(() =>
+                        {
+                            if (_selectedItem?.Path == item.Path)
+                            {
+                                try
+                                {
+                                    var content = File.ReadAllText(downloaded);
+                                    if (content.Length > 8000) content = content.Substring(0, 8000) + "\n\n... (Önizleme sınırı)";
+                                    PreviewTextContent.Text = content;
+                                    PreviewTextScroll.Visibility = Visibility.Visible;
+                                    PreviewIconContainer.Visibility = Visibility.Collapsed;
+                                }
+                                catch { }
+                            }
+                        });
+                    }
+                });
+            }
         }
     }
 

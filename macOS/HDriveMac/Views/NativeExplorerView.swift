@@ -330,13 +330,18 @@ public struct NativeExplorerView: View {
                 .keyboardShortcut(.escape, modifiers: [])
             
             Button(action: {
-                if let selID = selectedFileID, let file = files.first(where: { $0.id == selID }) {
+                if quickLookURL != nil {
+                    quickLookURL = nil
+                } else if let selID = selectedFileID, let file = files.first(where: { $0.id == selID }), !file.isDirectory {
                     triggerQuickLook(for: file)
                 }
             }) {
                 EmptyView()
             }
             .keyboardShortcut(.space, modifiers: [])
+
+            Button(action: togglePreviewPane) { EmptyView() }
+                .keyboardShortcut("p", modifiers: [.command, .shift])
         }
         .frame(width: 0, height: 0)
         .opacity(0)
@@ -1651,6 +1656,9 @@ public struct NativeExplorerView: View {
         let file = filteredFiles[newIdx]
         selectedFileIDs = [file.id]
         selectedFileID = file.id
+        if quickLookURL != nil && !file.isDirectory {
+            triggerQuickLook(for: file)
+        }
     }
 
     private func selectNextFile() {
@@ -1660,6 +1668,9 @@ public struct NativeExplorerView: View {
         let file = filteredFiles[newIdx]
         selectedFileIDs = [file.id]
         selectedFileID = file.id
+        if quickLookURL != nil && !file.isDirectory {
+            triggerQuickLook(for: file)
+        }
     }
 
     private func expandSelectionUp() {
@@ -2005,17 +2016,28 @@ public struct NativeExplorerView: View {
     private var previewPaneSideView: some View {
         if let selID = selectedFileID, let selected = files.first(where: { $0.id == selID }) {
             previewPaneView(selected)
+                .id(selID)
         } else {
             emptyPreviewPaneView
         }
     }
     
+    private func loadPreviewIfNeeded(for file: RemoteFileItem) {
+        guard let server = manager.activeServer, !file.isDirectory else { return }
+        let client = WebDAVClient(config: server)
+        if file.isImage {
+            previewManager.loadThumbnail(for: file, client: client)
+        } else if file.size < 25 * 1024 * 1024 && previewManager.resolvedLocalURL(for: file) == nil {
+            previewManager.ensureLocalFile(file: file, client: client) { _ in }
+        }
+    }
+
     private func previewPaneView(_ file: RemoteFileItem) -> some View {
         ScrollView {
             VStack(spacing: 16) {
                 // Üst Başlık ve Kapat Butonu
                 HStack {
-                    Text("Ayrıntılar ve Önizleme")
+                    Text("Önizleme")
                         .font(.subheadline.weight(.semibold))
                         .foregroundColor(.secondary)
                     
@@ -2027,15 +2049,18 @@ public struct NativeExplorerView: View {
                             .font(.system(size: 14))
                     }
                     .buttonStyle(.plain)
-                    .help("Önizleme Bölmesini Kapat")
+                    .help("Önizleme Bölmesini Kapat (⇧⌘P)")
                 }
                 .padding(.horizontal, 4)
                 
-                // Büyük Önizleme Kutusu / Kartı
+                // Büyük Önizleme Kutusu / Kartı (Yerel macOS Tasarımı)
                 ZStack {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color(NSColor.windowBackgroundColor))
-                        .shadow(color: .black.opacity(0.06), radius: 4, y: 2)
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Color(NSColor.controlBackgroundColor))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                        )
                     
                     if file.isDirectory {
                         VStack(spacing: 8) {
@@ -2054,9 +2079,9 @@ public struct NativeExplorerView: View {
                                 .resizable()
                                 .scaledToFit()
                                 .frame(maxHeight: 190)
-                                .cornerRadius(8)
+                                .cornerRadius(6)
                                 .padding(6)
-                        } else if previewManager.loadingPreviewIDs.contains(file.id) {
+                        } else {
                             VStack(spacing: 10) {
                                 ProgressView()
                                     .scaleEffect(0.9)
@@ -2065,76 +2090,48 @@ public struct NativeExplorerView: View {
                                     .foregroundColor(.secondary)
                             }
                             .padding(24)
-                        } else {
-                            VStack(spacing: 10) {
-                                Image(nsImage: FileIconProvider.shared.icon(for: file.name, isDirectory: false, size: 84))
-                                    .resizable()
-                                    .scaledToFit()
-                                    .frame(width: 72, height: 72)
-                                Button("Önizlemeyi Yükle") {
-                                    if let server = manager.activeServer {
-                                        let client = WebDAVClient(config: server)
-                                        previewManager.loadThumbnail(for: file, client: client)
-                                    }
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                            }
-                            .padding(20)
                         }
                     } else if let localURL = previewManager.resolvedLocalURL(for: file) {
-                        // Yerel kopya varsa gömülü Quick Look görünümü
+                        // Yerel dosya varsa yerleşik macOS QuickLook ile anında canlı render
                         QuickLookRepresentable(url: localURL)
                             .frame(height: 190)
-                            .cornerRadius(8)
+                            .cornerRadius(6)
                             .padding(4)
+                    } else if previewManager.loadingPreviewIDs.contains(file.id) {
+                        VStack(spacing: 10) {
+                            ProgressView()
+                                .scaleEffect(0.9)
+                            Text("Önizleme hazırlanıyor...")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(24)
                     } else {
-                        // Diğer dosyalar (Excel, Word, Figma, PDF vb.)
-                        VStack(spacing: 12) {
+                        VStack(spacing: 8) {
                             Image(nsImage: FileIconProvider.shared.icon(for: file.name, isDirectory: false, size: 84))
                                 .resizable()
                                 .scaledToFit()
                                 .frame(width: 76, height: 76)
-                            
-                            if previewManager.loadingPreviewIDs.contains(file.id) {
-                                ProgressView()
-                                    .scaleEffect(0.8)
-                                Text("Görüntü hazırlanıyor...")
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
-                            } else {
-                                Button("Görüntüle (Hızlı Bakış)") {
-                                    triggerQuickLook(for: file)
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                            }
                         }
-                        .padding(24)
+                        .padding(20)
                     }
                 }
                 .frame(minHeight: 180, maxHeight: 210)
                 .onAppear {
-                    if file.isImage, let server = manager.activeServer {
-                        let client = WebDAVClient(config: server)
-                        previewManager.loadThumbnail(for: file, client: client)
-                    }
+                    loadPreviewIfNeeded(for: file)
                 }
                 
-                // Dosya Adı ve Tür Rozeti
-                VStack(spacing: 6) {
+                // Dosya Adı ve Tür Rozeti (Finder Standartları)
+                VStack(spacing: 4) {
                     Text(file.name)
-                        .font(.headline)
+                        .font(.headline.weight(.semibold))
                         .multilineTextAlignment(.center)
                         .lineLimit(3)
                         .textSelection(.enabled)
                     
-                    Text(file.kindDescription)
+                    Text("\(file.kindDescription) • \(file.formattedSize)")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 3)
-                        .background(Capsule().fill(Color.secondary.opacity(0.12)))
                 }
                 
                 // Hızlı Eylem Butonları
@@ -2157,10 +2154,9 @@ public struct NativeExplorerView: View {
                         
                         if !file.isDirectory {
                             Button(action: { downloadFile(file) }) {
-                                Label("İndir", systemImage: "arrow.down.circle")
+                                Label("İndir...", systemImage: "arrow.down.circle")
                             }
                             .buttonStyle(.bordered)
-                            .help("İndirilenler klasörüne kaydet")
                         }
                     }
                 }
@@ -2169,45 +2165,20 @@ public struct NativeExplorerView: View {
                 
                 // Finder Tarzı Ayrıntılar Tablosu
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("BİLGİLER")
+                    Text("BİLGİ")
                         .font(.caption2.weight(.bold))
                         .foregroundColor(.secondary)
                         .padding(.bottom, 2)
                     
+                    inspectorRow(title: "Tür", value: file.kindDescription)
                     inspectorRow(title: "Boyut", value: file.formattedSize)
                     
                     if let date = file.modificationDate {
                         inspectorRow(title: "Değiştirilme", value: dateFormatter.string(from: date))
                     }
                     
-                    inspectorRow(title: "Uzak Yol", value: file.href)
-                    
                     if let ct = file.contentType, !ct.isEmpty {
-                        inspectorRow(title: "İçerik Türü", value: ct)
-                    }
-                    
-                    // Yerel Durum Bilgisi
-                    HStack(alignment: .top) {
-                        Text("Durum:")
-                            .foregroundColor(.secondary)
-                            .font(.caption)
-                            .frame(width: 85, alignment: .leading)
-                        
-                        if previewManager.resolvedLocalURL(for: file) != nil {
-                            HStack(spacing: 4) {
-                                Circle().fill(Color.green).frame(width: 6, height: 6)
-                                Text("Önizleme Hazır")
-                                    .font(.caption.weight(.medium))
-                                    .foregroundColor(.green)
-                            }
-                        } else {
-                            HStack(spacing: 4) {
-                                Circle().fill(Color.blue).frame(width: 6, height: 6)
-                                Text("Yalnızca Bulutta")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                        }
+                        inspectorRow(title: "Biçim", value: ct)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -2217,11 +2188,11 @@ public struct NativeExplorerView: View {
         }
     }
     
-    // MARK: - Önizleme Boş Durumu (Öğe Seçilmediğinde)
+    // MARK: - Önizleme Boş Durumu (Öğe Seçilmediğinde - macOS Finder Birebir)
     private var emptyPreviewPaneView: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 14) {
             HStack {
-                Text("Ayrıntılar ve Önizleme")
+                Text("Önizleme")
                     .font(.subheadline.weight(.semibold))
                     .foregroundColor(.secondary)
                 Spacer()
@@ -2231,7 +2202,7 @@ public struct NativeExplorerView: View {
                         .font(.system(size: 14))
                 }
                 .buttonStyle(.plain)
-                .help("Önizleme Bölmesini Kapat")
+                .help("Önizleme Bölmesini Kapat (⇧⌘P)")
             }
             .padding(.horizontal, 14)
             .padding(.top, 14)
@@ -2239,19 +2210,13 @@ public struct NativeExplorerView: View {
             Spacer()
             
             VStack(spacing: 12) {
-                Image(systemName: "sidebar.right")
+                Image(systemName: "doc.text.magnifyingglass")
                     .font(.system(size: 46))
-                    .foregroundColor(.secondary.opacity(0.5))
+                    .foregroundColor(.secondary.opacity(0.4))
                 
-                Text("Öğe Seçilmedi")
-                    .font(.headline)
-                    .foregroundColor(.primary)
-                
-                Text("Önizleme ve ayrıntılarını görüntülemek için listeden bir dosya veya klasör seçin.")
-                    .font(.caption)
+                Text("Önizlenecek bir dosya seçin")
+                    .font(.callout)
                     .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 24)
             }
             
             Spacer()
