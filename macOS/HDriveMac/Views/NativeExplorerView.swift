@@ -521,12 +521,12 @@ public struct NativeExplorerView: View {
             
             Spacer()
             
-            Button(action: { toggleSort(field: FileSortField.kind) }) {
+            Button(action: { toggleSort(field: FileSortField.date) }) {
                 HStack(spacing: 4) {
-                    Text("Tür")
+                    Text("Değiştirilme Tarihi")
                         .font(.caption.weight(.semibold))
-                        .foregroundColor(sortField == .kind ? .accentColor : .secondary)
-                    if sortField == .kind {
+                        .foregroundColor(sortField == .date ? .accentColor : .secondary)
+                    if sortField == .date {
                         Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
                             .font(.system(size: 9, weight: .bold))
                             .foregroundColor(.accentColor)
@@ -534,8 +534,8 @@ public struct NativeExplorerView: View {
                 }
             }
             .buttonStyle(.plain)
-            .frame(width: 140, alignment: .trailing)
-            
+            .frame(width: 150, alignment: .leading)
+
             Button(action: { toggleSort(field: FileSortField.size) }) {
                 HStack(spacing: 4) {
                     Text("Boyut")
@@ -549,7 +549,22 @@ public struct NativeExplorerView: View {
                 }
             }
             .buttonStyle(.plain)
-            .frame(width: 70, alignment: .trailing)
+            .frame(width: 80, alignment: .trailing)
+
+            Button(action: { toggleSort(field: FileSortField.kind) }) {
+                HStack(spacing: 4) {
+                    Text("Tür")
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(sortField == .kind ? .accentColor : .secondary)
+                    if sortField == .kind {
+                        Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundColor(.accentColor)
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            .frame(width: 130, alignment: .leading)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 6)
@@ -1034,15 +1049,20 @@ public struct NativeExplorerView: View {
             
             Spacer()
             
-            Text(file.kindDescription)
-                .font(.caption2)
+            Text(file.modificationDate.map { dateFormatter.string(from: $0) } ?? "--")
+                .font(.caption)
                 .foregroundColor(.secondary)
-                .frame(width: 140, alignment: .trailing)
+                .frame(width: 150, alignment: .leading)
             
             Text(file.formattedSize)
                 .font(.caption)
                 .foregroundColor(.secondary)
-                .frame(width: 70, alignment: .trailing)
+                .frame(width: 80, alignment: .trailing)
+
+            Text(file.kindDescription)
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .frame(width: 130, alignment: .leading)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)

@@ -546,10 +546,26 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private DateTime _lastItemClickTime = DateTime.MinValue;
+    private FileItem? _lastClickedItem = null;
+
     private void Item_Tapped(object sender, TappedRoutedEventArgs e)
     {
         if (sender is FrameworkElement fe && fe.DataContext is FileItem item)
         {
+            var now = DateTime.UtcNow;
+            var diff = (now - _lastItemClickTime).TotalMilliseconds;
+            if (_lastClickedItem == item && _selectedItem == item && diff > 500 && diff < 3000 && !item.IsEditing)
+            {
+                // Windows Gezgini standardı: Zaten seçili olan öğeye yavaşça bir kez daha tıklandığında yeniden adlandırmayı başlat
+                BeginInlineRename(item);
+                _lastItemClickTime = DateTime.MinValue;
+                _lastClickedItem = null;
+                return;
+            }
+
+            _lastClickedItem = item;
+            _lastItemClickTime = now;
             _selectedItem = item;
             UpdatePreviewPane(item);
         }
@@ -962,7 +978,7 @@ public sealed partial class MainWindow : Window
         ApplySearchFilter(SearchBox.Text);
     }
 
-    private void HeaderSortByName_Tapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
+    private void HeaderSortByName_Click(object sender, RoutedEventArgs e)
     {
         if (_sortField == SortField.Name) _sortAscending = !_sortAscending;
         else { _sortField = SortField.Name; _sortAscending = true; }
@@ -970,7 +986,7 @@ public sealed partial class MainWindow : Window
         ApplySearchFilter(SearchBox.Text);
     }
 
-    private void HeaderSortByDate_Tapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
+    private void HeaderSortByDate_Click(object sender, RoutedEventArgs e)
     {
         if (_sortField == SortField.Date) _sortAscending = !_sortAscending;
         else { _sortField = SortField.Date; _sortAscending = true; }
@@ -978,7 +994,7 @@ public sealed partial class MainWindow : Window
         ApplySearchFilter(SearchBox.Text);
     }
 
-    private void HeaderSortByType_Tapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
+    private void HeaderSortByType_Click(object sender, RoutedEventArgs e)
     {
         if (_sortField == SortField.Type) _sortAscending = !_sortAscending;
         else { _sortField = SortField.Type; _sortAscending = true; }
@@ -986,7 +1002,7 @@ public sealed partial class MainWindow : Window
         ApplySearchFilter(SearchBox.Text);
     }
 
-    private void HeaderSortBySize_Tapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
+    private void HeaderSortBySize_Click(object sender, RoutedEventArgs e)
     {
         if (_sortField == SortField.Size) _sortAscending = !_sortAscending;
         else { _sortField = SortField.Size; _sortAscending = true; }
@@ -1002,6 +1018,28 @@ public sealed partial class MainWindow : Window
         if (SortByTypeItem != null) SortByTypeItem.IsChecked = (_sortField == SortField.Type);
         if (SortAscItem != null) SortAscItem.IsChecked = _sortAscending;
         if (SortDescItem != null) SortDescItem.IsChecked = !_sortAscending;
+
+        var arrowGlyph = _sortAscending ? "\uE70E" : "\uE70D";
+        if (SortNameArrow != null)
+        {
+            SortNameArrow.Visibility = (_sortField == SortField.Name) ? Visibility.Visible : Visibility.Collapsed;
+            SortNameArrow.Glyph = arrowGlyph;
+        }
+        if (SortDateArrow != null)
+        {
+            SortDateArrow.Visibility = (_sortField == SortField.Date) ? Visibility.Visible : Visibility.Collapsed;
+            SortDateArrow.Glyph = arrowGlyph;
+        }
+        if (SortTypeArrow != null)
+        {
+            SortTypeArrow.Visibility = (_sortField == SortField.Type) ? Visibility.Visible : Visibility.Collapsed;
+            SortTypeArrow.Glyph = arrowGlyph;
+        }
+        if (SortSizeArrow != null)
+        {
+            SortSizeArrow.Visibility = (_sortField == SortField.Size) ? Visibility.Visible : Visibility.Collapsed;
+            SortSizeArrow.Glyph = arrowGlyph;
+        }
     }
 
     private void PreviewPaneToggle_Click(object sender, RoutedEventArgs e)
@@ -1476,14 +1514,29 @@ public sealed partial class MainWindow : Window
         item.IsEditing = true;
     }
 
+    private static readonly char[] InvalidFileNameChars = new[] { '/', '\\', ':', '*', '?', '"', '<', '>', '|' };
+
+    private void InlineRenameTextBox_BeforeTextChanging(TextBox sender, TextBoxBeforeTextChangingEventArgs args)
+    {
+        if (args.NewText.IndexOfAny(InvalidFileNameChars) >= 0)
+        {
+            args.Cancel = true;
+            if (SyncStatusText != null)
+            {
+                SyncStatusText.Text = "Dosya adları \\ / : * ? \" < > | karakterlerini içeremez";
+            }
+        }
+    }
+
     private void InlineRenameTextBox_Loaded(object sender, RoutedEventArgs e)
     {
         if (sender is TextBox textBox)
         {
             textBox.Focus(FocusState.Programmatic);
             var text = textBox.Text ?? "";
+            var isDir = (textBox.DataContext as FileItem)?.IsDirectory ?? false;
             var dotIndex = text.LastIndexOf('.');
-            if (dotIndex > 0)
+            if (!isDir && dotIndex > 0)
             {
                 textBox.Select(0, dotIndex);
             }
@@ -1507,6 +1560,43 @@ public sealed partial class MainWindow : Window
             {
                 e.Handled = true;
                 CancelInlineRename(item);
+            }
+            else if (e.Key == Windows.System.VirtualKey.F2)
+            {
+                e.Handled = true;
+                // Windows Gezgini F2: Uzantısız seçim ile tümünü seçme arasında geçiş yap
+                var text = textBox.Text ?? "";
+                var isDir = item.IsDirectory;
+                var dotIndex = text.LastIndexOf('.');
+                if (!isDir && dotIndex > 0 && textBox.SelectionLength == dotIndex)
+                {
+                    textBox.SelectAll();
+                }
+                else if (!isDir && dotIndex > 0)
+                {
+                    textBox.Select(0, dotIndex);
+                }
+            }
+            else if (e.Key == Windows.System.VirtualKey.Tab)
+            {
+                e.Handled = true;
+                var isShift = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Shift)
+                    .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+
+                await CommitInlineRenameAsync(item, textBox.Text);
+
+                // Windows Gezgini Tab standardı: Bir sonraki / önceki dosyayı yeniden adlandır
+                var currentIdx = _items.IndexOf(item);
+                if (currentIdx >= 0)
+                {
+                    int nextIdx = isShift ? currentIdx - 1 : currentIdx + 1;
+                    if (nextIdx >= 0 && nextIdx < _items.Count)
+                    {
+                        var nextItem = _items[nextIdx];
+                        _selectedItem = nextItem;
+                        BeginInlineRename(nextItem);
+                    }
+                }
             }
         }
     }
@@ -1533,6 +1623,7 @@ public sealed partial class MainWindow : Window
         var newName = newNameText?.Trim();
         if (string.IsNullOrWhiteSpace(newName) || newName == item.Name)
         {
+            item.EditingName = item.Name;
             return;
         }
 
@@ -1552,6 +1643,22 @@ public sealed partial class MainWindow : Window
             item.Name = newName;
             item.Path = destPath;
             await LoadDirectoryAsync(_currentPath);
+        }
+        else
+        {
+            item.EditingName = item.Name;
+            try
+            {
+                var dialog = new ContentDialog
+                {
+                    Title = "Yeniden Adlandırma Hatası",
+                    Content = $"'{newName}' adı atanamadı. Bu ada sahip başka bir dosya zaten var olabilir veya dosya adı geçersizdir.",
+                    CloseButtonText = "Tamam",
+                    XamlRoot = this.Content.XamlRoot
+                };
+                await dialog.ShowAsync();
+            }
+            catch { }
         }
     }
 

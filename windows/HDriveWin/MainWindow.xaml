@@ -363,17 +363,21 @@
                                                        Margin="0,4,0,0"
                                                        Visibility="{x:Bind NormalVisibility, Mode=OneWay}" />
 
-                                            <!-- Yerinde Yeniden Adlandırma Metin Kutusu (F2 Inline Rename) -->
+                                            <!-- Yerinde Yeniden Adlandırma Metin Kutusu (Windows 11 Birebir) -->
                                             <TextBox Grid.Row="1" Text="{x:Bind EditingName, Mode=TwoWay}"
                                                      FontSize="11"
                                                      TextAlignment="Center"
                                                      HorizontalAlignment="Stretch"
                                                      Margin="0,2,0,0"
                                                      Padding="4,2,4,2"
+                                                     CornerRadius="4"
+                                                     BorderBrush="{ThemeResource AccentFillColorDefaultBrush}"
+                                                     BorderThickness="1"
                                                      Visibility="{x:Bind EditingVisibility, Mode=OneWay}"
                                                      Loaded="InlineRenameTextBox_Loaded"
                                                      KeyDown="InlineRenameTextBox_KeyDown"
-                                                     LostFocus="InlineRenameTextBox_LostFocus" />
+                                                     LostFocus="InlineRenameTextBox_LostFocus"
+                                                     BeforeTextChanging="InlineRenameTextBox_BeforeTextChanging" />
 
                                             <TextBlock Grid.Row="2" Text="{x:Bind FormattedSize}" 
                                                        Style="{ThemeResource CaptionTextBlockStyle}"
@@ -441,17 +445,21 @@
                                                        Margin="0,2,0,0"
                                                        Visibility="{x:Bind NormalVisibility, Mode=OneWay}" />
 
-                                            <!-- Yerinde Yeniden Adlandırma (F2) -->
+                                            <!-- Yerinde Yeniden Adlandırma (Windows 11 Birebir) -->
                                             <TextBox Grid.Row="1" Text="{x:Bind EditingName, Mode=TwoWay}"
                                                      FontSize="10"
                                                      TextAlignment="Center"
                                                      HorizontalAlignment="Stretch"
                                                      Margin="0,1,0,0"
                                                      Padding="2,1,2,1"
+                                                     CornerRadius="4"
+                                                     BorderBrush="{ThemeResource AccentFillColorDefaultBrush}"
+                                                     BorderThickness="1"
                                                      Visibility="{x:Bind EditingVisibility, Mode=OneWay}"
                                                      Loaded="InlineRenameTextBox_Loaded"
                                                      KeyDown="InlineRenameTextBox_KeyDown"
-                                                     LostFocus="InlineRenameTextBox_LostFocus" />
+                                                     LostFocus="InlineRenameTextBox_LostFocus"
+                                                     BeforeTextChanging="InlineRenameTextBox_BeforeTextChanging" />
                                         </Grid>
                                     </Border>
                                 </DataTemplate>
@@ -482,33 +490,60 @@
                                 </Style>
                             </ListView.ItemContainerStyle>
                             <ListView.Header>
-                                <Grid Padding="12,6,12,6" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
+                                <Grid Padding="8,4,8,4" Background="{ThemeResource LayerFillColorAltBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="150" />
-                                        <ColumnDefinition Width="150" />
+                                        <ColumnDefinition Width="180" />
+                                        <ColumnDefinition Width="140" />
                                         <ColumnDefinition Width="100" />
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Text="Ad" FontWeight="SemiBold" Tapped="HeaderSortByName_Tapped" />
-                                    <TextBlock Grid.Column="1" Text="Değiştirilme Tarihi" FontWeight="SemiBold" Tapped="HeaderSortByDate_Tapped" />
-                                    <TextBlock Grid.Column="2" Text="Tür" FontWeight="SemiBold" Tapped="HeaderSortByType_Tapped" />
-                                    <TextBlock Grid.Column="3" Text="Boyut" FontWeight="SemiBold" TextAlignment="Right" Tapped="HeaderSortBySize_Tapped" />
+                                    <Button Grid.Column="0" Click="HeaderSortByName_Click" Style="{ThemeResource SubtleButtonStyle}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="8,4">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <TextBlock Text="Ad" FontWeight="SemiBold" FontSize="12" />
+                                            <FontIcon x:Name="SortNameArrow" Glyph="&#xE70E;" FontSize="10" Visibility="Visible" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                        </StackPanel>
+                                    </Button>
+                                    <Button Grid.Column="1" Click="HeaderSortByDate_Click" Style="{ThemeResource SubtleButtonStyle}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="8,4">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <TextBlock Text="Değiştirilme Tarihi" FontWeight="SemiBold" FontSize="12" />
+                                            <FontIcon x:Name="SortDateArrow" Glyph="&#xE70E;" FontSize="10" Visibility="Collapsed" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                        </StackPanel>
+                                    </Button>
+                                    <Button Grid.Column="2" Click="HeaderSortByType_Click" Style="{ThemeResource SubtleButtonStyle}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="8,4">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <TextBlock Text="Tür" FontWeight="SemiBold" FontSize="12" />
+                                            <FontIcon x:Name="SortTypeArrow" Glyph="&#xE70E;" FontSize="10" Visibility="Collapsed" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                        </StackPanel>
+                                    </Button>
+                                    <Button Grid.Column="3" Click="HeaderSortBySize_Click" Style="{ThemeResource SubtleButtonStyle}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Right" Padding="8,4">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <TextBlock Text="Boyut" FontWeight="SemiBold" FontSize="12" />
+                                            <FontIcon x:Name="SortSizeArrow" Glyph="&#xE70E;" FontSize="10" Visibility="Collapsed" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                        </StackPanel>
+                                    </Button>
                                 </Grid>
                             </ListView.Header>
                             <ListView.ItemTemplate>
                                 <DataTemplate x:DataType="models:FileItem">
-                                    <Grid Padding="8,6,8,6"
+                                    <Grid Padding="8,4,8,4"
                                           Background="Transparent"
-                                          Opacity="{x:Bind Opacity, Mode=OneWay}">
+                                          Opacity="{x:Bind Opacity, Mode=OneWay}"
+                                          MinHeight="34">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="150" />
-                                            <ColumnDefinition Width="150" />
+                                            <ColumnDefinition Width="180" />
+                                            <ColumnDefinition Width="140" />
                                             <ColumnDefinition Width="100" />
                                         </Grid.ColumnDefinitions>
 
-                                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10">
-                                            <Grid Width="20" Height="20" VerticalAlignment="Center">
+                                        <Grid Grid.Column="0" Margin="8,0,0,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="22" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+
+                                            <!-- İkon -->
+                                            <Grid Grid.Column="0" Width="18" Height="18" VerticalAlignment="Center" HorizontalAlignment="Left">
                                                 <Image Source="{x:Bind IconImageSmall}" Width="16" Height="16" Stretch="Uniform"
                                                        Visibility="{x:Bind HasIconImageVisibility}"
                                                        HorizontalAlignment="Center" VerticalAlignment="Center" />
@@ -517,28 +552,38 @@
                                                           Visibility="{x:Bind HasNoIconImageVisibility}"
                                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
                                             </Grid>
-                                            <TextBlock Text="{x:Bind Name}" VerticalAlignment="Center" 
+
+                                            <!-- Normal İsim -->
+                                            <TextBlock Grid.Column="1" Text="{x:Bind Name}" VerticalAlignment="Center" 
                                                        TextTrimming="CharacterEllipsis"
+                                                       Margin="8,0,0,0"
                                                        Visibility="{x:Bind NormalVisibility, Mode=OneWay}" />
-                                            <TextBox Text="{x:Bind EditingName, Mode=TwoWay}"
+
+                                            <!-- Yerinde Yeniden Adlandırma (Windows 11 Birebir) -->
+                                            <TextBox Grid.Column="1" Text="{x:Bind EditingName, Mode=TwoWay}"
                                                      VerticalAlignment="Center"
+                                                     HorizontalAlignment="Stretch"
+                                                     Margin="6,0,8,0"
                                                      FontSize="12"
-                                                     MinWidth="160"
-                                                     Padding="4,2,4,2"
+                                                     Padding="6,3,6,3"
+                                                     CornerRadius="4"
+                                                     BorderBrush="{ThemeResource AccentFillColorDefaultBrush}"
+                                                     BorderThickness="1"
                                                      Visibility="{x:Bind EditingVisibility, Mode=OneWay}"
                                                      Loaded="InlineRenameTextBox_Loaded"
                                                      KeyDown="InlineRenameTextBox_KeyDown"
-                                                     LostFocus="InlineRenameTextBox_LostFocus" />
-                                        </StackPanel>
+                                                     LostFocus="InlineRenameTextBox_LostFocus"
+                                                     BeforeTextChanging="InlineRenameTextBox_BeforeTextChanging" />
+                                        </Grid>
 
-                                        <TextBlock Grid.Column="1" Text="{x:Bind FormattedDate}" VerticalAlignment="Center"
-                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        <TextBlock Grid.Column="1" Text="{x:Bind FormattedDate}" VerticalAlignment="Center" Margin="8,0,0,0"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" />
                                         
-                                        <TextBlock Grid.Column="2" Text="{x:Bind TypeDescription}" VerticalAlignment="Center"
-                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        <TextBlock Grid.Column="2" Text="{x:Bind TypeDescription}" VerticalAlignment="Center" Margin="8,0,0,0"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" TextTrimming="CharacterEllipsis" />
                                         
-                                        <TextBlock Grid.Column="3" Text="{x:Bind FormattedSize}" VerticalAlignment="Center"
-                                                   TextAlignment="Right" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        <TextBlock Grid.Column="3" Text="{x:Bind FormattedSize}" VerticalAlignment="Center" Margin="0,0,8,0"
+                                                   TextAlignment="Right" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" />
                                     </Grid>
                                 </DataTemplate>
                             </ListView.ItemTemplate>
