@@ -1524,8 +1524,18 @@ public struct NativeExplorerView: View {
     
     private func downloadFile(_ file: RemoteFileItem) {
         guard let server = manager.activeServer else { return }
-        let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first!
-        let target = downloads.appendingPathComponent(file.name)
+        
+        let savePanel = NSSavePanel()
+        savePanel.title = "Dosyayı Kaydet"
+        savePanel.prompt = "Kaydet"
+        savePanel.nameFieldStringValue = file.name
+        savePanel.canCreateDirectories = true
+        
+        if savePanel.runModal() != .OK {
+            return
+        }
+        guard let target = savePanel.url else { return }
+        
         let client = WebDAVClient(config: server)
         let relPath = currentPath.isEmpty ? file.name : "\(currentPath)/\(file.name)"
         isLoading = true
@@ -1535,7 +1545,7 @@ public struct NativeExplorerView: View {
                     isLoading = false
                     if err2 == nil && FileManager.default.fileExists(atPath: target.path) {
                         SyncLogManager.shared.log("İndirildi: \(file.name)")
-                        NSWorkspace.shared.selectFile(target.path, inFileViewerRootedAtPath: downloads.path)
+                        NSWorkspace.shared.selectFile(target.path, inFileViewerRootedAtPath: target.deletingLastPathComponent().path)
                     } else {
                         SyncLogManager.shared.log("İndirme hatası: \(file.name) - \(err2?.localizedDescription ?? "")", isError: true)
                     }
@@ -1544,13 +1554,24 @@ public struct NativeExplorerView: View {
                 isLoading = false
                 if FileManager.default.fileExists(atPath: target.path) {
                     SyncLogManager.shared.log("İndirildi: \(file.name)")
-                    NSWorkspace.shared.selectFile(target.path, inFileViewerRootedAtPath: downloads.path)
+                    NSWorkspace.shared.selectFile(target.path, inFileViewerRootedAtPath: target.deletingLastPathComponent().path)
                 }
             }
         }
     }
     
     private func deleteFile(_ file: RemoteFileItem) {
+        let alert = NSAlert()
+        alert.messageText = "'\(file.name)' Silinsin mi?"
+        alert.informativeText = "Bu \(file.isDirectory ? "klasörü ve içindeki tüm dosyaları" : "dosyayı") kalıcı olarak silmek istediğinizden emin misiniz? Bu işlem geri alınamaz."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Sil")
+        alert.addButton(withTitle: "Vazgeç")
+        
+        if alert.runModal() != .alertFirstButtonReturn {
+            return
+        }
+        
         guard let server = manager.activeServer else { return }
         let client = WebDAVClient(config: server)
         let relPath = currentPath.isEmpty ? file.name : "\(currentPath)/\(file.name)"
@@ -1710,6 +1731,22 @@ public struct NativeExplorerView: View {
         let targets = filteredFiles.filter { selectedFileIDs.contains($0.id) || selectedFileID == $0.id }
         guard !targets.isEmpty, let server = manager.activeServer else { return }
         
+        if targets.count == 1 {
+            deleteFile(targets[0])
+            return
+        }
+        
+        let alert = NSAlert()
+        alert.messageText = "Seçili \(targets.count) Öğe Silinsin mi?"
+        alert.informativeText = "Seçilen \(targets.count) öğeyi buluttan kalıcı olarak silmek istediğinizden emin misiniz? Bu işlem geri alınamaz."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Sil")
+        alert.addButton(withTitle: "Vazgeç")
+        
+        if alert.runModal() != .alertFirstButtonReturn {
+            return
+        }
+        
         isLoading = true
         let client = WebDAVClient(config: server)
         let group = DispatchGroup()
@@ -1742,7 +1779,25 @@ public struct NativeExplorerView: View {
         let fileTargets = targets.filter { !$0.isDirectory }
         guard !fileTargets.isEmpty else { return }
         
-        let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first!
+        if fileTargets.count == 1 {
+            downloadFile(fileTargets[0])
+            return
+        }
+        
+        let openPanel = NSOpenPanel()
+        openPanel.title = "İndirme Konumunu Seçin"
+        openPanel.prompt = "Bu Klasöre İndir"
+        openPanel.message = "Seçilen \(fileTargets.count) dosyanın kaydedileceği klasörü seçin:"
+        openPanel.canChooseFiles = false
+        openPanel.canChooseDirectories = true
+        openPanel.canCreateDirectories = true
+        openPanel.allowsMultipleSelection = false
+        
+        if openPanel.runModal() != .OK {
+            return
+        }
+        guard let destinationFolder = openPanel.url else { return }
+        
         let client = WebDAVClient(config: server)
         isLoading = true
         let group = DispatchGroup()
@@ -1751,7 +1806,7 @@ public struct NativeExplorerView: View {
         
         for file in fileTargets {
             group.enter()
-            let dest = downloads.appendingPathComponent(file.name)
+            let dest = destinationFolder.appendingPathComponent(file.name)
             let relPath = currentPath.isEmpty ? file.name : "\(currentPath)/\(file.name)"
             client.downloadFile(href: relPath, to: dest, progress: { _ in }, completion: { error in
                 if error == nil && FileManager.default.fileExists(atPath: dest.path) {

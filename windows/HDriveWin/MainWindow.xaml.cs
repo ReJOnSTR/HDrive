@@ -1246,7 +1246,37 @@ public sealed partial class MainWindow : Window
 
         if (itemsToDownload.Count == 1)
         {
-            await OpenFileAsync(itemsToDownload[0]);
+            var item = itemsToDownload[0];
+            var savePicker = new Windows.Storage.Pickers.FileSavePicker();
+            savePicker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.Downloads;
+            savePicker.SuggestedFileName = item.Name;
+            var ext = Path.GetExtension(item.Name);
+            if (!string.IsNullOrEmpty(ext))
+            {
+                savePicker.FileTypeChoices.Add($"{ext.ToUpperInvariant().TrimStart('.')} Dosyası", new List<string> { ext });
+            }
+            savePicker.FileTypeChoices.Add("Tüm Dosyalar", new List<string> { "." });
+
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            WinRT.Interop.InitializeWithWindow.Initialize(savePicker, hwnd);
+
+            var file = await savePicker.PickSaveFileAsync();
+            if (file != null)
+            {
+                LoadingRing.IsActive = true;
+                var server = CloudreveManager.Instance.ActiveServer;
+                if (server != null)
+                {
+                    var client = new WebDAVClient(server);
+                    var cachedFile = await client.DownloadFileToCacheAsync(item.Path);
+                    if (!string.IsNullOrEmpty(cachedFile) && File.Exists(cachedFile))
+                    {
+                        File.Copy(cachedFile, file.Path, true);
+                        Process.Start(new ProcessStartInfo { FileName = "explorer.exe", Arguments = $"/select,\"{file.Path}\"", UseShellExecute = true });
+                    }
+                }
+                LoadingRing.IsActive = false;
+            }
         }
         else
         {
