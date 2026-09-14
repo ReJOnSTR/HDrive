@@ -913,7 +913,7 @@ public struct NativeExplorerView: View {
     // MARK: - Dosya Izgara Kartı (Finder Görünümü)
     private func fileGridItem(_ file: RemoteFileItem) -> some View {
         let isHovered = hoveredFileID == file.id
-        let isSelected = selectedFileIDs.contains(file.id)
+        let isSelected = selectedFileIDs.contains(file.id) || selectedFileID == file.id
         let isRenaming = renamingFileID == file.id
         
         return VStack(spacing: 6) {
@@ -977,10 +977,13 @@ public struct NativeExplorerView: View {
                 hoveredFileID = nil
             }
         }
-        .simultaneousGesture(
-            TapGesture().onEnded {
-                handleFileClick(file)
-            }
+        ._onButtonGesture(
+            pressing: { isPressed in
+                if isPressed {
+                    handleFilePress(file)
+                }
+            },
+            perform: {}
         )
         .onDrag {
             exportFileForDrag(file)
@@ -1054,10 +1057,13 @@ public struct NativeExplorerView: View {
                 hoveredFileID = nil
             }
         }
-        .simultaneousGesture(
-            TapGesture().onEnded {
-                handleFileClick(file)
-            }
+        ._onButtonGesture(
+            pressing: { isPressed in
+                if isPressed {
+                    handleFilePress(file)
+                }
+            },
+            perform: {}
         )
         .onDrag {
             exportFileForDrag(file)
@@ -1550,8 +1556,8 @@ public struct NativeExplorerView: View {
         }
     }
     
-    // MARK: - Çoklu Seçim ve Anında Tıklama / Çift Tıklama İşlemleri
-    private func handleFileClick(_ file: RemoteFileItem) {
+    // MARK: - Çoklu Seçim ve Anında Tıklama / Çift Tıklama İşlemleri (0ms mouseDown)
+    private func handleFilePress(_ file: RemoteFileItem) {
         let now = Date()
         let isDoubleClick = (lastClickedFileID == file.id) && (now.timeIntervalSince(lastClickTime) < 0.35)
         
