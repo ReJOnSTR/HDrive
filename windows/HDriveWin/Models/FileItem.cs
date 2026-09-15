@@ -210,6 +210,74 @@ public class FileItem : INotifyPropertyChanged
         };
     }
 
+    // Paylaşılan Liste Sütun Genişlikleri ve Görünürlükleri (Windows 11 Gezgin Uyumu)
+    private static Microsoft.UI.Xaml.GridLength _sharedColDateWidth = new(180);
+    public static Microsoft.UI.Xaml.GridLength SharedColDateWidth
+    {
+        get => _sharedColDateWidth;
+        set => _sharedColDateWidth = value;
+    }
+
+    private static Microsoft.UI.Xaml.GridLength _sharedColTypeWidth = new(140);
+    public static Microsoft.UI.Xaml.GridLength SharedColTypeWidth
+    {
+        get => _sharedColTypeWidth;
+        set => _sharedColTypeWidth = value;
+    }
+
+    private static Microsoft.UI.Xaml.GridLength _sharedColSizeWidth = new(100);
+    public static Microsoft.UI.Xaml.GridLength SharedColSizeWidth
+    {
+        get => _sharedColSizeWidth;
+        set => _sharedColSizeWidth = value;
+    }
+
+    private static Microsoft.UI.Xaml.Visibility _sharedColDateVisibility = Microsoft.UI.Xaml.Visibility.Visible;
+    public static Microsoft.UI.Xaml.Visibility SharedColDateVisibility
+    {
+        get => _sharedColDateVisibility;
+        set => _sharedColDateVisibility = value;
+    }
+
+    private static Microsoft.UI.Xaml.Visibility _sharedColTypeVisibility = Microsoft.UI.Xaml.Visibility.Visible;
+    public static Microsoft.UI.Xaml.Visibility SharedColTypeVisibility
+    {
+        get => _sharedColTypeVisibility;
+        set => _sharedColTypeVisibility = value;
+    }
+
+    private static Microsoft.UI.Xaml.Visibility _sharedColSizeVisibility = Microsoft.UI.Xaml.Visibility.Visible;
+    public static Microsoft.UI.Xaml.Visibility SharedColSizeVisibility
+    {
+        get => _sharedColSizeVisibility;
+        set => _sharedColSizeVisibility = value;
+    }
+
+    public Microsoft.UI.Xaml.GridLength ColDateWidth => SharedColDateWidth;
+    public Microsoft.UI.Xaml.GridLength ColTypeWidth => SharedColTypeWidth;
+    public Microsoft.UI.Xaml.GridLength ColSizeWidth => SharedColSizeWidth;
+
+    public Microsoft.UI.Xaml.GridLength ColDateSplitterWidth => _sharedColDateVisibility == Microsoft.UI.Xaml.Visibility.Visible ? new(6) : new(0);
+    public Microsoft.UI.Xaml.GridLength ColTypeSplitterWidth => _sharedColTypeVisibility == Microsoft.UI.Xaml.Visibility.Visible ? new(6) : new(0);
+    public Microsoft.UI.Xaml.GridLength ColSizeSplitterWidth => _sharedColSizeVisibility == Microsoft.UI.Xaml.Visibility.Visible ? new(6) : new(0);
+
+    public Microsoft.UI.Xaml.Visibility ColDateVisibility => SharedColDateVisibility;
+    public Microsoft.UI.Xaml.Visibility ColTypeVisibility => SharedColTypeVisibility;
+    public Microsoft.UI.Xaml.Visibility ColSizeVisibility => SharedColSizeVisibility;
+
+    public void NotifyColumnSettingsChanged()
+    {
+        OnPropertyChanged(nameof(ColDateWidth));
+        OnPropertyChanged(nameof(ColTypeWidth));
+        OnPropertyChanged(nameof(ColSizeWidth));
+        OnPropertyChanged(nameof(ColDateSplitterWidth));
+        OnPropertyChanged(nameof(ColTypeSplitterWidth));
+        OnPropertyChanged(nameof(ColSizeSplitterWidth));
+        OnPropertyChanged(nameof(ColDateVisibility));
+        OnPropertyChanged(nameof(ColTypeVisibility));
+        OnPropertyChanged(nameof(ColSizeVisibility));
+    }
+
     public event PropertyChangedEventHandler? PropertyChanged;
 
     protected bool SetProperty<T>(ref T storage, T value, [CallerMemberName] string? propertyName = null)

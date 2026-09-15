@@ -497,32 +497,76 @@
                                 </Style>
                             </ListView.ItemContainerStyle>
                             <ListView.Header>
-                                <Grid Padding="8,4,8,4" Background="{ThemeResource LayerFillColorAltBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
+                                <Grid Padding="8,4,8,4" Background="{ThemeResource LayerFillColorAltBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,0,0,1"
+                                      RightTapped="Header_RightTapped">
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="180" />
-                                        <ColumnDefinition Width="140" />
-                                        <ColumnDefinition Width="100" />
+                                        <ColumnDefinition Width="*" x:Name="ColHeaderName" MinWidth="140" />
+                                        <ColumnDefinition Width="6" x:Name="ColSplitterDateCol" />
+                                        <ColumnDefinition Width="180" x:Name="ColHeaderDate" MinWidth="0" />
+                                        <ColumnDefinition Width="6" x:Name="ColSplitterTypeCol" />
+                                        <ColumnDefinition Width="140" x:Name="ColHeaderType" MinWidth="0" />
+                                        <ColumnDefinition Width="6" x:Name="ColSplitterSizeCol" />
+                                        <ColumnDefinition Width="100" x:Name="ColHeaderSize" MinWidth="0" />
                                     </Grid.ColumnDefinitions>
+                                    
                                     <Button Grid.Column="0" Click="HeaderSortByName_Click" Style="{ThemeResource SubtleButtonStyle}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="8,4">
                                         <StackPanel Orientation="Horizontal" Spacing="6">
                                             <TextBlock Text="Ad" FontWeight="SemiBold" FontSize="12" />
                                             <FontIcon x:Name="SortNameArrow" Glyph="&#xE70E;" FontSize="10" Visibility="Visible" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
                                         </StackPanel>
                                     </Button>
-                                    <Button Grid.Column="1" Click="HeaderSortByDate_Click" Style="{ThemeResource SubtleButtonStyle}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="8,4">
+
+                                    <!-- Splitter Date -->
+                                    <Border Grid.Column="1" x:Name="BorderSplitterDate" Width="6" HorizontalAlignment="Stretch" Background="Transparent"
+                                            Tag="Date"
+                                            PointerEntered="Splitter_PointerEntered"
+                                            PointerExited="Splitter_PointerExited"
+                                            PointerPressed="Splitter_PointerPressed"
+                                            PointerMoved="Splitter_PointerMoved"
+                                            PointerReleased="Splitter_PointerReleased"
+                                            DoubleTapped="Splitter_DoubleTapped">
+                                        <Rectangle Width="1" Fill="{ThemeResource CardStrokeColorDefaultBrush}" HorizontalAlignment="Center" VerticalAlignment="Stretch" />
+                                    </Border>
+
+                                    <Button Grid.Column="2" x:Name="BtnHeaderDate" Click="HeaderSortByDate_Click" Style="{ThemeResource SubtleButtonStyle}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="8,4">
                                         <StackPanel Orientation="Horizontal" Spacing="6">
                                             <TextBlock Text="Değiştirilme Tarihi" FontWeight="SemiBold" FontSize="12" />
                                             <FontIcon x:Name="SortDateArrow" Glyph="&#xE70E;" FontSize="10" Visibility="Collapsed" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
                                         </StackPanel>
                                     </Button>
-                                    <Button Grid.Column="2" Click="HeaderSortByType_Click" Style="{ThemeResource SubtleButtonStyle}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="8,4">
+
+                                    <!-- Splitter Type -->
+                                    <Border Grid.Column="3" x:Name="BorderSplitterType" Width="6" HorizontalAlignment="Stretch" Background="Transparent"
+                                            Tag="Type"
+                                            PointerEntered="Splitter_PointerEntered"
+                                            PointerExited="Splitter_PointerExited"
+                                            PointerPressed="Splitter_PointerPressed"
+                                            PointerMoved="Splitter_PointerMoved"
+                                            PointerReleased="Splitter_PointerReleased"
+                                            DoubleTapped="Splitter_DoubleTapped">
+                                        <Rectangle Width="1" Fill="{ThemeResource CardStrokeColorDefaultBrush}" HorizontalAlignment="Center" VerticalAlignment="Stretch" />
+                                    </Border>
+
+                                    <Button Grid.Column="4" x:Name="BtnHeaderType" Click="HeaderSortByType_Click" Style="{ThemeResource SubtleButtonStyle}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="8,4">
                                         <StackPanel Orientation="Horizontal" Spacing="6">
                                             <TextBlock Text="Tür" FontWeight="SemiBold" FontSize="12" />
                                             <FontIcon x:Name="SortTypeArrow" Glyph="&#xE70E;" FontSize="10" Visibility="Collapsed" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
                                         </StackPanel>
                                     </Button>
-                                    <Button Grid.Column="3" Click="HeaderSortBySize_Click" Style="{ThemeResource SubtleButtonStyle}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Right" Padding="8,4">
+
+                                    <!-- Splitter Size -->
+                                    <Border Grid.Column="5" x:Name="BorderSplitterSize" Width="6" HorizontalAlignment="Stretch" Background="Transparent"
+                                            Tag="Size"
+                                            PointerEntered="Splitter_PointerEntered"
+                                            PointerExited="Splitter_PointerExited"
+                                            PointerPressed="Splitter_PointerPressed"
+                                            PointerMoved="Splitter_PointerMoved"
+                                            PointerReleased="Splitter_PointerReleased"
+                                            DoubleTapped="Splitter_DoubleTapped">
+                                        <Rectangle Width="1" Fill="{ThemeResource CardStrokeColorDefaultBrush}" HorizontalAlignment="Center" VerticalAlignment="Stretch" />
+                                    </Border>
+
+                                    <Button Grid.Column="6" x:Name="BtnHeaderSize" Click="HeaderSortBySize_Click" Style="{ThemeResource SubtleButtonStyle}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Right" Padding="8,4">
                                         <StackPanel Orientation="Horizontal" Spacing="6">
                                             <TextBlock Text="Boyut" FontWeight="SemiBold" FontSize="12" />
                                             <FontIcon x:Name="SortSizeArrow" Glyph="&#xE70E;" FontSize="10" Visibility="Collapsed" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
@@ -538,9 +582,12 @@
                                           MinHeight="34">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="180" />
-                                            <ColumnDefinition Width="140" />
-                                            <ColumnDefinition Width="100" />
+                                            <ColumnDefinition Width="{x:Bind ColDateSplitterWidth, Mode=OneWay}" />
+                                            <ColumnDefinition Width="{x:Bind ColDateWidth, Mode=OneWay}" />
+                                            <ColumnDefinition Width="{x:Bind ColTypeSplitterWidth, Mode=OneWay}" />
+                                            <ColumnDefinition Width="{x:Bind ColTypeWidth, Mode=OneWay}" />
+                                            <ColumnDefinition Width="{x:Bind ColSizeSplitterWidth, Mode=OneWay}" />
+                                            <ColumnDefinition Width="{x:Bind ColSizeWidth, Mode=OneWay}" />
                                         </Grid.ColumnDefinitions>
 
                                         <Grid Grid.Column="0" Margin="8,0,0,0">
@@ -587,14 +634,17 @@
                                                      BeforeTextChanging="InlineRenameTextBox_BeforeTextChanging" />
                                         </Grid>
 
-                                        <TextBlock Grid.Column="1" Text="{x:Bind FormattedDate}" VerticalAlignment="Center" Margin="8,0,0,0"
-                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" />
+                                        <TextBlock Grid.Column="2" Text="{x:Bind FormattedDate}" VerticalAlignment="Center" Margin="8,0,0,0"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12"
+                                                   Visibility="{x:Bind ColDateVisibility, Mode=OneWay}" />
                                         
-                                        <TextBlock Grid.Column="2" Text="{x:Bind TypeDescription}" VerticalAlignment="Center" Margin="8,0,0,0"
-                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Column="4" Text="{x:Bind TypeDescription}" VerticalAlignment="Center" Margin="8,0,0,0"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" TextTrimming="CharacterEllipsis"
+                                                   Visibility="{x:Bind ColTypeVisibility, Mode=OneWay}" />
                                         
-                                        <TextBlock Grid.Column="3" Text="{x:Bind FormattedSize}" VerticalAlignment="Center" Margin="0,0,8,0"
-                                                   TextAlignment="Right" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" />
+                                        <TextBlock Grid.Column="6" Text="{x:Bind FormattedSize}" VerticalAlignment="Center" Margin="0,0,8,0"
+                                                   TextAlignment="Right" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12"
+                                                   Visibility="{x:Bind ColSizeVisibility, Mode=OneWay}" />
                                     </Grid>
                                 </DataTemplate>
                             </ListView.ItemTemplate>

@@ -690,6 +690,21 @@ public sealed partial class MainWindow : Window
                 ContextDelete_Click(sender, new RoutedEventArgs());
             }
         }
+        else if (!isCtrl && (e.Key >= Windows.System.VirtualKey.A && e.Key <= Windows.System.VirtualKey.Z ||
+                             e.Key >= Windows.System.VirtualKey.Number0 && e.Key <= Windows.System.VirtualKey.Number9))
+        {
+            char c = (char)e.Key;
+            if (e.Key >= Windows.System.VirtualKey.A && e.Key <= Windows.System.VirtualKey.Z)
+            {
+                c = (char)('a' + (e.Key - Windows.System.VirtualKey.A));
+            }
+            else if (e.Key >= Windows.System.VirtualKey.Number0 && e.Key <= Windows.System.VirtualKey.Number9)
+            {
+                c = (char)('0' + (e.Key - Windows.System.VirtualKey.Number0));
+            }
+            HandleTypeToSelect(c);
+            e.Handled = true;
+        }
     }
 
     private async Task HandleOpenItemAsync(FileItem item)
@@ -815,9 +830,30 @@ public sealed partial class MainWindow : Window
         public SortField SortBy { get; set; } = SortField.Name;
         public bool SortAscending { get; set; } = true;
         public bool FoldersFirst { get; set; } = true;
+        public double ColDateWidth { get; set; } = 180;
+        public double ColTypeWidth { get; set; } = 140;
+        public double ColSizeWidth { get; set; } = 100;
+        public bool ShowColDate { get; set; } = true;
+        public bool ShowColType { get; set; } = true;
+        public bool ShowColSize { get; set; } = true;
     }
 
     private ExplorerViewMode _currentViewMode = ExplorerViewMode.Large;
+
+    private double _colDateWidth = 180;
+    private double _colTypeWidth = 140;
+    private double _colSizeWidth = 100;
+    private bool _showColDate = true;
+    private bool _showColType = true;
+    private bool _showColSize = true;
+
+    private bool _isResizingColumn = false;
+    private string _resizingColumnName = "";
+    private double _resizeStartX = 0;
+    private double _resizeStartWidth = 0;
+
+    private string _typeToSelectQuery = "";
+    private DispatcherTimer? _typeToSelectTimer;
 
     private string GetViewSettingsFilePath()
     {
@@ -840,6 +876,13 @@ public sealed partial class MainWindow : Window
                     _sortField = settings.SortBy;
                     _sortAscending = settings.SortAscending;
                     _foldersFirst = settings.FoldersFirst;
+                    _colDateWidth = settings.ColDateWidth > 0 ? settings.ColDateWidth : 180;
+                    _colTypeWidth = settings.ColTypeWidth > 0 ? settings.ColTypeWidth : 140;
+                    _colSizeWidth = settings.ColSizeWidth > 0 ? settings.ColSizeWidth : 100;
+                    _showColDate = settings.ShowColDate;
+                    _showColType = settings.ShowColType;
+                    _showColSize = settings.ShowColSize;
+                    ApplyColumnWidths();
                     ApplyViewMode(settings.ViewMode, save: false);
                     SetPreviewPaneVisibility(settings.ShowPreviewPane, save: false);
                     UpdateSortMenuChecks();
@@ -851,6 +894,7 @@ public sealed partial class MainWindow : Window
         {
             App.LogCrash("MainWindow.LoadViewSettings", ex);
         }
+        ApplyColumnWidths();
         ApplyViewMode(ExplorerViewMode.Large, save: false);
         SetPreviewPaneVisibility(false, save: false);
         UpdateSortMenuChecks();
@@ -866,7 +910,13 @@ public sealed partial class MainWindow : Window
                 ShowPreviewPane = (PreviewPane?.Visibility == Visibility.Visible),
                 SortBy = _sortField,
                 SortAscending = _sortAscending,
-                FoldersFirst = _foldersFirst
+                FoldersFirst = _foldersFirst,
+                ColDateWidth = _colDateWidth,
+                ColTypeWidth = _colTypeWidth,
+                ColSizeWidth = _colSizeWidth,
+                ShowColDate = _showColDate,
+                ShowColType = _showColType,
+                ShowColSize = _showColSize
             };
             var filePath = GetViewSettingsFilePath();
             var json = System.Text.Json.JsonSerializer.Serialize(settings, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
@@ -1046,6 +1096,235 @@ public sealed partial class MainWindow : Window
             SortSizeArrow.Glyph = arrowGlyph;
         }
     }
+
+    #region Tablo Sütun Boyutlandırma & Otomatik Sığdırma (Windows 11 Explorer Uyumu)
+
+    private void ApplyColumnWidths()
+    {
+        try
+        {
+            if (ColHeaderDate != null) ColHeaderDate.Width = _showColDate ? new GridLength(_colDateWidth) : new GridLength(0);
+            if (ColHeaderType != null) ColHeaderType.Width = _showColType ? new GridLength(_colTypeWidth) : new GridLength(0);
+            if (ColHeaderSize != null) ColHeaderSize.Width = _showColSize ? new GridLength(_colSizeWidth) : new GridLength(0);
+
+            if (ColSplitterDateCol != null) ColSplitterDateCol.Width = _showColDate ? new GridLength(6) : new GridLength(0);
+            if (ColSplitterTypeCol != null) ColSplitterTypeCol.Width = _showColType ? new GridLength(6) : new GridLength(0);
+            if (ColSplitterSizeCol != null) ColSplitterSizeCol.Width = _showColSize ? new GridLength(6) : new GridLength(0);
+
+            if (BtnHeaderDate != null) BtnHeaderDate.Visibility = _showColDate ? Visibility.Visible : Visibility.Collapsed;
+            if (BtnHeaderType != null) BtnHeaderType.Visibility = _showColType ? Visibility.Visible : Visibility.Collapsed;
+            if (BtnHeaderSize != null) BtnHeaderSize.Visibility = _showColSize ? Visibility.Visible : Visibility.Collapsed;
+
+            if (BorderSplitterDate != null) BorderSplitterDate.Visibility = _showColDate ? Visibility.Visible : Visibility.Collapsed;
+            if (BorderSplitterType != null) BorderSplitterType.Visibility = _showColType ? Visibility.Visible : Visibility.Collapsed;
+            if (BorderSplitterSize != null) BorderSplitterSize.Visibility = _showColSize ? Visibility.Visible : Visibility.Collapsed;
+
+            FileItem.SharedColDateWidth = _showColDate ? new GridLength(_colDateWidth) : new GridLength(0);
+            FileItem.SharedColTypeWidth = _showColType ? new GridLength(_colTypeWidth) : new GridLength(0);
+            FileItem.SharedColSizeWidth = _showColSize ? new GridLength(_colSizeWidth) : new GridLength(0);
+
+            FileItem.SharedColDateVisibility = _showColDate ? Visibility.Visible : Visibility.Collapsed;
+            FileItem.SharedColTypeVisibility = _showColType ? Visibility.Visible : Visibility.Collapsed;
+            FileItem.SharedColSizeVisibility = _showColSize ? Visibility.Visible : Visibility.Collapsed;
+
+            foreach (var item in _items)
+            {
+                item.NotifyColumnSettingsChanged();
+            }
+        }
+        catch { }
+    }
+
+    private void Splitter_PointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is FrameworkElement fe)
+        {
+            fe.ProtectedCursor = Microsoft.UI.Input.InputSystemCursor.Create(Microsoft.UI.Input.InputSystemCursorShape.SizeWestEast);
+        }
+    }
+
+    private void Splitter_PointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is FrameworkElement fe)
+        {
+            fe.ProtectedCursor = null;
+        }
+    }
+
+    private void Splitter_PointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is FrameworkElement fe && fe.Tag is string colName)
+        {
+            _isResizingColumn = true;
+            _resizingColumnName = colName;
+            var pt = e.GetCurrentPoint(this.Content).Position;
+            _resizeStartX = pt.X;
+
+            if (colName == "Date") _resizeStartWidth = _colDateWidth;
+            else if (colName == "Type") _resizeStartWidth = _colDateWidth;
+            else if (colName == "Size") _resizeStartWidth = _colTypeWidth;
+
+            fe.CapturePointer(e.Pointer);
+            e.Handled = true;
+        }
+    }
+
+    private void Splitter_PointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (_isResizingColumn && sender is FrameworkElement fe)
+        {
+            var pt = e.GetCurrentPoint(this.Content).Position;
+            double delta = pt.X - _resizeStartX;
+
+            if (_resizingColumnName == "Date")
+            {
+                _colDateWidth = Math.Max(80, _resizeStartWidth - delta);
+                ApplyColumnWidths();
+            }
+            else if (_resizingColumnName == "Type")
+            {
+                _colDateWidth = Math.Max(80, _resizeStartWidth + delta);
+                ApplyColumnWidths();
+            }
+            else if (_resizingColumnName == "Size")
+            {
+                _colTypeWidth = Math.Max(70, _resizeStartWidth + delta);
+                ApplyColumnWidths();
+            }
+            e.Handled = true;
+        }
+    }
+
+    private void Splitter_PointerReleased(object sender, PointerRoutedEventArgs e)
+    {
+        if (_isResizingColumn && sender is FrameworkElement fe)
+        {
+            _isResizingColumn = false;
+            fe.ReleasePointerCapture(e.Pointer);
+            SaveCurrentSettings();
+            e.Handled = true;
+        }
+    }
+
+    private void Splitter_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+    {
+        if (sender is FrameworkElement fe && fe.Tag is string colName)
+        {
+            AutoFitColumn(colName);
+            e.Handled = true;
+        }
+    }
+
+    private void AutoFitColumn(string colName)
+    {
+        if (colName == "Date") _colDateWidth = 180;
+        else if (colName == "Type") _colTypeWidth = 140;
+        else if (colName == "Size") _colSizeWidth = 100;
+        ApplyColumnWidths();
+        SaveCurrentSettings();
+    }
+
+    private void AutoFitAllColumns()
+    {
+        _colDateWidth = 180;
+        _colTypeWidth = 140;
+        _colSizeWidth = 100;
+        ApplyColumnWidths();
+        SaveCurrentSettings();
+    }
+
+    private void ResetColumnWidths()
+    {
+        _colDateWidth = 180;
+        _colTypeWidth = 140;
+        _colSizeWidth = 100;
+        _showColDate = true;
+        _showColType = true;
+        _showColSize = true;
+        ApplyColumnWidths();
+        SaveCurrentSettings();
+    }
+
+    private void Header_RightTapped(object sender, RightTappedRoutedEventArgs e)
+    {
+        var menu = new MenuFlyout();
+
+        var dateItem = new ToggleMenuFlyoutItem { Text = "Değiştirilme Tarihi", IsChecked = _showColDate };
+        dateItem.Click += (s, args) =>
+        {
+            _showColDate = !_showColDate;
+            ApplyColumnWidths();
+            SaveCurrentSettings();
+        };
+        menu.Items.Add(dateItem);
+
+        var typeItem = new ToggleMenuFlyoutItem { Text = "Tür", IsChecked = _showColType };
+        typeItem.Click += (s, args) =>
+        {
+            _showColType = !_showColType;
+            ApplyColumnWidths();
+            SaveCurrentSettings();
+        };
+        menu.Items.Add(typeItem);
+
+        var sizeItem = new ToggleMenuFlyoutItem { Text = "Boyut", IsChecked = _showColSize };
+        sizeItem.Click += (s, args) =>
+        {
+            _showColSize = !_showColSize;
+            ApplyColumnWidths();
+            SaveCurrentSettings();
+        };
+        menu.Items.Add(sizeItem);
+
+        menu.Items.Add(new MenuFlyoutSeparator());
+
+        var autoFitItem = new MenuFlyoutItem { Text = "Tüm sütunları sığdır" };
+        autoFitItem.Click += (s, args) => { AutoFitAllColumns(); };
+        menu.Items.Add(autoFitItem);
+
+        var resetItem = new MenuFlyoutItem { Text = "Varsayılan sütun boyutları" };
+        resetItem.Click += (s, args) => { ResetColumnWidths(); };
+        menu.Items.Add(resetItem);
+
+        menu.ShowAt(sender as FrameworkElement, e.GetPosition(sender as UIElement));
+    }
+
+    private void HandleTypeToSelect(char c)
+    {
+        _typeToSelectTimer?.Stop();
+        _typeToSelectQuery += char.ToLowerInvariant(c);
+
+        var match = _items.FirstOrDefault(i => i.Name.StartsWith(_typeToSelectQuery, StringComparison.OrdinalIgnoreCase));
+        if (match != null)
+        {
+            _selectedItem = match;
+            if (_currentViewMode == ExplorerViewMode.Details)
+            {
+                FileListView.SelectedItem = match;
+                FileListView.ScrollIntoView(match);
+            }
+            else if (_currentViewMode == ExplorerViewMode.Medium)
+            {
+                FileGridViewMedium.SelectedItem = match;
+                FileGridViewMedium.ScrollIntoView(match);
+            }
+            else
+            {
+                FileGridView.SelectedItem = match;
+                FileGridView.ScrollIntoView(match);
+            }
+        }
+
+        _typeToSelectTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        _typeToSelectTimer.Tick += (s, e) =>
+        {
+            _typeToSelectQuery = "";
+            _typeToSelectTimer?.Stop();
+        };
+        _typeToSelectTimer.Start();
+    }
+
+    #endregion
 
     private void PreviewPaneToggle_Click(object sender, RoutedEventArgs e)
     {

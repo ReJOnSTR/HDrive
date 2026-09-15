@@ -39,6 +39,12 @@ public struct PinnedFolder: Identifiable, Codable, Equatable {
     }
 }
 
+public enum ColumnResizingField {
+    case date
+    case kind
+    case size
+}
+
 public struct NativeExplorerView: View {
     @ObservedObject var manager = CloudreveManager.shared
     @ObservedObject var mounter = DriveMounter.shared
@@ -55,6 +61,24 @@ public struct NativeExplorerView: View {
     @AppStorage("hdrive_sortField") private var sortField: FileSortField = .name
     @AppStorage("hdrive_sortAscending") private var sortAscending: Bool = true
     @AppStorage("hdrive_foldersFirst") private var foldersFirst: Bool = true
+    
+    // Sütun Genişlikleri & Görünürlükleri (Kalıcı - AppStorage)
+    @AppStorage("hdrive_colDateWidth") private var colDateWidth: Double = 160.0
+    @AppStorage("hdrive_colKindWidth") private var colKindWidth: Double = 130.0
+    @AppStorage("hdrive_colSizeWidth") private var colSizeWidth: Double = 90.0
+    
+    @AppStorage("hdrive_showColDate") private var showColDate: Bool = true
+    @AppStorage("hdrive_showColKind") private var showColKind: Bool = true
+    @AppStorage("hdrive_showColSize") private var showColSize: Bool = true
+    
+    // Sütun Boyutlandırma Sürükleme Durumu
+    @State private var dragStartWidth: Double = 0
+    @State private var activeResizingField: ColumnResizingField? = nil
+    
+    // Klavyeden Harfle Arama (Type-to-Select)
+    @State private var typeToSelectQuery: String = ""
+    @State private var typeToSelectWorkItem: DispatchWorkItem? = nil
+    @State private var keyMonitor: Any? = nil
     
     // Klasör Gezintisi
     @State private var currentPath: String = ""
@@ -170,6 +194,13 @@ public struct NativeExplorerView: View {
                 showingSettingsSheet = true
             } else {
                 loadDirectory(at: currentPath)
+            }
+            setupTypeToSelectMonitor()
+        }
+        .onDisappear {
+            if let monitor = keyMonitor {
+                NSEvent.removeMonitor(monitor)
+                keyMonitor = nil
             }
         }
         .sheet(isPresented: $showingSettingsSheet) {
@@ -523,9 +554,9 @@ public struct NativeExplorerView: View {
         )
     }
     
-    // MARK: - Liste Sütun Başlıkları (Click-to-Sort Headers)
+    // MARK: - Liste Sütun Başlıkları (Click-to-Sort Headers, Resizable Splitters & Context Menu)
     private var listHeaderView: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 0) {
             Button(action: { toggleSort(field: FileSortField.name) }) {
                 HStack(spacing: 4) {
                     Text("Ad")
@@ -536,61 +567,209 @@ public struct NativeExplorerView: View {
                             .font(.system(size: 9, weight: .bold))
                             .foregroundColor(.accentColor)
                     }
+                    Spacer()
                 }
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .padding(.leading, 38)
+            .padding(.trailing, 8)
+            .frame(maxWidth: .infinity)
             
-            Spacer()
-            
-            Button(action: { toggleSort(field: FileSortField.date) }) {
-                HStack(spacing: 4) {
-                    Text("Değiştirilme Tarihi")
-                        .font(.caption.weight(.semibold))
-                        .foregroundColor(sortField == .date ? .accentColor : .secondary)
-                    if sortField == .date {
-                        Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundColor(.accentColor)
+            if showColDate {
+                columnSplitter(for: .date)
+                
+                Button(action: { toggleSort(field: FileSortField.date) }) {
+                    HStack(spacing: 4) {
+                        Text("Değiştirilme Tarihi")
+                            .font(.caption.weight(.semibold))
+                            .foregroundColor(sortField == .date ? .accentColor : .secondary)
+                        if sortField == .date {
+                            Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundColor(.accentColor)
+                        }
+                        Spacer()
                     }
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .frame(width: max(90, colDateWidth), alignment: .leading)
+                .padding(.horizontal, 6)
             }
-            .buttonStyle(.plain)
-            .frame(width: 150, alignment: .leading)
 
-            Button(action: { toggleSort(field: FileSortField.size) }) {
-                HStack(spacing: 4) {
-                    Text("Boyut")
-                        .font(.caption.weight(.semibold))
-                        .foregroundColor(sortField == .size ? .accentColor : .secondary)
-                    if sortField == .size {
-                        Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundColor(.accentColor)
+            if showColKind {
+                columnSplitter(for: .kind)
+                
+                Button(action: { toggleSort(field: FileSortField.kind) }) {
+                    HStack(spacing: 4) {
+                        Text("Tür")
+                            .font(.caption.weight(.semibold))
+                            .foregroundColor(sortField == .kind ? .accentColor : .secondary)
+                        if sortField == .kind {
+                            Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundColor(.accentColor)
+                        }
+                        Spacer()
                     }
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .frame(width: max(70, colKindWidth), alignment: .leading)
+                .padding(.horizontal, 6)
             }
-            .buttonStyle(.plain)
-            .frame(width: 80, alignment: .trailing)
 
-            Button(action: { toggleSort(field: FileSortField.kind) }) {
-                HStack(spacing: 4) {
-                    Text("Tür")
-                        .font(.caption.weight(.semibold))
-                        .foregroundColor(sortField == .kind ? .accentColor : .secondary)
-                    if sortField == .kind {
-                        Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundColor(.accentColor)
+            if showColSize {
+                columnSplitter(for: .size)
+                
+                Button(action: { toggleSort(field: FileSortField.size) }) {
+                    HStack(spacing: 4) {
+                        Spacer()
+                        Text("Boyut")
+                            .font(.caption.weight(.semibold))
+                            .foregroundColor(sortField == .size ? .accentColor : .secondary)
+                        if sortField == .size {
+                            Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundColor(.accentColor)
+                        }
                     }
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .frame(width: max(60, colSizeWidth), alignment: .trailing)
+                .padding(.horizontal, 6)
             }
-            .buttonStyle(.plain)
-            .frame(width: 130, alignment: .leading)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 6)
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.35))
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
+        .contextMenu {
+            headerContextMenu
+        }
+    }
+    
+    // Sütun Ayraç Çizgisi ve Boyutlandırma
+    private func columnSplitter(for field: ColumnResizingField) -> some View {
+        ZStack {
+            Rectangle()
+                .fill(Color(NSColor.separatorColor).opacity(0.85))
+                .frame(width: 1, height: 16)
+            
+            Rectangle()
+                .fill(Color.clear)
+                .frame(width: 10, height: 24)
+                .contentShape(Rectangle())
+        }
+        .onHover { inside in
+            if inside {
+                NSCursor.resizeLeftRight.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
+        .gesture(
+            DragGesture(minimumDistance: 1)
+                .onChanged { value in
+                    if activeResizingField != field {
+                        activeResizingField = field
+                        switch field {
+                        case .date: dragStartWidth = colDateWidth
+                        case .kind: dragStartWidth = colKindWidth
+                        case .size: dragStartWidth = colSizeWidth
+                        }
+                    }
+                    let newWidth = max(minColumnWidth(for: field), dragStartWidth + Double(value.translation.width))
+                    switch field {
+                    case .date: colDateWidth = newWidth
+                    case .kind: colKindWidth = newWidth
+                    case .size: colSizeWidth = newWidth
+                    }
+                }
+                .onEnded { _ in
+                    activeResizingField = nil
+                }
+        )
+        .simultaneousGesture(
+            TapGesture(count: 2).onEnded {
+                autoFitColumn(field)
+            }
+        )
+    }
+
+    private func minColumnWidth(for field: ColumnResizingField) -> Double {
+        switch field {
+        case .date: return 90.0
+        case .kind: return 70.0
+        case .size: return 60.0
+        }
+    }
+
+    private func autoFitColumn(_ field: ColumnResizingField) {
+        switch field {
+        case .date: colDateWidth = 160.0
+        case .kind: colKindWidth = 130.0
+        case .size: colSizeWidth = 90.0
+        }
+    }
+
+    private func resetColumnWidths() {
+        colDateWidth = 160.0
+        colKindWidth = 130.0
+        colSizeWidth = 90.0
+        showColDate = true
+        showColKind = true
+        showColSize = true
+    }
+
+    @ViewBuilder
+    private var headerContextMenu: some View {
+        Toggle("Değiştirilme Tarihi", isOn: $showColDate)
+        Toggle("Tür", isOn: $showColKind)
+        Toggle("Boyut", isOn: $showColSize)
+        Divider()
+        Button("Tüm Sütunları Sığdır") {
+            autoFitColumn(.date)
+            autoFitColumn(.kind)
+            autoFitColumn(.size)
+        }
+        Button("Varsayılan Sütun Boyutları") {
+            resetColumnWidths()
+        }
+    }
+
+    private func setupTypeToSelectMonitor() {
+        if keyMonitor != nil { return }
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard renamingFileID == nil else { return event }
+            let flags = event.modifierFlags
+            if flags.contains(.command) || flags.contains(.control) || flags.contains(.option) {
+                return event
+            }
+            if let chars = event.charactersIgnoringModifiers, chars.count == 1, let char = chars.first, (char.isLetter || char.isNumber) {
+                handleTypeToSelect(char: String(char))
+                return nil
+            }
+            return event
+        }
+    }
+
+    private func handleTypeToSelect(char: String) {
+        typeToSelectWorkItem?.cancel()
+        typeToSelectQuery += char.lowercased()
+        
+        let query = typeToSelectQuery
+        if let match = filteredFiles.first(where: { $0.name.lowercased().hasPrefix(query) }) {
+            selectedFileIDs = [match.id]
+            selectedFileID = match.id
+        }
+        
+        let work = DispatchWorkItem { [self] in
+            typeToSelectQuery = ""
+        }
+        typeToSelectWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: work)
     }
     
     // MARK: - 1. Sol Menü (Sidebar)
@@ -926,8 +1105,8 @@ public struct NativeExplorerView: View {
                     Divider()
                     ScrollView {
                         LazyVStack(spacing: 2) {
-                            ForEach(filteredFiles) { file in
-                                fileRowItem(file)
+                            ForEach(Array(filteredFiles.enumerated()), id: \.element.id) { index, file in
+                                fileRowItem(file, isEven: index % 2 == 0)
                             }
                         }
                         .padding(10)
@@ -1035,62 +1214,75 @@ public struct NativeExplorerView: View {
         }
     }
     
-    // MARK: - Dosya Liste Satırı
-    private func fileRowItem(_ file: RemoteFileItem) -> some View {
+    // MARK: - Dosya Liste Satırı (Finder Standart Hizalama & Zebra Striping)
+    private func fileRowItem(_ file: RemoteFileItem, isEven: Bool = false) -> some View {
         let isHovered = hoveredFileID == file.id
         let isSelected = selectedFileIDs.contains(file.id) || selectedFileID == file.id
         let isRenaming = renamingFileID == file.id
         
-        return HStack(spacing: 12) {
-            if file.isImage, let img = previewManager.cachedImages[file.id] {
-                Image(nsImage: img)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 24, height: 24)
-                    .cornerRadius(3)
-            } else {
-                Image(nsImage: FileIconProvider.shared.icon(for: file.name, isDirectory: file.isDirectory, size: 24))
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 24, height: 24)
-            }
-            
-            if isRenaming {
-                TextField("Dosya Adı", text: $renamingText, onCommit: {
-                    commitRename(file)
-                })
-                .textFieldStyle(RoundedBorderTextFieldStyle())
-                .font(.body)
-                .frame(maxWidth: 240)
-            } else {
-                Text(file.name)
+        return HStack(spacing: 0) {
+            HStack(spacing: 8) {
+                if file.isImage, let img = previewManager.cachedImages[file.id] {
+                    Image(nsImage: img)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 20, height: 20)
+                        .cornerRadius(3)
+                } else {
+                    Image(nsImage: FileIconProvider.shared.icon(for: file.name, isDirectory: file.isDirectory, size: 20))
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 20, height: 20)
+                }
+                
+                if isRenaming {
+                    TextField("Dosya Adı", text: $renamingText, onCommit: {
+                        commitRename(file)
+                    })
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
                     .font(.body)
-                    .foregroundColor(isSelected ? Color.accentColor : .primary)
-                    .lineLimit(1)
+                    .frame(maxWidth: 240)
+                } else {
+                    Text(file.name)
+                        .font(.body)
+                        .foregroundColor(isSelected ? Color.accentColor : .primary)
+                        .lineLimit(1)
+                }
+                
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.trailing, 8)
+            
+            if showColDate {
+                Text(file.modificationDate.map { dateFormatter.string(from: $0) } ?? "--")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .frame(width: max(90, colDateWidth), alignment: .leading)
+                    .padding(.horizontal, 6)
+            }
+
+            if showColKind {
+                Text(file.kindDescription)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .frame(width: max(70, colKindWidth), alignment: .leading)
+                    .padding(.horizontal, 6)
             }
             
-            Spacer()
-            
-            Text(file.modificationDate.map { dateFormatter.string(from: $0) } ?? "--")
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .frame(width: 150, alignment: .leading)
-            
-            Text(file.formattedSize)
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .frame(width: 80, alignment: .trailing)
-
-            Text(file.kindDescription)
-                .font(.caption2)
-                .foregroundColor(.secondary)
-                .frame(width: 130, alignment: .leading)
+            if showColSize {
+                Text(file.formattedSize)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .frame(width: max(60, colSizeWidth), alignment: .trailing)
+                    .padding(.horizontal, 6)
+            }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 5)
         .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(isSelected ? Color.accentColor.opacity(0.18) : (isHovered ? Color.primary.opacity(0.06) : Color.clear))
+            RoundedRectangle(cornerRadius: 5)
+                .fill(isSelected ? Color.accentColor.opacity(0.18) : (isHovered ? Color.primary.opacity(0.06) : (isEven ? Color(NSColor.controlBackgroundColor).opacity(0.25) : Color.clear)))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 6)
