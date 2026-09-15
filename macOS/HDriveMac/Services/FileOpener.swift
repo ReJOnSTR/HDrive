@@ -12,7 +12,7 @@ public final class FileOpener: ObservableObject {
     @Published public var openingFile: String? = nil
     @Published public var downloadProgress: Double = 0.0
     
-    private let cacheDir: URL = {
+    public let cacheDir: URL = {
         let paths = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)
         let dir = paths[0].appendingPathComponent("HDriveFiles", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

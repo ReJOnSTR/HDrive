@@ -380,6 +380,36 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, XMLParserDelegate
         }.resume()
     }
     
+    /// Dosya veya klasörü kopyalar (COPY)
+    public func copy(from sourcePath: String, to destinationPath: String, overwrite: Bool = false, completion: @escaping (Error?) -> Void) {
+        guard let sourceURL = buildURL(for: sourcePath),
+              let destURL = buildURL(for: destinationPath) else {
+            completion(NSError(domain: "WebDAVClient", code: 400, userInfo: [NSLocalizedDescriptionKey: "Geçersiz URL"]))
+            return
+        }
+        
+        var request = URLRequest(url: sourceURL)
+        request.httpMethod = "COPY"
+        request.setValue(authHeader, forHTTPHeaderField: "Authorization")
+        request.setValue(destURL.absoluteString, forHTTPHeaderField: "Destination")
+        request.setValue(overwrite ? "T" : "F", forHTTPHeaderField: "Overwrite")
+        
+        session.dataTask(with: request) { _, response, error in
+            if let error = error {
+                DispatchQueue.main.async { completion(error) }
+                return
+            }
+            if let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) {
+                DispatchQueue.main.async { completion(nil) }
+            } else {
+                let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+                DispatchQueue.main.async {
+                    completion(NSError(domain: "WebDAVClient", code: code, userInfo: [NSLocalizedDescriptionKey: "Kopyalama başarısız: HTTP \(code)"]))
+                }
+            }
+        }.resume()
+    }
+    
     /// RFC 4331 Depolama Alanı ve Kota Bilgisi Sorgular
     public func fetchQuota(completion: @escaping (Result<StorageQuota, Error>) -> Void) {
         guard let url = buildURL(for: "") else {

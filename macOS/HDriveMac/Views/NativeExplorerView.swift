@@ -82,6 +82,10 @@ public struct NativeExplorerView: View {
     @State private var isSidebarDropTargeted: Bool = false
     @State private var isLoadingQuota: Bool = false
     
+    // Sistem Panosu (Kopyala / Kes / Yapıştır)
+    @State private var copiedRemoteItems: [RemoteFileItem] = []
+    @State private var isClipboardCut: Bool = false
+    
     // Depolama Kotası & Derin Arama (Deep Search)
     @State private var storageQuota: StorageQuota? = nil
     @State private var isDeepSearchEnabled: Bool = false
@@ -351,6 +355,15 @@ public struct NativeExplorerView: View {
 
             Button(action: togglePreviewPane) { EmptyView() }
                 .keyboardShortcut("p", modifiers: [.command, .shift])
+            
+            Button(action: copySelectedFiles) { EmptyView() }
+                .keyboardShortcut("c", modifiers: .command)
+            
+            Button(action: cutSelectedFiles) { EmptyView() }
+                .keyboardShortcut("x", modifiers: .command)
+            
+            Button(action: pasteFiles) { EmptyView() }
+                .keyboardShortcut("v", modifiers: .command)
         }
         .frame(width: 0, height: 0)
         .opacity(0)
@@ -1142,6 +1155,20 @@ public struct NativeExplorerView: View {
         
         Divider()
         
+        Button(action: { copySelectedFiles() }) {
+            Label("Kopyala (⌘C)", systemImage: "doc.on.doc")
+        }
+        
+        Button(action: { cutSelectedFiles() }) {
+            Label("Kes (⌘X)", systemImage: "scissors")
+        }
+        
+        Button(action: { pasteFiles() }) {
+            Label("Yapıştır (⌘V)", systemImage: "doc.on.clipboard")
+        }
+        
+        Divider()
+        
         Button(action: { startRenaming(file) }) {
             Label("Yeniden Adlandır (Enter)", systemImage: "pencil")
         }
@@ -1882,6 +1909,130 @@ public struct NativeExplorerView: View {
     private func openInFinder() {
         if let server = manager.activeServer {
             DriveMounter.shared.connectAndOpenInFinder(config: server) { _, _ in }
+        }
+    }
+    
+    // MARK: - Sistem Panosu (Kopyala, Kes, Yapıştır)
+    private func copySelectedFiles() {
+        let targets = filteredFiles.filter { selectedFileIDs.contains($0.id) || selectedFileID == $0.id }
+        guard !targets.isEmpty, let server = manager.activeServer else { return }
+        
+        isClipboardCut = false
+        copiedRemoteItems = targets
+        
+        let client = WebDAVClient(config: server)
+        let cacheDir = FileOpener.shared.cacheDir
+        
+        Task {
+            var localURLs: [URL] = []
+            for item in targets {
+                if item.isDirectory {
+                    let folderURL = cacheDir.appendingPathComponent(item.name, isDirectory: true)
+                    try? FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
+                    localURLs.append(folderURL)
+                } else {
+                    let syncCandidate = FolderSyncEngine.shared.localFolderURL.appendingPathComponent(item.name)
+                    let cacheCandidate = cacheDir.appendingPathComponent(item.name)
+                    let previewCandidate = FilePreviewManager.shared.previewCacheDir.appendingPathComponent(item.name)
+                    
+                    if FileManager.default.fileExists(atPath: syncCandidate.path) {
+                        localURLs.append(syncCandidate)
+                    } else if FileManager.default.fileExists(atPath: cacheCandidate.path) {
+                        localURLs.append(cacheCandidate)
+                    } else if FileManager.default.fileExists(atPath: previewCandidate.path) {
+                        localURLs.append(previewCandidate)
+                    } else {
+                        let dest = cacheCandidate
+                        let relPath = currentPath.isEmpty ? item.name : "\(currentPath)/\(item.name)"
+                        await withCheckedContinuation { continuation in
+                            client.downloadFile(href: relPath, to: dest, progress: { _ in }) { err in
+                                if err == nil && FileManager.default.fileExists(atPath: dest.path) {
+                                    localURLs.append(dest)
+                                    continuation.resume()
+                                } else {
+                                    client.downloadFile(href: item.href, to: dest, progress: { _ in }) { err2 in
+                                        if err2 == nil && FileManager.default.fileExists(atPath: dest.path) {
+                                            localURLs.append(dest)
+                                        }
+                                        continuation.resume()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            await MainActor.run {
+                if !localURLs.isEmpty {
+                    let pasteboard = NSPasteboard.general
+                    pasteboard.clearContents()
+                    pasteboard.writeObjects(localURLs as [NSURL])
+                    let pathsStr = localURLs.map { $0.path }.joined(separator: "\n")
+                    pasteboard.setString(pathsStr, forType: .string)
+                    
+                    SyncLogManager.shared.log("\(localURLs.count) dosya panoya kopyalandı. Finder veya Masaüstüne yapıştırabilirsiniz.")
+                }
+            }
+        }
+    }
+    
+    private func cutSelectedFiles() {
+        let targets = filteredFiles.filter { selectedFileIDs.contains($0.id) || selectedFileID == $0.id }
+        guard !targets.isEmpty else { return }
+        isClipboardCut = true
+        copiedRemoteItems = targets
+        copySelectedFiles()
+    }
+    
+    private func pasteFiles() {
+        guard let server = manager.activeServer else { return }
+        let client = WebDAVClient(config: server)
+        
+        // 1. Finder / Masaüstü vb. dışarıdan panoya kopyalanan dosyaları kontrol et
+        if let fileURLs = NSPasteboard.general.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !fileURLs.isEmpty {
+            isLoading = true
+            let group = DispatchGroup()
+            for url in fileURLs {
+                group.enter()
+                uploadLocalItemRecursively(localURL: url, remoteBaseDir: currentPath, client: client) {
+                    group.leave()
+                }
+            }
+            group.notify(queue: .main) {
+                isLoading = false
+                loadDirectory(at: currentPath)
+                SyncLogManager.shared.log("\(fileURLs.count) öge panodan başarıyla yüklendi.")
+            }
+            return
+        }
+        
+        // 2. HDrive içi kesme / kopyalama
+        if !copiedRemoteItems.isEmpty {
+            isLoading = true
+            let group = DispatchGroup()
+            for item in copiedRemoteItems {
+                group.enter()
+                let dest = currentPath.isEmpty ? item.name : "\(currentPath)/\(item.name)"
+                if isClipboardCut {
+                    client.move(from: item.href, to: dest) { _ in
+                        group.leave()
+                    }
+                } else {
+                    client.copy(from: item.href, to: dest) { _ in
+                        group.leave()
+                    }
+                }
+            }
+            group.notify(queue: .main) {
+                isLoading = false
+                if isClipboardCut {
+                    copiedRemoteItems.removeAll()
+                    isClipboardCut = false
+                }
+                loadDirectory(at: currentPath)
+                SyncLogManager.shared.log("Ögeler panodan başarıyla yapıştırıldı.")
+            }
         }
     }
     

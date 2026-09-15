@@ -49,6 +49,8 @@
 	</array>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>HDrive, fotoğraflarınızı ve videolarınızı bilgisayarınıza aktarabilmeniz için fotoğraf arşivinize erişim ister.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>HDrive, bilgisayar ekranındaki QR kodu tarayarak kablosuz dosya aktarımı başlatmak için kameranızı kullanır.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>

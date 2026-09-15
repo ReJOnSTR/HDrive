@@ -233,6 +233,74 @@ public class WebDAVClient
         }
     }
 
+    public async Task<string?> DownloadFolderToCacheAsync(string remotePath)
+    {
+        var folderName = Path.GetFileName(remotePath.TrimEnd('/'));
+        if (string.IsNullOrEmpty(folderName)) folderName = "HDriveFolder";
+        var cacheDir = Path.Combine(Path.GetTempPath(), "HDriveCache");
+        var localFolder = Path.Combine(cacheDir, folderName);
+        Directory.CreateDirectory(localFolder);
+
+        await DownloadFolderRecursiveInternalAsync(remotePath, localFolder);
+        return localFolder;
+    }
+
+    private async Task DownloadFolderRecursiveInternalAsync(string remotePath, string localFolder)
+    {
+        Directory.CreateDirectory(localFolder);
+        var items = await ListDirectoryAsync(remotePath);
+        foreach (var item in items)
+        {
+            if (item.IsDirectory)
+            {
+                var subFolder = Path.Combine(localFolder, item.Name);
+                await DownloadFolderRecursiveInternalAsync(item.Path, subFolder);
+            }
+            else
+            {
+                var uri = BuildUri(item.Path);
+                var destFile = Path.Combine(localFolder, item.Name);
+                try
+                {
+                    var response = await _httpClient.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead);
+                    if (response.IsSuccessStatusCode)
+                    {
+                        using var stream = await response.Content.ReadAsStreamAsync();
+                        using var fileStream = new FileStream(destFile, FileMode.Create, FileAccess.Write, FileShare.None);
+                        await stream.CopyToAsync(fileStream);
+                    }
+                }
+                catch { }
+            }
+        }
+    }
+
+    public async Task<bool> UploadFolderRecursiveAsync(string localFolderPath, string remoteParentPath)
+    {
+        var folderName = Path.GetFileName(localFolderPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        if (string.IsNullOrEmpty(folderName)) folderName = "YeniKlasor";
+        var remoteFolder = remoteParentPath.TrimEnd('/') + "/" + folderName;
+        await CreateFolderAsync(remoteFolder);
+
+        try
+        {
+            foreach (var file in Directory.GetFiles(localFolderPath))
+            {
+                await UploadFileAsync(file, remoteFolder);
+            }
+
+            foreach (var subDir in Directory.GetDirectories(localFolderPath))
+            {
+                await UploadFolderRecursiveAsync(subDir, remoteFolder);
+            }
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public async Task<bool> UploadFileAsync(string localFilePath, string remoteDirectoryPath)
     {
         var filename = Path.GetFileName(localFilePath);

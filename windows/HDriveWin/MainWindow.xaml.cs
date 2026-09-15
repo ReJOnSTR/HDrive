@@ -1684,35 +1684,71 @@ public sealed partial class MainWindow : Window
         await PasteFromClipboardAsync();
     }
 
-    private void CopySelectedItemsToClipboard()
+    private async void CopySelectedItemsToClipboard()
     {
         var selected = GetSelectedItems();
         if (selected.Count == 0) return;
+
+        var server = CloudreveManager.Instance.ActiveServer;
+        if (server == null) return;
+        var client = new WebDAVClient(server);
 
         foreach (var it in _items) it.IsCut = false;
         _clipboardItems.Clear();
         _clipboardItems.AddRange(selected);
         _isClipboardCut = false;
 
+        LoadingRing.IsActive = true;
+        if (SyncStatusText != null)
+        {
+            SyncStatusText.Text = $"{selected.Count} öğe panoya hazırlanıyor...";
+        }
+
         try
         {
-            var dp = new DataPackage();
-            dp.RequestedOperation = DataPackageOperation.Copy;
-            dp.SetText(string.Join("\n", selected.Select(s => s.Path)));
-            Clipboard.SetContent(dp);
+            var localPaths = new List<string>();
+            foreach (var item in selected)
+            {
+                if (item.IsDirectory)
+                {
+                    var dir = await client.DownloadFolderToCacheAsync(item.Path);
+                    if (!string.IsNullOrEmpty(dir)) localPaths.Add(dir);
+                }
+                else
+                {
+                    var local = await client.DownloadFileToCacheAsync(item.Path);
+                    if (!string.IsNullOrEmpty(local)) localPaths.Add(local);
+                }
+            }
+
+            if (localPaths.Count > 0)
+            {
+                await WindowsClipboardHelper.SetClipboardFilesAsync(localPaths, isCut: false);
+            }
 
             if (SyncStatusText != null)
             {
-                SyncStatusText.Text = $"{selected.Count} öğe panoya kopyalandı";
+                SyncStatusText.Text = $"{selected.Count} öğe panoya kopyalandı (Masaüstü veya klasörlere yapıştırabilirsiniz)";
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            if (SyncStatusText != null) SyncStatusText.Text = $"Kopyalama hatası: {ex.Message}";
+        }
+        finally
+        {
+            LoadingRing.IsActive = false;
+        }
     }
 
-    private void CutSelectedItemsToClipboard()
+    private async void CutSelectedItemsToClipboard()
     {
         var selected = GetSelectedItems();
         if (selected.Count == 0) return;
+
+        var server = CloudreveManager.Instance.ActiveServer;
+        if (server == null) return;
+        var client = new WebDAVClient(server);
 
         foreach (var it in _items) it.IsCut = false;
         _clipboardItems.Clear();
@@ -1724,19 +1760,47 @@ public sealed partial class MainWindow : Window
             it.IsCut = true;
         }
 
+        LoadingRing.IsActive = true;
+        if (SyncStatusText != null)
+        {
+            SyncStatusText.Text = $"{selected.Count} öğe kesiliyor...";
+        }
+
         try
         {
-            var dp = new DataPackage();
-            dp.RequestedOperation = DataPackageOperation.Move;
-            dp.SetText(string.Join("\n", selected.Select(s => s.Path)));
-            Clipboard.SetContent(dp);
+            var localPaths = new List<string>();
+            foreach (var item in selected)
+            {
+                if (item.IsDirectory)
+                {
+                    var dir = await client.DownloadFolderToCacheAsync(item.Path);
+                    if (!string.IsNullOrEmpty(dir)) localPaths.Add(dir);
+                }
+                else
+                {
+                    var local = await client.DownloadFileToCacheAsync(item.Path);
+                    if (!string.IsNullOrEmpty(local)) localPaths.Add(local);
+                }
+            }
+
+            if (localPaths.Count > 0)
+            {
+                await WindowsClipboardHelper.SetClipboardFilesAsync(localPaths, isCut: true);
+            }
 
             if (SyncStatusText != null)
             {
-                SyncStatusText.Text = $"{selected.Count} öğe kesildi";
+                SyncStatusText.Text = $"{selected.Count} öğe kesildi (Masaüstü veya klasörlere yapıştırabilirsiniz)";
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            if (SyncStatusText != null) SyncStatusText.Text = $"Kesme hatası: {ex.Message}";
+        }
+        finally
+        {
+            LoadingRing.IsActive = false;
+        }
     }
 
     private async Task PasteFromClipboardAsync()
@@ -1763,14 +1827,53 @@ public sealed partial class MainWindow : Window
                             var ok = await client.UploadFileAsync(file.Path, _currentPath);
                             if (ok) successCount++;
                         }
+                        else if (it is Windows.Storage.StorageFolder folder)
+                        {
+                            var ok = await client.UploadFolderRecursiveAsync(folder.Path, _currentPath);
+                            if (ok) successCount++;
+                        }
                     }
                     LoadingRing.IsActive = false;
                     if (SyncStatusText != null)
                     {
-                        SyncStatusText.Text = $"{successCount} dosya panodan yüklendi";
+                        SyncStatusText.Text = $"{successCount} öğe panodan yüklendi";
                     }
                     await LoadDirectoryAsync(_currentPath);
                     return;
+                }
+            }
+            else if (clipData.Contains(StandardDataFormats.Text))
+            {
+                var text = await clipData.GetTextAsync();
+                if (!string.IsNullOrWhiteSpace(text))
+                {
+                    var lines = text.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                    var validPaths = lines.Where(l => File.Exists(l) || Directory.Exists(l)).ToList();
+                    if (validPaths.Count > 0)
+                    {
+                        LoadingRing.IsActive = true;
+                        int successCount = 0;
+                        foreach (var path in validPaths)
+                        {
+                            if (File.Exists(path))
+                            {
+                                var ok = await client.UploadFileAsync(path, _currentPath);
+                                if (ok) successCount++;
+                            }
+                            else if (Directory.Exists(path))
+                            {
+                                var ok = await client.UploadFolderRecursiveAsync(path, _currentPath);
+                                if (ok) successCount++;
+                            }
+                        }
+                        LoadingRing.IsActive = false;
+                        if (SyncStatusText != null)
+                        {
+                            SyncStatusText.Text = $"{successCount} öğe panodan yüklendi";
+                        }
+                        await LoadDirectoryAsync(_currentPath);
+                        return;
+                    }
                 }
             }
         }

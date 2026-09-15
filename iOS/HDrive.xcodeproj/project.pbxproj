@@ -27,6 +27,8 @@
 		110100132C8C000100000013 /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110200132C8C000100000013 /* KeychainHelper.swift */; };
 		110100142C8C000100000014 /* NetworkMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110200142C8C000100000014 /* NetworkMonitor.swift */; };
 		110100152C8C000100000015 /* SyncLogManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110200152C8C000100000015 /* SyncLogManager.swift */; };
+		110100162C8C000100000016 /* QRCodeScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110200162C8C000100000016 /* QRCodeScannerView.swift */; };
+		110100172C8C000100000017 /* ConnectedPCView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110200172C8C000100000017 /* ConnectedPCView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -52,6 +54,8 @@
 		110200132C8C000100000013 /* KeychainHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainHelper.swift; sourceTree = "<group>"; };
 		110200142C8C000100000014 /* NetworkMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkMonitor.swift; sourceTree = "<group>"; };
 		110200152C8C000100000015 /* SyncLogManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncLogManager.swift; sourceTree = "<group>"; };
+		110200162C8C000100000016 /* QRCodeScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRCodeScannerView.swift; sourceTree = "<group>"; };
+		110200172C8C000100000017 /* ConnectedPCView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectedPCView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -137,6 +141,8 @@
 				1102000C2C8C00010000000C /* QuickConnectGuideView.swift */,
 				1102000D2C8C00010000000D /* SettingsView.swift */,
 				110200122C8C000100000012 /* CloudreveMobileView.swift */,
+				110200162C8C000100000016 /* QRCodeScannerView.swift */,
+				110200172C8C000100000017 /* ConnectedPCView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -236,6 +242,8 @@
 				110100132C8C000100000013 /* KeychainHelper.swift in Sources */,
 				110100142C8C000100000014 /* NetworkMonitor.swift in Sources */,
 				110100152C8C000100000015 /* SyncLogManager.swift in Sources */,
+				110100162C8C000100000016 /* QRCodeScannerView.swift in Sources */,
+				110100172C8C000100000017 /* ConnectedPCView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
