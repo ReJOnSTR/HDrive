@@ -546,26 +546,10 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private DateTime _lastItemClickTime = DateTime.MinValue;
-    private FileItem? _lastClickedItem = null;
-
     private void Item_Tapped(object sender, TappedRoutedEventArgs e)
     {
         if (sender is FrameworkElement fe && fe.DataContext is FileItem item)
         {
-            var now = DateTime.UtcNow;
-            var diff = (now - _lastItemClickTime).TotalMilliseconds;
-            if (_lastClickedItem == item && _selectedItem == item && diff > 500 && diff < 3000 && !item.IsEditing)
-            {
-                // Windows Gezgini standardı: Zaten seçili olan öğeye yavaşça bir kez daha tıklandığında yeniden adlandırmayı başlat
-                BeginInlineRename(item);
-                _lastItemClickTime = DateTime.MinValue;
-                _lastClickedItem = null;
-                return;
-            }
-
-            _lastClickedItem = item;
-            _lastItemClickTime = now;
             _selectedItem = item;
             UpdatePreviewPane(item);
         }
@@ -1642,23 +1626,19 @@ public sealed partial class MainWindow : Window
         {
             item.Name = newName;
             item.Path = destPath;
+            if (SyncStatusText != null)
+            {
+                SyncStatusText.Text = $"Yeniden adlandırıldı: {newName}";
+            }
             await LoadDirectoryAsync(_currentPath);
         }
         else
         {
             item.EditingName = item.Name;
-            try
+            if (SyncStatusText != null)
             {
-                var dialog = new ContentDialog
-                {
-                    Title = "Yeniden Adlandırma Hatası",
-                    Content = $"'{newName}' adı atanamadı. Bu ada sahip başka bir dosya zaten var olabilir veya dosya adı geçersizdir.",
-                    CloseButtonText = "Tamam",
-                    XamlRoot = this.Content.XamlRoot
-                };
-                await dialog.ShowAsync();
+                SyncStatusText.Text = $"Yeniden adlandırılamadı: '{newName}'";
             }
-            catch { }
         }
     }
 
