@@ -9,8 +9,6 @@ public struct MainDashboardView: View {
     @ObservedObject var config = ServerConfig.shared
     @ObservedObject var server = WebDAVServer.shared
     
-    @State private var showingQRCodeSheet = false
-    @State private var showingGuideSheet = false
     @State private var isCopied = false
     
     public init() {}
@@ -19,77 +17,69 @@ public struct MainDashboardView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 20) {
-                    // 1. Sunucu Durum Kahraman Kartı (Hero Status Card)
-                    serverStatusHeroCard
+                    // 1. Sunucu Başlat / Durdur Kartı
+                    serverControlCard
                     
-                    // 2. IP ve Bağlantı Adresi Kartı
+                    // 2. Canlı QR Kod ve Bağlantı Kartı
                     if config.isRunning {
-                        connectionAddressCard
+                        qrShareCard
+                    } else {
+                        howItWorksCard
                     }
                     
-                    // 3. Canlı İstatistikler & Depolama
-                    liveStatsSection
-                    
-                    // 4. Hızlı Erişim Eylemleri
-                    quickActionsGrid
+                    // 3. Cihaz Depolama Durumu
+                    deviceStorageCard
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
             }
             .background(Color(uiColor: .systemGroupedBackground))
-            .navigationTitle("HDrive")
+            .navigationTitle("Paylaşım")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     NavigationLink(destination: SettingsView()) {
-                        Image(systemName: "gearshape.fill")
+                        Image(systemName: "gearshape")
                             .foregroundColor(.primary)
                     }
                 }
             }
-            .sheet(isPresented: $showingQRCodeSheet) {
-                qrCodeModalView
-            }
-            .sheet(isPresented: $showingGuideSheet) {
-                QuickConnectGuideView()
-            }
         }
     }
     
-    // MARK: - Kahraman Durum Kartı
-    private var serverStatusHeroCard: some View {
+    // MARK: - 1. Sunucu Kontrol Kartı
+    private var serverControlCard: some View {
         VStack(spacing: 16) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(config.isRunning ? "Sunucu Yayında" : "Sunucu Durduruldu")
+                    Text(config.isRunning ? "Paylaşım Yayında" : "Paylaşım Kapalı")
                         .font(.title2.bold())
                         .foregroundColor(.primary)
                     
-                    Text(config.isRunning ? "Bilgisayarlar bu cihaza bağlanabilir" : "Yerel ağ paylaşımı kapalı")
+                    Text(config.isRunning ? "Yerel ağdaki cihazlar bağlanabilir" : "Kablosuz dosya aktarımı için başlatın")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                 }
                 
                 Spacer()
                 
-                // Durum Gösterge Işığı (Pulse Animasyonu)
+                // Durum Işığı
                 ZStack {
                     Circle()
-                        .fill(config.isRunning ? Color.green.opacity(0.25) : Color.gray.opacity(0.2))
+                        .fill(config.isRunning ? Color.green.opacity(0.2) : Color.gray.opacity(0.15))
                         .frame(width: 44, height: 44)
                         .scaleEffect(config.isRunning ? 1.15 : 1.0)
                         .animation(config.isRunning ? Animation.easeInOut(duration: 1.2).repeatForever(autoreverses: true) : .default, value: config.isRunning)
                     
                     Circle()
                         .fill(config.isRunning ? Color.green : Color.gray)
-                        .frame(width: 18, height: 18)
+                        .frame(width: 16, height: 16)
                 }
             }
             
             Divider()
             
-            // Başlat / Durdur Büyük Buton
             Button(action: toggleServer) {
-                HStack {
+                HStack(spacing: 8) {
                     Image(systemName: config.isRunning ? "stop.fill" : "play.fill")
                         .font(.headline)
                     Text(config.isRunning ? "Paylaşımı Durdur" : "Kablosuz Paylaşımı Başlat")
@@ -97,7 +87,7 @@ public struct MainDashboardView: View {
                 }
                 .foregroundColor(.white)
                 .frame(maxWidth: .infinity)
-                .frame(height: 52)
+                .frame(height: 50)
                 .background(
                     LinearGradient(
                         colors: config.isRunning ? [Color.red, Color.orange] : [Color.indigo, Color.blue],
@@ -106,72 +96,70 @@ public struct MainDashboardView: View {
                     )
                 )
                 .cornerRadius(14)
-                .shadow(color: (config.isRunning ? Color.red : Color.indigo).opacity(0.3), radius: 8, x: 0, y: 4)
+                .shadow(color: (config.isRunning ? Color.red : Color.indigo).opacity(0.25), radius: 8, x: 0, y: 4)
             }
         }
         .padding(20)
         .background(Color(uiColor: .secondarySystemGroupedBackground))
         .cornerRadius(18)
-        .shadow(color: Color.black.opacity(0.04), radius: 10, x: 0, y: 3)
+        .shadow(color: Color.black.opacity(0.03), radius: 8, x: 0, y: 2)
     }
     
-    // MARK: - Bağlantı Adresi Kartı
-    private var connectionAddressCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
+    // MARK: - 2. QR Kod ve Hızlı Web Paylaşım Kartı (Sunucu Açıkken)
+    private var qrShareCard: some View {
+        VStack(spacing: 16) {
             HStack {
-                Label("PC Doğrudan Bağlantı Adresi", systemImage: "network")
+                Label("Anında Web Bağlantısı (QR Kod)", systemImage: "qrcode")
                     .font(.footnote.weight(.semibold))
                     .foregroundColor(.indigo)
-                
                 Spacer()
-                
-                Button(action: { showingQRCodeSheet = true }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "qrcode")
-                        Text("QR Kod")
-                    }
-                    .font(.caption.bold())
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background(Color.indigo.opacity(0.12))
-                    .foregroundColor(.indigo)
-                    .cornerRadius(8)
-                }
             }
             
+            if let qrImage = NetworkUtils.generateQRCode(from: config.serverAddress, size: 220) {
+                Image(uiImage: qrImage)
+                    .interpolation(.none)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 200, height: 200)
+                    .padding(14)
+                    .background(Color.white)
+                    .cornerRadius(16)
+                    .shadow(color: Color.black.opacity(0.08), radius: 8, x: 0, y: 3)
+            }
+            
+            Text("Bilgisayarınızın veya başka bir telefonun kamerasıyla bu QR kodu okutarak dosyaları tarayıcıdan anında yönetin.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 16)
+            
+            Divider()
+            
+            // Web ve WebDAV Adresi
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(config.serverAddress)
-                        .font(.system(.body, design: .monospaced).weight(.bold))
-                        .foregroundColor(.primary)
-                    Text("Windows Dosya Gezgini veya Mac Finder'a yapıştırın")
+                    Text("Bağlantı Adresi:")
                         .font(.caption2)
                         .foregroundColor(.secondary)
+                    Text(config.serverAddress)
+                        .font(.system(.subheadline, design: .monospaced).weight(.bold))
+                        .foregroundColor(.primary)
                 }
                 
                 Spacer()
                 
                 Button(action: copyAddress) {
-                    Image(systemName: isCopied ? "checkmark" : "doc.on.doc")
-                        .foregroundColor(isCopied ? .green : .indigo)
-                        .padding(10)
-                        .background(Color.indigo.opacity(0.08))
-                        .clipShape(Circle())
+                    HStack(spacing: 5) {
+                        Image(systemName: isCopied ? "checkmark" : "doc.on.doc")
+                        Text(isCopied ? "Kopyalandı" : "Kopyala")
+                    }
+                    .font(.caption.weight(.medium))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    .background(Color.indigo.opacity(0.1))
+                    .foregroundColor(.indigo)
+                    .cornerRadius(8)
                 }
-            }
-            
-            // Bilgisayara Bağlantı Sihirbazı Butonu
-            Button(action: { showingGuideSheet = true }) {
-                HStack {
-                    Image(systemName: "display")
-                    Text("Windows / Mac Ağ Sürücüsü Kurulum Rehberi")
-                        .font(.footnote.weight(.medium))
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.caption2)
-                }
-                .foregroundColor(.indigo)
-                .padding(.top, 4)
             }
         }
         .padding(18)
@@ -179,157 +167,62 @@ public struct MainDashboardView: View {
         .cornerRadius(18)
         .overlay(
             RoundedRectangle(cornerRadius: 18)
-                .stroke(Color.indigo.opacity(0.2), lineWidth: 1.5)
+                .stroke(Color.indigo.opacity(0.18), lineWidth: 1.5)
         )
     }
     
-    // MARK: - Canlı İstatistikler & Depolama
-    private var liveStatsSection: some View {
-        VStack(spacing: 12) {
-            // İstatistik Hücreleri
-            HStack(spacing: 12) {
-                statCard(
-                    title: "Aktif Bağlantı",
-                    value: "\(config.activeConnectionsCount)",
-                    icon: "person.2.fill",
-                    tint: .blue
-                )
-                
-                statCard(
-                    title: "Alınan Veri",
-                    value: ByteCountFormatter.string(fromByteCount: config.totalBytesReceived, countStyle: .file),
-                    icon: "arrow.down.circle.fill",
-                    tint: .green
-                )
-                
-                statCard(
-                    title: "Gönderilen",
-                    value: ByteCountFormatter.string(fromByteCount: config.totalBytesSent, countStyle: .file),
-                    icon: "arrow.up.circle.fill",
-                    tint: .purple
-                )
-            }
+    // MARK: - Nasıl Çalışır Kartı (Sunucu Kapalıyken)
+    private var howItWorksCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Label("Nasıl Çalışır?", systemImage: "sparkles")
+                .font(.subheadline.weight(.semibold))
+                .foregroundColor(.primary)
             
-            // Cihaz Depolama Kullanımı
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text("Cihaz Depolama Durumu")
-                        .font(.subheadline.weight(.semibold))
-                    Spacer()
-                    Text("\(ByteCountFormatter.string(fromByteCount: config.usedDiskSpace, countStyle: .file)) / \(ByteCountFormatter.string(fromByteCount: config.totalDiskSpace, countStyle: .file))")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                
-                ProgressView(value: config.diskUsagePercentage)
-                    .tint(.indigo)
-            }
-            .padding(16)
-            .background(Color(uiColor: .secondarySystemGroupedBackground))
-            .cornerRadius(16)
+            stepRow(num: "1", text: "Yukarıdaki butona basarak paylaşımı başlatın.")
+            stepRow(num: "2", text: "Ekranda beliren QR kodu bilgisayarınızla okutun veya tarayıcınıza adresi yazın.")
+            stepRow(num: "3", text: "Kabloya ihtiyaç duymadan dosyalarınızı doğrudan cihazınıza aktarın.")
         }
+        .padding(18)
+        .background(Color(uiColor: .secondarySystemGroupedBackground))
+        .cornerRadius(18)
     }
     
-    private func statCard(title: String, value: String, icon: String, tint: Color) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Image(systemName: icon)
-                    .foregroundColor(tint)
-                    .font(.footnote)
-                Spacer()
-            }
-            Text(value)
-                .font(.headline.weight(.bold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-            Text(title)
-                .font(.caption2)
+    private func stepRow(num: String, text: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text(num)
+                .font(.caption.bold())
+                .foregroundColor(.white)
+                .frame(width: 22, height: 22)
+                .background(Color.indigo)
+                .clipShape(Circle())
+            
+            Text(text)
+                .font(.footnote)
                 .foregroundColor(.secondary)
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .cornerRadius(14)
     }
     
-    // MARK: - Hızlı Eylemler Izgarası
-    private var quickActionsGrid: some View {
-        VStack(spacing: 12) {
-            NavigationLink(destination: FileBrowserView()) {
-                HStack(spacing: 14) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.blue.opacity(0.15))
-                            .frame(width: 44, height: 44)
-                        Image(systemName: "folder.fill")
-                            .font(.title3)
-                            .foregroundColor(.blue)
-                    }
-                    
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Telefondaki Dosyalar")
-                            .font(.headline)
-                            .foregroundColor(.primary)
-                        Text("Depolanan dosyalara göz at, yönet veya yeni ekle")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    
-                    Spacer()
-                    
-                    Image(systemName: "chevron.right")
-                        .foregroundColor(.secondary)
-                }
-                .padding(16)
-                .background(Color(uiColor: .secondarySystemGroupedBackground))
-                .cornerRadius(16)
-            }
-        }
-    }
-    
-    // MARK: - QR Kod Modalı
-    private var qrCodeModalView: some View {
-        NavigationStack {
-            VStack(spacing: 24) {
-                Text("Bilgisayardan Anında Bağlanın")
-                    .font(.title3.bold())
-                
-                Text("Aynı Wi-Fi ağındaki bilgisayarınızın kamerası veya telefonu ile bu QR kodu okutarak web arayüzünü anında açabilirsiniz.")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 24)
-                
-                if let qrImage = NetworkUtils.generateQRCode(from: config.serverAddress, size: 240) {
-                    Image(uiImage: qrImage)
-                        .interpolation(.none)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 220, height: 220)
-                        .padding(16)
-                        .background(Color.white)
-                        .cornerRadius(20)
-                        .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 4)
-                }
-                
-                Text(config.serverAddress)
-                    .font(.system(.headline, design: .monospaced))
-                    .foregroundColor(.indigo)
-                
+    // MARK: - 3. Cihaz Depolama Kartı
+    private var deviceStorageCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Label("Cihaz Depolama Alanı", systemImage: "internaldrive")
+                    .font(.subheadline.weight(.semibold))
                 Spacer()
+                Text("\(ByteCountFormatter.string(fromByteCount: config.usedDiskSpace, countStyle: .file)) / \(ByteCountFormatter.string(fromByteCount: config.totalDiskSpace, countStyle: .file))")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
-            .padding(.top, 32)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Kapat") {
-                        showingQRCodeSheet = false
-                    }
-                }
-            }
+            
+            ProgressView(value: config.diskUsagePercentage)
+                .tint(.indigo)
         }
+        .padding(16)
+        .background(Color(uiColor: .secondarySystemGroupedBackground))
+        .cornerRadius(16)
     }
     
-    // MARK: - Yardımcı Fonksiyonlar
+    // MARK: - Eylemler
     private func toggleServer() {
         let generator = UIImpactFeedbackGenerator(style: .medium)
         generator.impactOccurred()

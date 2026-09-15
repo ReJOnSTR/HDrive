@@ -96,6 +96,7 @@ public struct NativeExplorerView: View {
     // Modallar ve Diyaloglar
     @State private var showingSettingsSheet: Bool = false
     @State private var showingDiagnosticsSheet: Bool = false
+    @State private var showingLocalShareSheet: Bool = false
     @State private var showingNewFolderAlert: Bool = false
     @State private var newFolderName: String = ""
     @State private var statusAlertMessage: String? = nil
@@ -175,6 +176,9 @@ public struct NativeExplorerView: View {
         .sheet(isPresented: $showingDiagnosticsSheet) {
             DiagnosticsSheetView(isPresented: $showingDiagnosticsSheet)
         }
+        .sheet(isPresented: $showingLocalShareSheet) {
+            LocalShareSheetView(isPresented: $showingLocalShareSheet)
+        }
         .alert("Yeni Klasör Oluştur", isPresented: $showingNewFolderAlert) {
             TextField("Klasör Adı", text: $newFolderName)
             Button("Oluştur", action: createFolder)
@@ -239,6 +243,11 @@ public struct NativeExplorerView: View {
                 Label("Yenile", systemImage: "arrow.clockwise")
             }
             .help("Yenile")
+            
+            Button(action: { showingLocalShareSheet = true }) {
+                Label("Paylaşım & QR", systemImage: "qrcode")
+            }
+            .help("Hızlı Kablosuz Paylaşım & QR Kod")
             
             Button(action: { showingSettingsSheet = true }) {
                 Label("Ayarlar", systemImage: "gearshape")
@@ -2809,6 +2818,166 @@ struct DiagnosticsSheetView: View {
     
     private func statusColor(for isError: Bool) -> Color {
         return isError ? .red : .green
+    }
+}
+
+// MARK: - macOS Hızlı Kablosuz Paylaşım & QR Kod Sayfası
+public struct LocalShareSheetView: View {
+    @Binding var isPresented: Bool
+    @ObservedObject var serverConfig = ServerConfig.shared
+    @State private var isCopied: Bool = false
+    
+    var localAddress: String {
+        let ip = NetworkUtils.getLocalIPAddress() ?? "localhost"
+        return "http://\(ip):\(serverConfig.port)"
+    }
+    
+    public var body: some View {
+        VStack(spacing: 20) {
+            // Başlık Çubuğu
+            HStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Color.indigo.opacity(0.12))
+                        .frame(width: 38, height: 38)
+                    Image(systemName: "qrcode")
+                        .font(.system(size: 19, weight: .semibold))
+                        .foregroundColor(.indigo)
+                }
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Hızlı Kablosuz Paylaşım (QR Kod)")
+                        .font(.headline)
+                    Text("Telefonunuzdan veya yerel ağdaki cihazlardan dosya/fotoğraf aktarın.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                
+                Spacer()
+                
+                Button("Kapat") {
+                    isPresented = false
+                }
+                .keyboardShortcut(.escape, modifiers: [])
+            }
+            
+            Divider()
+            
+            // QR Kod Kartı
+            VStack(spacing: 16) {
+                if serverConfig.isRunning {
+                    if let qr = NetworkUtils.generateQRCode(from: localAddress, size: 210) {
+                        Image(nsImage: qr)
+                            .interpolation(.none)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 190, height: 190)
+                            .padding(14)
+                            .background(Color.white)
+                            .cornerRadius(16)
+                            .shadow(color: Color.black.opacity(0.08), radius: 8, x: 0, y: 3)
+                    }
+                    
+                    Text("Telefonunuzun kamera uygulamasıyla bu QR kodu okutarak Mac'inize doğrudan dosya yükleyebilir ve Mac'teki dosyaları indirebilirsiniz.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 24)
+                    
+                    // Bağlantı Adresi Kutusu
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Web & WebDAV Adresi:")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                            Text(localAddress)
+                                .font(.system(.subheadline, design: .monospaced).weight(.bold))
+                                .foregroundColor(.primary)
+                        }
+                        
+                        Spacer()
+                        
+                        Button(action: {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(localAddress, forType: .string)
+                            isCopied = true
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { isCopied = false }
+                        }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: isCopied ? "checkmark" : "doc.on.doc")
+                                Text(isCopied ? "Kopyalandı" : "Kopyala")
+                            }
+                        }
+                        
+                        Button("Tarayıcıda Aç") {
+                            if let url = URL(string: localAddress) {
+                                NSWorkspace.shared.open(url)
+                            }
+                        }
+                    }
+                    .padding(12)
+                    .background(Color(NSColor.controlBackgroundColor))
+                    .cornerRadius(10)
+                } else {
+                    VStack(spacing: 14) {
+                        Image(systemName: "wifi.slash")
+                            .font(.system(size: 40))
+                            .foregroundColor(.secondary)
+                        Text("Yerel Paylaşım Sunucusu Kapalı")
+                            .font(.headline)
+                        Text("QR kod ile aktarımı başlatmak için aşağıdaki butona basın.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        
+                        Button("Paylaşımı Başlat") {
+                            WebDAVServer.shared.start()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.regular)
+                    }
+                    .frame(height: 220)
+                }
+            }
+            
+            Divider()
+            
+            // Alt Bilgi & Klasör
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Paylaşılan Klasör:")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                    Text("~/Documents/HDriveFiles")
+                        .font(.caption.weight(.medium))
+                }
+                
+                Spacer()
+                
+                Button("Klasörü Aç") {
+                    let home = FileManager.default.homeDirectoryForCurrentUser
+                    let folder = home.appendingPathComponent("Documents/HDriveFiles")
+                    try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                    NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: folder.path)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                
+                if serverConfig.isRunning {
+                    Button("Durdur") {
+                        WebDAVServer.shared.stop()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
+        }
+        .padding(24)
+        .frame(width: 480)
+        .onAppear {
+            if !serverConfig.isRunning {
+                WebDAVServer.shared.start()
+            }
+        }
     }
 }
 

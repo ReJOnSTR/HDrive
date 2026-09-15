@@ -218,8 +218,12 @@
                                 <ToggleMenuFlyoutItem x:Name="SortDescItem" Text="Azalan" Click="SortDescending_Click" />
                             </MenuFlyout>
                         </AppBarButton.Flyout>
-                    </AppBarButton>
                     <AppBarToggleButton x:Name="PreviewPaneToggle" Icon="PreviewLink" Label="Önizleme" Click="PreviewPaneToggle_Click" />
+                    <AppBarButton x:Name="LocalShareButton" Label="Paylaşım &amp; QR" Click="LocalShareButton_Click">
+                        <AppBarButton.Icon>
+                            <FontIcon Glyph="&#xED14;" />
+                        </AppBarButton.Icon>
+                    </AppBarButton>
                     <AppBarSeparator />
                     <!-- Üç Nokta (...) Menüsü -->
                     <AppBarButton Label="Daha Fazla">

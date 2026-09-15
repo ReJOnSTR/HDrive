@@ -47,57 +47,64 @@ public struct CloudreveMobileView: View {
                 }
             }
             .navigationTitle(currentPath.isEmpty ? "Cloudreve" : (currentPath as NSString).lastPathComponent)
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarTitleDisplayMode(currentPath.isEmpty ? .large : .inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: { isConfiguring.toggle() }) {
-                        Image(systemName: isConfiguring ? "checkmark.circle.fill" : "gearshape")
+                if !currentPath.isEmpty && !isConfiguring {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button(action: goBack) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "chevron.backward")
+                                Text("Geri")
+                            }
+                        }
                     }
                 }
                 
-                if !isConfiguring {
-                    ToolbarItem(placement: .navigationBarLeading) {
-                        HStack(spacing: 8) {
-                            Menu {
-                                Button(action: { showingNewFolderAlert = true }) {
-                                    Label("Yeni Klasör", systemImage: "folder.badge.plus")
-                                }
-                                PhotosPicker(selection: $selectedPhotos, matching: .any(of: [.images, .videos])) {
-                                    Label("Fotoğraf Yükle", systemImage: "photo.badge.plus")
-                                }
-                            } label: {
-                                Image(systemName: "plus")
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    if !isConfiguring {
+                        Menu {
+                            Button(action: { showingNewFolderAlert = true }) {
+                                Label("Yeni Klasör", systemImage: "folder.badge.plus")
                             }
-                            
-                            Menu {
-                                Section("Sıralama Ölçütü") {
-                                    ForEach(FileSortField.allCases) { field in
-                                        Button(action: { sortField = field }) {
-                                            HStack {
-                                                Text(field.rawValue)
-                                                if sortField == field { Image(systemName: "checkmark") }
-                                            }
-                                        }
-                                    }
-                                }
-                                Section("Sıralama Yönü") {
-                                    Button(action: { sortAscending = true }) {
-                                        HStack {
-                                            Text("Artan (A-Z)")
-                                            if sortAscending { Image(systemName: "checkmark") }
-                                        }
-                                    }
-                                    Button(action: { sortAscending = false }) {
-                                        HStack {
-                                            Text("Azalan (Z-A)")
-                                            if !sortAscending { Image(systemName: "checkmark") }
-                                        }
-                                    }
-                                }
-                            } label: {
-                                Image(systemName: "arrow.up.arrow.down")
+                            PhotosPicker(selection: $selectedPhotos, matching: .any(of: [.images, .videos])) {
+                                Label("Fotoğraf Yükle", systemImage: "photo.badge.plus")
                             }
+                        } label: {
+                            Image(systemName: "plus")
                         }
+                        
+                        Menu {
+                            Section("Sıralama Ölçütü") {
+                                ForEach(FileSortField.allCases) { field in
+                                    Button(action: { sortField = field }) {
+                                        HStack {
+                                            Text(field.rawValue)
+                                            if sortField == field { Image(systemName: "checkmark") }
+                                        }
+                                    }
+                                }
+                            }
+                            Section("Sıralama Yönü") {
+                                Button(action: { sortAscending = true }) {
+                                    HStack {
+                                        Text("Artan (A-Z)")
+                                        if sortAscending { Image(systemName: "checkmark") }
+                                    }
+                                }
+                                Button(action: { sortAscending = false }) {
+                                    HStack {
+                                        Text("Azalan (Z-A)")
+                                        if !sortAscending { Image(systemName: "checkmark") }
+                                    }
+                                }
+                            }
+                        } label: {
+                            Image(systemName: "arrow.up.arrow.down")
+                        }
+                    }
+                    
+                    Button(action: { isConfiguring.toggle() }) {
+                        Image(systemName: isConfiguring ? "checkmark.circle.fill" : "gearshape")
                     }
                 }
             }
@@ -207,18 +214,45 @@ public struct CloudreveMobileView: View {
                 ProgressView("Cloudreve sunucusundan yükleniyor...")
                 Spacer()
             } else if remoteFiles.isEmpty {
-                VStack(spacing: 12) {
+                VStack(spacing: 16) {
                     Spacer()
-                    Image(systemName: "cloud")
-                        .font(.system(size: 50))
-                        .foregroundColor(.secondary)
-                    Text("Bu klasör boş")
-                        .font(.headline)
-                    Text("Yukarıdaki + butonuna basarak fotoğraf veya dosya yükleyebilirsiniz.")
+                    ZStack {
+                        Circle()
+                            .fill(Color.indigo.opacity(0.08))
+                            .frame(width: 84, height: 84)
+                        Image(systemName: "cloud.fill")
+                            .font(.system(size: 38))
+                            .foregroundColor(.indigo)
+                    }
+                    
+                    Text("Bu Klasör Boş")
+                        .font(.title3.weight(.semibold))
+                        .foregroundColor(.primary)
+                    
+                    Text("Dosya eklemek için yukarıdaki + simgesine dokunabilir veya aşağıdaki butonları kullanabilirsiniz.")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 36)
+                    
+                    HStack(spacing: 12) {
+                        Button(action: { showingNewFolderAlert = true }) {
+                            Label("Yeni Klasör", systemImage: "folder.badge.plus")
+                                .font(.subheadline.weight(.medium))
+                        }
+                        .buttonStyle(.bordered)
+                        
+                        PhotosPicker(selection: $selectedPhotos, matching: .any(of: [.images, .videos])) {
+                            Label("Fotoğraf", systemImage: "photo.badge.plus")
+                                .font(.subheadline.weight(.medium))
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                    .padding(.top, 4)
+                    
                     Spacer()
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding()
             } else {
                 List {
@@ -333,6 +367,16 @@ public struct CloudreveMobileView: View {
     
     private func navigateTo(_ folder: String) {
         currentPath = (currentPath.isEmpty ? "" : currentPath + "/") + folder
+        refreshFiles()
+    }
+    
+    private func goBack() {
+        let parts = currentPath.split(separator: "/")
+        if parts.count <= 1 {
+            currentPath = ""
+        } else {
+            currentPath = parts.dropLast().joined(separator: "/")
+        }
         refreshFiles()
     }
     

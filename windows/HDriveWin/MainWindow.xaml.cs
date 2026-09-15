@@ -2337,6 +2337,19 @@ public sealed partial class MainWindow : Window
         await OpenSettingsDialogAsync();
     }
 
+    private async void LocalShareButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var dialog = new Views.LocalShareDialog
+            {
+                XamlRoot = this.Content.XamlRoot
+            };
+            await dialog.ShowAsync();
+        }
+        catch { }
+    }
+
     #region Kenar Çubuğu Sabit Klasörler (Pinned Favorites)
 
     private List<PinnedFolder> _pinnedFolders = new();

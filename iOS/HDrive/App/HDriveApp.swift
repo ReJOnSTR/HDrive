@@ -22,12 +22,7 @@ struct HDriveApp: App {
             TabView {
                 CloudreveMobileView()
                     .tabItem {
-                        Label("Cloudreve", systemImage: "cloud.fill")
-                    }
-                
-                MainDashboardView()
-                    .tabItem {
-                        Label("Yerel Paylaşım", systemImage: "antenna.radiowaves.left.and.right")
+                        Label("Bulut", systemImage: "cloud.fill")
                     }
                 
                 NavigationStack {
@@ -37,9 +32,9 @@ struct HDriveApp: App {
                     Label("Dosyalar", systemImage: "folder.fill")
                 }
                 
-                QuickConnectGuideView()
+                MainDashboardView()
                     .tabItem {
-                        Label("PC Rehberi", systemImage: "display")
+                        Label("Paylaşım", systemImage: "qrcode")
                     }
                 
                 NavigationStack {
