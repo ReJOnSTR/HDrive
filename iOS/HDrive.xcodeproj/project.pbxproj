@@ -24,6 +24,9 @@
 		110100102C8C000100000010 /* WebDAVClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110200102C8C000100000010 /* WebDAVClient.swift */; };
 		110100112C8C000100000011 /* CloudreveManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110200112C8C000100000011 /* CloudreveManager.swift */; };
 		110100122C8C000100000012 /* CloudreveMobileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110200122C8C000100000012 /* CloudreveMobileView.swift */; };
+		110100132C8C000100000013 /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110200132C8C000100000013 /* KeychainHelper.swift */; };
+		110100142C8C000100000014 /* NetworkMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110200142C8C000100000014 /* NetworkMonitor.swift */; };
+		110100152C8C000100000015 /* SyncLogManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110200152C8C000100000015 /* SyncLogManager.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -46,6 +49,9 @@
 		110200102C8C000100000010 /* WebDAVClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebDAVClient.swift; sourceTree = "<group>"; };
 		110200112C8C000100000011 /* CloudreveManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudreveManager.swift; sourceTree = "<group>"; };
 		110200122C8C000100000012 /* CloudreveMobileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudreveMobileView.swift; sourceTree = "<group>"; };
+		110200132C8C000100000013 /* KeychainHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainHelper.swift; sourceTree = "<group>"; };
+		110200142C8C000100000014 /* NetworkMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkMonitor.swift; sourceTree = "<group>"; };
+		110200152C8C000100000015 /* SyncLogManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncLogManager.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -104,6 +110,9 @@
 				110200042C8C000100000004 /* NetworkUtils.swift */,
 				110200102C8C000100000010 /* WebDAVClient.swift */,
 				110200112C8C000100000011 /* CloudreveManager.swift */,
+				110200132C8C000100000013 /* KeychainHelper.swift */,
+				110200142C8C000100000014 /* NetworkMonitor.swift */,
+				110200152C8C000100000015 /* SyncLogManager.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -224,6 +233,9 @@
 				110100102C8C000100000010 /* WebDAVClient.swift in Sources */,
 				110100112C8C000100000011 /* CloudreveManager.swift in Sources */,
 				110100122C8C000100000012 /* CloudreveMobileView.swift in Sources */,
+				110100132C8C000100000013 /* KeychainHelper.swift in Sources */,
+				110100142C8C000100000014 /* NetworkMonitor.swift in Sources */,
+				110100152C8C000100000015 /* SyncLogManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
