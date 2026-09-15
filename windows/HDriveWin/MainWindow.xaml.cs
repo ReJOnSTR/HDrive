@@ -72,6 +72,9 @@ public sealed partial class MainWindow : Window
             FileListView.ItemsSource = _items;
             PathBreadcrumbBar.ItemsSource = _breadcrumbs;
 
+            // Görünüm ve sıralama ayarlarını ilk sekme açılmadan önce yükle
+            LoadViewSettings();
+
             // Başlangıç sekmesi oluştur
             CreateInitialTab();
         }
@@ -224,15 +227,6 @@ public sealed partial class MainWindow : Window
         catch (Exception ex)
         {
             App.LogCrash("MainWindow.LoadPinnedFolders", ex);
-        }
-
-        try
-        {
-            LoadViewSettings();
-        }
-        catch (Exception ex)
-        {
-            App.LogCrash("MainWindow.LoadViewSettings", ex);
         }
 
         try
@@ -818,6 +812,9 @@ public sealed partial class MainWindow : Window
     {
         public ExplorerViewMode ViewMode { get; set; } = ExplorerViewMode.Large;
         public bool ShowPreviewPane { get; set; } = false;
+        public SortField SortBy { get; set; } = SortField.Name;
+        public bool SortAscending { get; set; } = true;
+        public bool FoldersFirst { get; set; } = true;
     }
 
     private ExplorerViewMode _currentViewMode = ExplorerViewMode.Large;
@@ -840,15 +837,23 @@ public sealed partial class MainWindow : Window
                 var settings = System.Text.Json.JsonSerializer.Deserialize<ViewSettingsModel>(json);
                 if (settings != null)
                 {
+                    _sortField = settings.SortBy;
+                    _sortAscending = settings.SortAscending;
+                    _foldersFirst = settings.FoldersFirst;
                     ApplyViewMode(settings.ViewMode, save: false);
                     SetPreviewPaneVisibility(settings.ShowPreviewPane, save: false);
+                    UpdateSortMenuChecks();
                     return;
                 }
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            App.LogCrash("MainWindow.LoadViewSettings", ex);
+        }
         ApplyViewMode(ExplorerViewMode.Large, save: false);
         SetPreviewPaneVisibility(false, save: false);
+        UpdateSortMenuChecks();
     }
 
     private void SaveCurrentSettings()
@@ -858,13 +863,19 @@ public sealed partial class MainWindow : Window
             var settings = new ViewSettingsModel
             {
                 ViewMode = _currentViewMode,
-                ShowPreviewPane = (PreviewPane?.Visibility == Visibility.Visible)
+                ShowPreviewPane = (PreviewPane?.Visibility == Visibility.Visible),
+                SortBy = _sortField,
+                SortAscending = _sortAscending,
+                FoldersFirst = _foldersFirst
             };
             var filePath = GetViewSettingsFilePath();
-            var json = System.Text.Json.JsonSerializer.Serialize(settings);
+            var json = System.Text.Json.JsonSerializer.Serialize(settings, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(filePath, json);
         }
-        catch { }
+        catch (Exception ex)
+        {
+            App.LogCrash("MainWindow.SaveCurrentSettings", ex);
+        }
     }
 
     private void TogglePreviewPane()
@@ -925,6 +936,7 @@ public sealed partial class MainWindow : Window
         _sortField = SortField.Name;
         UpdateSortMenuChecks();
         ApplySearchFilter(SearchBox.Text);
+        SaveCurrentSettings();
     }
 
     private void SortByDate_Click(object sender, RoutedEventArgs e)
@@ -932,6 +944,7 @@ public sealed partial class MainWindow : Window
         _sortField = SortField.Date;
         UpdateSortMenuChecks();
         ApplySearchFilter(SearchBox.Text);
+        SaveCurrentSettings();
     }
 
     private void SortBySize_Click(object sender, RoutedEventArgs e)
@@ -939,6 +952,7 @@ public sealed partial class MainWindow : Window
         _sortField = SortField.Size;
         UpdateSortMenuChecks();
         ApplySearchFilter(SearchBox.Text);
+        SaveCurrentSettings();
     }
 
     private void SortByType_Click(object sender, RoutedEventArgs e)
@@ -946,6 +960,7 @@ public sealed partial class MainWindow : Window
         _sortField = SortField.Type;
         UpdateSortMenuChecks();
         ApplySearchFilter(SearchBox.Text);
+        SaveCurrentSettings();
     }
 
     private void SortAscending_Click(object sender, RoutedEventArgs e)
@@ -953,6 +968,7 @@ public sealed partial class MainWindow : Window
         _sortAscending = true;
         UpdateSortMenuChecks();
         ApplySearchFilter(SearchBox.Text);
+        SaveCurrentSettings();
     }
 
     private void SortDescending_Click(object sender, RoutedEventArgs e)
@@ -960,6 +976,7 @@ public sealed partial class MainWindow : Window
         _sortAscending = false;
         UpdateSortMenuChecks();
         ApplySearchFilter(SearchBox.Text);
+        SaveCurrentSettings();
     }
 
     private void HeaderSortByName_Click(object sender, RoutedEventArgs e)
@@ -968,6 +985,7 @@ public sealed partial class MainWindow : Window
         else { _sortField = SortField.Name; _sortAscending = true; }
         UpdateSortMenuChecks();
         ApplySearchFilter(SearchBox.Text);
+        SaveCurrentSettings();
     }
 
     private void HeaderSortByDate_Click(object sender, RoutedEventArgs e)
@@ -976,6 +994,7 @@ public sealed partial class MainWindow : Window
         else { _sortField = SortField.Date; _sortAscending = true; }
         UpdateSortMenuChecks();
         ApplySearchFilter(SearchBox.Text);
+        SaveCurrentSettings();
     }
 
     private void HeaderSortByType_Click(object sender, RoutedEventArgs e)
@@ -984,6 +1003,7 @@ public sealed partial class MainWindow : Window
         else { _sortField = SortField.Type; _sortAscending = true; }
         UpdateSortMenuChecks();
         ApplySearchFilter(SearchBox.Text);
+        SaveCurrentSettings();
     }
 
     private void HeaderSortBySize_Click(object sender, RoutedEventArgs e)
@@ -992,6 +1012,7 @@ public sealed partial class MainWindow : Window
         else { _sortField = SortField.Size; _sortAscending = true; }
         UpdateSortMenuChecks();
         ApplySearchFilter(SearchBox.Text);
+        SaveCurrentSettings();
     }
 
     private void UpdateSortMenuChecks()
