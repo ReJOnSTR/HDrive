@@ -982,22 +982,7 @@ public struct NativeExplorerView: View {
             List {
                 // HESAPLAR
                 if !manager.servers.isEmpty {
-                    Section(header: HStack {
-                        Text("Hesaplar")
-                        Spacer()
-                        Button(action: {
-                            SettingsWindowManager.shared.showSettings {
-                                loadPinnedFolders()
-                                navigateToRoot()
-                            }
-                        }) {
-                            Image(systemName: "plus")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundColor(.secondary)
-                        }
-                        .buttonStyle(.plain)
-                        .help("Yeni Hesap Ekle / Yönet")
-                    }) {
+                    Section(header: Text("Hesaplar")) {
                         ForEach(manager.servers) { server in
                             let isServerActive = (manager.activeServer?.id == server.id)
                             Button(action: {
