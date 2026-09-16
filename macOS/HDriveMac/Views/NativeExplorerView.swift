@@ -87,6 +87,8 @@ public struct NativeExplorerView: View {
     @State private var files: [RemoteFileItem] = []
     @State private var isLoading: Bool = false
     @State private var searchText: String = ""
+    @State private var isSearchPresented: Bool = false
+    @State private var mouseMonitor: Any? = nil
     @AppStorage("hdrive_isGridView") private var isGridView: Bool = true
     @AppStorage("hdrive_showPreviewPane") private var showPreviewPane: Bool = false
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
@@ -178,7 +180,7 @@ public struct NativeExplorerView: View {
             .toolbar {
                 explorerToolbar
             }
-            .searchable(text: $searchText, placement: .toolbar, prompt: "Ara...")
+            .searchable(text: $searchText, isPresented: $isSearchPresented, placement: .toolbar, prompt: "Ara...")
             .focusEffectDisabled()
             .quickLookPreview($quickLookURL)
             .background(keyboardShortcutsOverlay)
@@ -194,12 +196,16 @@ public struct NativeExplorerView: View {
             } else {
                 loadDirectory(at: currentPath)
             }
-            setupTypeToSelectMonitor()
+            setupEventMonitors()
         }
         .onDisappear {
             if let monitor = keyMonitor {
                 NSEvent.removeMonitor(monitor)
                 keyMonitor = nil
+            }
+            if let monitor = mouseMonitor {
+                NSEvent.removeMonitor(monitor)
+                mouseMonitor = nil
             }
         }
         .sheet(isPresented: $showingSettingsSheet) {
@@ -738,20 +744,54 @@ public struct NativeExplorerView: View {
         }
     }
 
-    private func setupTypeToSelectMonitor() {
-        if keyMonitor != nil { return }
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            guard renamingFileID == nil else { return event }
-            let flags = event.modifierFlags
-            if flags.contains(.command) || flags.contains(.control) || flags.contains(.option) {
+    private func setupEventMonitors() {
+        if keyMonitor == nil {
+            keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                guard renamingFileID == nil else { return event }
+                let flags = event.modifierFlags
+                if flags.contains(.command) || flags.contains(.control) || flags.contains(.option) {
+                    return event
+                }
+                if let chars = event.charactersIgnoringModifiers, chars.count == 1, let char = chars.first, (char.isLetter || char.isNumber) {
+                    handleTypeToSelect(char: String(char))
+                    return nil
+                }
                 return event
             }
-            if let chars = event.charactersIgnoringModifiers, chars.count == 1, let char = chars.first, (char.isLetter || char.isNumber) {
-                handleTypeToSelect(char: String(char))
-                return nil
-            }
-            return event
         }
+        
+        if mouseMonitor == nil {
+            mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [self] event in
+                if isSearchPresented || !searchText.isEmpty {
+                    if let window = event.window, let contentView = window.contentView {
+                        let hitView = contentView.hitTest(event.locationInWindow)
+                        var isInsideSearch = false
+                        var current: NSView? = hitView
+                        while let v = current {
+                            let name = String(describing: type(of: v)).lowercased()
+                            if name.contains("search") || v is NSSearchField || v.accessibilityIdentifier() == "searchScope" {
+                                isInsideSearch = true
+                                break
+                            }
+                            current = v.superview
+                        }
+                        
+                        if !isInsideSearch {
+                            DispatchQueue.main.async {
+                                exitSearch()
+                            }
+                        }
+                    }
+                }
+                return event
+            }
+        }
+    }
+
+    private func exitSearch() {
+        isSearchPresented = false
+        searchText = ""
+        isDeepSearchEnabled = false
     }
 
     private func handleTypeToSelect(char: String) {
@@ -1004,6 +1044,7 @@ public struct NativeExplorerView: View {
                     }
                     .buttonStyle(.plain)
                 }
+                .accessibilityIdentifier("searchScope")
             }
         }
         .padding(.horizontal, 16)
@@ -1712,6 +1753,7 @@ public struct NativeExplorerView: View {
     }
 
     private func navigateTo(_ path: String) {
+        exitSearch()
         currentPath = path
         if historyIndex < pathHistory.count - 1 {
             pathHistory = Array(pathHistory.prefix(historyIndex + 1))
@@ -1951,6 +1993,9 @@ public struct NativeExplorerView: View {
         selectedFileIDs.removeAll()
         selectedFileID = nil
         renamingFileID = nil
+        if isSearchPresented || !searchText.isEmpty {
+            exitSearch()
+        }
     }
     
     private func startRenaming(_ file: RemoteFileItem) {

@@ -1581,6 +1581,15 @@ public sealed partial class MainWindow : Window
         ApplySearchFilter(sender.Text);
     }
 
+    private void SearchBox_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (!string.IsNullOrEmpty(SearchBox.Text))
+        {
+            SearchBox.Text = "";
+            ApplySearchFilter("");
+        }
+    }
+
     private async void NavView_ItemInvoked(NavigationView sender, NavigationViewItemInvokedEventArgs args)
     {
         if (args.IsSettingsInvoked)
@@ -2250,6 +2259,12 @@ public sealed partial class MainWindow : Window
             if (e.OriginalSource is DependencyObject dep && IsItemOrChildOfItem(dep))
             {
                 return;
+            }
+
+            if (!string.IsNullOrEmpty(SearchBox.Text))
+            {
+                SearchBox.Text = "";
+                ApplySearchFilter("");
             }
 
             _isMarqueeSelecting = true;
