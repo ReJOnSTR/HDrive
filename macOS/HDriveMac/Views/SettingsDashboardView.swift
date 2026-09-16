@@ -110,57 +110,33 @@ public struct SettingsDashboardView: View {
             Divider()
             
             // Büyük Eylem Butonları
-            HStack(spacing: 14) {
+            HStack(spacing: 12) {
                 if !mounter.isMounted {
                     Button(action: connectAndOpenInFinder) {
                         HStack(spacing: 8) {
                             if isConnecting {
-                                ProgressView().scaleEffect(0.7)
+                                ProgressView().controlSize(.small)
                             } else {
                                 Image(systemName: "folder.fill")
-                                    .font(.title3)
                             }
                             Text(isConnecting ? "Finder'a Bağlanıyor..." : "Finder'da Klasör Olarak Aç")
-                                .font(.headline)
                         }
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 46)
-                        .background(
-                            LinearGradient(colors: [Color.indigo, Color.blue], startPoint: .leading, endPoint: .trailing)
-                        )
-                        .cornerRadius(12)
-                        .shadow(color: Color.indigo.opacity(0.3), radius: 6, x: 0, y: 3)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
                     .disabled(isConnecting || serverURL.isEmpty)
                 } else {
                     Button(action: { mounter.openMountedVolumeInFinder() }) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "folder.fill")
-                                .font(.title3)
-                            Text("Finder Penceresini Aç")
-                                .font(.headline)
-                        }
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 46)
-                        .background(
-                            LinearGradient(colors: [Color.blue, Color.cyan], startPoint: .leading, endPoint: .trailing)
-                        )
-                        .cornerRadius(12)
+                        Label("Finder Penceresini Aç", systemImage: "folder.fill")
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
                     
                     Button(action: disconnectDrive) {
-                        HStack {
-                            Image(systemName: "eject.fill")
-                            Text("Sürücüyü Çıkar")
-                        }
-                        .frame(width: 140)
-                        .frame(height: 46)
+                        Label("Sürücüyü Çıkar", systemImage: "eject.fill")
                     }
                     .buttonStyle(.bordered)
+                    .controlSize(.large)
                 }
             }
             

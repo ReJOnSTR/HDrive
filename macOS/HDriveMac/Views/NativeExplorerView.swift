@@ -42,10 +42,93 @@ public struct PinnedFolder: Identifiable, Codable, Equatable {
     }
 }
 
-public enum ColumnResizingField {
-    case date
-    case kind
-    case size
+public enum ExplorerColumnId: String, CaseIterable, Codable, Identifiable {
+    case name = "name"
+    case date = "date"
+    case kind = "kind"
+    case size = "size"
+    
+    public var id: String { rawValue }
+    
+    public var title: String {
+        switch self {
+        case .name: return "Ad"
+        case .date: return "Değiştirilme Tarihi"
+        case .kind: return "Tür"
+        case .size: return "Boyut"
+        }
+    }
+    
+    public var defaultWidth: Double {
+        switch self {
+        case .name: return 260.0
+        case .date: return 160.0
+        case .kind: return 110.0
+        case .size: return 85.0
+        }
+    }
+    
+    public var minWidth: Double {
+        switch self {
+        case .name: return 140.0
+        case .date: return 90.0
+        case .kind: return 70.0
+        case .size: return 60.0
+        }
+    }
+}
+
+struct ColumnHeaderDropDelegate: DropDelegate {
+    let targetCol: ExplorerColumnId
+    @Binding var draggedCol: ExplorerColumnId?
+    @Binding var targetHighlight: ExplorerColumnId?
+    @Binding var columnOrderRaw: String
+    
+    func dropEntered(info: DropInfo) {
+        if draggedCol != targetCol {
+            targetHighlight = targetCol
+        }
+    }
+    
+    func dropExited(info: DropInfo) {
+        if targetHighlight == targetCol {
+            targetHighlight = nil
+        }
+    }
+    
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        return DropProposal(operation: .move)
+    }
+    
+    func performDrop(info: DropInfo) -> Bool {
+        targetHighlight = nil
+        let movingCol = draggedCol
+        draggedCol = nil
+        
+        if let source = movingCol, source != targetCol {
+            applyMove(source: source, target: targetCol)
+            return true
+        } else if let provider = info.itemProviders(for: [.text]).first {
+            _ = provider.loadObject(ofClass: NSString.self) { string, _ in
+                if let str = string as? String, let source = ExplorerColumnId(rawValue: str), source != targetCol {
+                    DispatchQueue.main.async {
+                        self.applyMove(source: source, target: targetCol)
+                    }
+                }
+            }
+            return true
+        }
+        return false
+    }
+    
+    private func applyMove(source: ExplorerColumnId, target: ExplorerColumnId) {
+        var cols = columnOrderRaw.components(separatedBy: ",").compactMap { ExplorerColumnId(rawValue: $0) }
+        guard let fromIdx = cols.firstIndex(of: source),
+              let toIdx = cols.firstIndex(of: target) else { return }
+        cols.remove(at: fromIdx)
+        cols.insert(source, at: toIdx)
+        columnOrderRaw = cols.map { $0.rawValue }.joined(separator: ",")
+    }
 }
 
 public struct NativeExplorerView: View {
@@ -65,18 +148,79 @@ public struct NativeExplorerView: View {
     @AppStorage("hdrive_sortAscending") private var sortAscending: Bool = true
     @AppStorage("hdrive_foldersFirst") private var foldersFirst: Bool = true
     
-    // Sütun Genişlikleri & Görünürlükleri (Kalıcı - AppStorage)
+    // Sütun Genişlikleri & Sıralaması (Kalıcı - AppStorage)
+    @AppStorage("hdrive_colNameWidth") private var colNameWidth: Double = 260.0
     @AppStorage("hdrive_colDateWidth") private var colDateWidth: Double = 160.0
-    @AppStorage("hdrive_colKindWidth") private var colKindWidth: Double = 130.0
-    @AppStorage("hdrive_colSizeWidth") private var colSizeWidth: Double = 90.0
+    @AppStorage("hdrive_colKindWidth") private var colKindWidth: Double = 110.0
+    @AppStorage("hdrive_colSizeWidth") private var colSizeWidth: Double = 85.0
+    
+    @AppStorage("hdrive_columnOrder") private var columnOrderRaw: String = "name,date,kind,size"
     
     @AppStorage("hdrive_showColDate") private var showColDate: Bool = true
     @AppStorage("hdrive_showColKind") private var showColKind: Bool = true
     @AppStorage("hdrive_showColSize") private var showColSize: Bool = true
     
-    // Sütun Boyutlandırma Sürükleme Durumu
-    @State private var dragStartWidth: Double = 0
-    @State private var activeResizingField: ColumnResizingField? = nil
+    // Sütun Canlı Boyutlandırma & Taşıma Durumu
+    @State private var liveResizingCol: ExplorerColumnId? = nil
+    @State private var liveDragBaseWidth: Double = 0
+    @State private var liveWidthDelta: Double = 0
+    @State private var draggedColumn: ExplorerColumnId? = nil
+    @State private var dropTargetColumn: ExplorerColumnId? = nil
+    
+    private var columnOrder: [ExplorerColumnId] {
+        get {
+            let ids = columnOrderRaw.components(separatedBy: ",").compactMap { ExplorerColumnId(rawValue: $0) }
+            let all = ExplorerColumnId.allCases
+            var result = ids.filter { all.contains($0) }
+            for col in all where !result.contains(col) {
+                result.append(col)
+            }
+            return result
+        }
+        nonmutating set {
+            columnOrderRaw = newValue.map { $0.rawValue }.joined(separator: ",")
+        }
+    }
+    
+    private func isColumnVisible(_ col: ExplorerColumnId) -> Bool {
+        switch col {
+        case .name: return true
+        case .date: return showColDate
+        case .kind: return showColKind
+        case .size: return showColSize
+        }
+    }
+    
+    private func columnWidth(for col: ExplorerColumnId) -> Double {
+        if col == liveResizingCol {
+            return max(col.minWidth, liveDragBaseWidth + liveWidthDelta)
+        }
+        switch col {
+        case .name: return max(ExplorerColumnId.name.minWidth, colNameWidth)
+        case .date: return max(ExplorerColumnId.date.minWidth, colDateWidth)
+        case .kind: return max(ExplorerColumnId.kind.minWidth, colKindWidth)
+        case .size: return max(ExplorerColumnId.size.minWidth, colSizeWidth)
+        }
+    }
+    
+    private func setColumnWidth(_ width: Double, for col: ExplorerColumnId) {
+        let clamped = max(col.minWidth, width)
+        switch col {
+        case .name: colNameWidth = clamped
+        case .date: colDateWidth = clamped
+        case .kind: colKindWidth = clamped
+        case .size: colSizeWidth = clamped
+        }
+    }
+    
+    private func isColumnSorted(_ col: ExplorerColumnId) -> Bool {
+        switch col {
+        case .name: return sortField == .name
+        case .date: return sortField == .date
+        case .kind: return sortField == .kind
+        case .size: return sortField == .size
+        }
+    }
     
     // Klavyeden Harfle Arama (Type-to-Select)
     @State private var typeToSelectQuery: String = ""
@@ -605,104 +749,99 @@ public struct NativeExplorerView: View {
         )
     }
     
-    // MARK: - Liste Sütun Başlıkları (Click-to-Sort Headers, Resizable Splitters & Context Menu)
+    // MARK: - Liste Sütun Başlıkları (Click-to-Sort, Drag-to-Reorder & Resizable Splitters)
     private var listHeaderView: some View {
-        HStack(spacing: 0) {
-            Button(action: { toggleSort(field: FileSortField.name) }) {
-                HStack(spacing: 4) {
-                    Text("Ad")
-                        .font(.caption.weight(.semibold))
-                        .foregroundColor(sortField == .name ? .accentColor : .secondary)
-                    if sortField == .name {
-                        Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundColor(.accentColor)
-                    }
-                    Spacer()
+        let visibleCols = columnOrder.filter { isColumnVisible($0) }
+        
+        return HStack(spacing: 0) {
+            ForEach(Array(visibleCols.enumerated()), id: \.element.id) { index, col in
+                HStack(spacing: 0) {
+                    columnHeaderView(col: col)
+                    
+                    // Finder tarzı: Her sütunun SAĞ kenarında boyutlandırma ayracı
+                    columnSplitter(for: col)
                 }
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .padding(.leading, 38)
-            .padding(.trailing, 8)
-            .frame(maxWidth: .infinity)
-            
-            if showColDate {
-                columnSplitter(for: .date)
-                
-                Button(action: { toggleSort(field: FileSortField.date) }) {
-                    HStack(spacing: 4) {
-                        Text("Değiştirilme Tarihi")
-                            .font(.caption.weight(.semibold))
-                            .foregroundColor(sortField == .date ? .accentColor : .secondary)
-                        if sortField == .date {
-                            Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
-                                .font(.system(size: 9, weight: .bold))
-                                .foregroundColor(.accentColor)
-                        }
-                        Spacer()
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .frame(width: max(90, colDateWidth), alignment: .leading)
-                .padding(.horizontal, 6)
-            }
-
-            if showColKind {
-                columnSplitter(for: .kind)
-                
-                Button(action: { toggleSort(field: FileSortField.kind) }) {
-                    HStack(spacing: 4) {
-                        Text("Tür")
-                            .font(.caption.weight(.semibold))
-                            .foregroundColor(sortField == .kind ? .accentColor : .secondary)
-                        if sortField == .kind {
-                            Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
-                                .font(.system(size: 9, weight: .bold))
-                                .foregroundColor(.accentColor)
-                        }
-                        Spacer()
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .frame(width: max(70, colKindWidth), alignment: .leading)
-                .padding(.horizontal, 6)
-            }
-
-            if showColSize {
-                columnSplitter(for: .size)
-                
-                Button(action: { toggleSort(field: FileSortField.size) }) {
-                    HStack(spacing: 4) {
-                        Spacer()
-                        Text("Boyut")
-                            .font(.caption.weight(.semibold))
-                            .foregroundColor(sortField == .size ? .accentColor : .secondary)
-                        if sortField == .size {
-                            Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
-                                .font(.system(size: 9, weight: .bold))
-                                .foregroundColor(.accentColor)
-                        }
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .frame(width: max(60, colSizeWidth), alignment: .trailing)
-                .padding(.horizontal, 6)
-            }
+            Spacer(minLength: 0)
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 6)
+        .padding(.vertical, 4)
         .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
         .contextMenu {
             headerContextMenu
         }
     }
     
-    // Sütun Ayraç Çizgisi ve Boyutlandırma
-    private func columnSplitter(for field: ColumnResizingField) -> some View {
+    private func columnHeaderView(col: ExplorerColumnId) -> some View {
+        let isDragged = (draggedColumn == col)
+        let isTarget = (dropTargetColumn == col && draggedColumn != col)
+        let isSorted = isColumnSorted(col)
+        let w = columnWidth(for: col)
+        
+        return HStack(spacing: 4) {
+            if col == .name {
+                Spacer().frame(width: 24)
+            }
+            
+            if col == .size {
+                Spacer(minLength: 0)
+            }
+            
+            Text(col.title)
+                .font(.caption.weight(.semibold))
+                .foregroundColor(isSorted ? .accentColor : .secondary)
+                .lineLimit(1)
+            
+            if isSorted {
+                Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundColor(.accentColor)
+            }
+            
+            if col != .size {
+                Spacer(minLength: 0)
+            }
+        }
+        .padding(.horizontal, 6)
+        .frame(width: w, height: 22, alignment: col == .size ? .trailing : .leading)
+        .contentShape(Rectangle())
+        .opacity(isDragged ? 0.45 : 1.0)
+        .background(
+            isTarget ? Color.accentColor.opacity(0.16) : Color.clear
+        )
+        .overlay(
+            // Sütun taşınırken bırakılacak hedefi gösteren Finder mavi çizgisi
+            Group {
+                if isTarget {
+                    Rectangle()
+                        .fill(Color.accentColor)
+                        .frame(width: 2.5)
+                }
+            },
+            alignment: .leading
+        )
+        .onTapGesture {
+            switch col {
+            case .name: toggleSort(field: .name)
+            case .date: toggleSort(field: .date)
+            case .kind: toggleSort(field: .kind)
+            case .size: toggleSort(field: .size)
+            }
+        }
+        .onDrag {
+            self.draggedColumn = col
+            return NSItemProvider(object: col.rawValue as NSString)
+        }
+        .onDrop(of: [.text], delegate: ColumnHeaderDropDelegate(
+            targetCol: col,
+            draggedCol: $draggedColumn,
+            targetHighlight: $dropTargetColumn,
+            columnOrderRaw: $columnOrderRaw
+        ))
+    }
+    
+    // Sütun Ayraç Çizgisi ve Boyutlandırma (Finder Birebir)
+    private func columnSplitter(for col: ExplorerColumnId) -> some View {
         ZStack {
             Rectangle()
                 .fill(Color(NSColor.separatorColor).opacity(0.85))
@@ -723,52 +862,37 @@ public struct NativeExplorerView: View {
         .gesture(
             DragGesture(minimumDistance: 1)
                 .onChanged { value in
-                    if activeResizingField != field {
-                        activeResizingField = field
-                        switch field {
-                        case .date: dragStartWidth = colDateWidth
-                        case .kind: dragStartWidth = colKindWidth
-                        case .size: dragStartWidth = colSizeWidth
+                    if liveResizingCol != col {
+                        liveResizingCol = col
+                        switch col {
+                        case .name: liveDragBaseWidth = max(col.minWidth, colNameWidth)
+                        case .date: liveDragBaseWidth = max(col.minWidth, colDateWidth)
+                        case .kind: liveDragBaseWidth = max(col.minWidth, colKindWidth)
+                        case .size: liveDragBaseWidth = max(col.minWidth, colSizeWidth)
                         }
                     }
-                    let newWidth = max(minColumnWidth(for: field), dragStartWidth + Double(value.translation.width))
-                    switch field {
-                    case .date: colDateWidth = newWidth
-                    case .kind: colKindWidth = newWidth
-                    case .size: colSizeWidth = newWidth
-                    }
+                    liveWidthDelta = Double(value.translation.width)
                 }
-                .onEnded { _ in
-                    activeResizingField = nil
+                .onEnded { value in
+                    let finalWidth = max(col.minWidth, liveDragBaseWidth + Double(value.translation.width))
+                    setColumnWidth(finalWidth, for: col)
+                    liveResizingCol = nil
+                    liveWidthDelta = 0
                 }
         )
         .simultaneousGesture(
             TapGesture(count: 2).onEnded {
-                autoFitColumn(field)
+                setColumnWidth(col.defaultWidth, for: col)
             }
         )
     }
 
-    private func minColumnWidth(for field: ColumnResizingField) -> Double {
-        switch field {
-        case .date: return 90.0
-        case .kind: return 70.0
-        case .size: return 60.0
-        }
-    }
-
-    private func autoFitColumn(_ field: ColumnResizingField) {
-        switch field {
-        case .date: colDateWidth = 160.0
-        case .kind: colKindWidth = 130.0
-        case .size: colSizeWidth = 90.0
-        }
-    }
-
     private func resetColumnWidths() {
+        colNameWidth = 260.0
         colDateWidth = 160.0
-        colKindWidth = 130.0
-        colSizeWidth = 90.0
+        colKindWidth = 110.0
+        colSizeWidth = 85.0
+        columnOrderRaw = "name,date,kind,size"
         showColDate = true
         showColKind = true
         showColSize = true
@@ -780,12 +904,7 @@ public struct NativeExplorerView: View {
         Toggle("Tür", isOn: $showColKind)
         Toggle("Boyut", isOn: $showColSize)
         Divider()
-        Button("Tüm Sütunları Sığdır") {
-            autoFitColumn(.date)
-            autoFitColumn(.kind)
-            autoFitColumn(.size)
-        }
-        Button("Varsayılan Sütun Boyutları") {
+        Button("Sütunları ve Sıralamayı Sıfırla") {
             resetColumnWidths()
         }
     }
@@ -1361,64 +1480,16 @@ public struct NativeExplorerView: View {
         let isHovered = hoveredFileID == file.id
         let isSelected = selectedFileIDs.contains(file.id) || selectedFileID == file.id
         let isRenaming = renamingFileID == file.id
+        let visibleCols = columnOrder.filter { isColumnVisible($0) }
         
         return HStack(spacing: 0) {
-            HStack(spacing: 8) {
-                if file.isImage, let img = previewManager.cachedImages[file.id] {
-                    Image(nsImage: img)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 20, height: 20)
-                        .cornerRadius(3)
-                } else {
-                    Image(nsImage: FileIconProvider.shared.icon(for: file.name, isDirectory: file.isDirectory, size: 20, contentType: file.contentType))
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 20, height: 20)
-                }
+            ForEach(visibleCols, id: \.id) { col in
+                fileCellView(file: file, col: col, isSelected: isSelected, isRenaming: isRenaming)
                 
-                if isRenaming {
-                    TextField("Dosya Adı", text: $renamingText, onCommit: {
-                        commitRename(file)
-                    })
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .font(.body)
-                    .frame(maxWidth: 240)
-                } else {
-                    Text(file.name)
-                        .font(.body)
-                        .foregroundColor(isSelected ? Color.accentColor : .primary)
-                        .lineLimit(1)
-                }
-                
-                Spacer()
+                // Header ile birebir aynı hizalama (splitter payı: 10 pt)
+                Spacer().frame(width: 10)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.trailing, 8)
-            
-            if showColDate {
-                Text(file.modificationDate.map { dateFormatter.string(from: $0) } ?? "--")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .frame(width: max(90, colDateWidth), alignment: .leading)
-                    .padding(.horizontal, 6)
-            }
-
-            if showColKind {
-                Text(file.kindDescription)
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                    .frame(width: max(70, colKindWidth), alignment: .leading)
-                    .padding(.horizontal, 6)
-            }
-            
-            if showColSize {
-                Text(file.formattedSize)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .frame(width: max(60, colSizeWidth), alignment: .trailing)
-                    .padding(.horizontal, 6)
-            }
+            Spacer(minLength: 0)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 5)
@@ -1457,6 +1528,71 @@ public struct NativeExplorerView: View {
                 let client = WebDAVClient(config: server)
                 previewManager.loadThumbnail(for: file, client: client)
             }
+        }
+    }
+    
+    @ViewBuilder
+    private func fileCellView(file: RemoteFileItem, col: ExplorerColumnId, isSelected: Bool, isRenaming: Bool) -> some View {
+        let w = columnWidth(for: col)
+        
+        switch col {
+        case .name:
+            HStack(spacing: 8) {
+                if file.isImage, let img = previewManager.cachedImages[file.id] {
+                    Image(nsImage: img)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 18, height: 18)
+                        .cornerRadius(3)
+                } else {
+                    Image(nsImage: FileIconProvider.shared.icon(for: file.name, isDirectory: file.isDirectory, size: 20, contentType: file.contentType))
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 18, height: 18)
+                }
+                
+                if isRenaming {
+                    TextField("Dosya Adı", text: $renamingText, onCommit: {
+                        commitRename(file)
+                    })
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .font(.body)
+                    .frame(maxWidth: .infinity)
+                } else {
+                    Text(file.name)
+                        .font(.body)
+                        .foregroundColor(isSelected ? Color.accentColor : .primary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 6)
+            .frame(width: w, alignment: .leading)
+            
+        case .date:
+            Text(file.modificationDate.map { dateFormatter.string(from: $0) } ?? "--")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+                .padding(.horizontal, 6)
+                .frame(width: w, alignment: .leading)
+                
+        case .kind:
+            Text(file.kindDescription)
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+                .padding(.horizontal, 6)
+                .frame(width: w, alignment: .leading)
+                
+        case .size:
+            Text(file.formattedSize)
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+                .padding(.horizontal, 6)
+                .frame(width: w, alignment: .trailing)
         }
     }
     
@@ -3718,22 +3854,19 @@ public struct HDriveSettingsView: View {
                         Button(action: {
                             startOAuthLogin()
                         }) {
-                            HStack(spacing: 12) {
+                            HStack(spacing: 10) {
                                 if storageProtocol == .googleDrive {
-                                    GoogleDriveLogo(size: 22)
+                                    GoogleDriveLogo(size: 20)
                                     Text(password.isEmpty ? "Google ile Giriş Yap" : "Google Hesabını Yeniden Bağla")
                                 } else if storageProtocol == .oneDrive {
-                                    OneDriveLogo(size: 22)
+                                    OneDriveLogo(size: 20)
                                     Text(password.isEmpty ? "Microsoft ile Giriş Yap" : "Microsoft Hesabını Yeniden Bağla")
                                 } else {
-                                    DropboxLogo(size: 22)
+                                    DropboxLogo(size: 20)
                                     Text(password.isEmpty ? "Dropbox ile Giriş Yap" : "Dropbox Hesabını Yeniden Bağla")
                                 }
                             }
-                            .font(.system(size: 14, weight: .semibold))
-                            .frame(minWidth: 260)
-                            .padding(.vertical, 7)
-                            .padding(.horizontal, 14)
+                            .font(.system(size: 13, weight: .semibold))
                         }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.large)
