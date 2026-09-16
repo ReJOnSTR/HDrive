@@ -18,7 +18,7 @@ struct HDriveMacApp: App {
         }
         .windowStyle(.titleBar)
         .windowToolbarStyle(.unified)
-        .defaultSize(width: 920, height: 620)
+        .defaultSize(width: 1040, height: 660)
         .commands {
             CommandGroup(replacing: .appSettings) {
                 Button("Ayarlar...") {

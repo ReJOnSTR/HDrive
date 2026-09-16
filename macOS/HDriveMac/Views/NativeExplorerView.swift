@@ -61,10 +61,10 @@ public enum ExplorerColumnId: String, CaseIterable, Codable, Identifiable {
     
     public var defaultWidth: Double {
         switch self {
-        case .name: return 260.0
-        case .date: return 160.0
-        case .kind: return 110.0
-        case .size: return 85.0
+        case .name: return 220.0
+        case .date: return 140.0
+        case .kind: return 95.0
+        case .size: return 80.0
         }
     }
     
@@ -149,10 +149,10 @@ public struct NativeExplorerView: View {
     @AppStorage("hdrive_foldersFirst") private var foldersFirst: Bool = true
     
     // Sütun Genişlikleri & Sıralaması (Kalıcı - AppStorage)
-    @AppStorage("hdrive_colNameWidth") private var colNameWidth: Double = 260.0
-    @AppStorage("hdrive_colDateWidth") private var colDateWidth: Double = 160.0
-    @AppStorage("hdrive_colKindWidth") private var colKindWidth: Double = 110.0
-    @AppStorage("hdrive_colSizeWidth") private var colSizeWidth: Double = 85.0
+    @AppStorage("hdrive_colNameWidth") private var colNameWidth: Double = 220.0
+    @AppStorage("hdrive_colDateWidth") private var colDateWidth: Double = 140.0
+    @AppStorage("hdrive_colKindWidth") private var colKindWidth: Double = 95.0
+    @AppStorage("hdrive_colSizeWidth") private var colSizeWidth: Double = 80.0
     
     @AppStorage("hdrive_columnOrder") private var columnOrderRaw: String = "name,date,kind,size"
     
@@ -220,6 +220,14 @@ public struct NativeExplorerView: View {
         case .kind: return sortField == .kind
         case .size: return sortField == .size
         }
+    }
+    
+    private var totalColumnsWidth: Double {
+        let visibleCols = columnOrder.filter { isColumnVisible($0) }
+        let colsWidth = visibleCols.reduce(0.0) { $0 + columnWidth(for: $1) }
+        let splittersWidth = Double(visibleCols.count) * 10.0
+        let paddingWidth = 28.0 // 14 leading + 14 trailing
+        return colsWidth + splittersWidth + paddingWidth
     }
     
     // Klavyeden Harfle Arama (Type-to-Select)
@@ -321,14 +329,16 @@ public struct NativeExplorerView: View {
                 // Dosya Listesi ve Önizleme Bölmesi
                 HStack(spacing: 0) {
                     mainFilesAreaView
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .frame(minWidth: 200, maxWidth: .infinity, maxHeight: .infinity)
+                        .clipped()
                     
                     if showPreviewPane {
                         Divider()
                         previewPaneSideView
-                            .frame(width: 295)
+                            .frame(width: 265)
                             .frame(maxHeight: .infinity)
                             .background(Color(NSColor.windowBackgroundColor))
+                            .layoutPriority(1)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -347,7 +357,7 @@ public struct NativeExplorerView: View {
             .quickLookPreview($quickLookURL)
             .background(keyboardShortcutsOverlay)
         }
-        .frame(minWidth: 800, minHeight: 560)
+        .frame(minWidth: showPreviewPane ? 960 : 750, minHeight: 520)
         .onAppear {
             loadPinnedFolders()
             if let first = tabs.first {
@@ -888,10 +898,10 @@ public struct NativeExplorerView: View {
     }
 
     private func resetColumnWidths() {
-        colNameWidth = 260.0
-        colDateWidth = 160.0
-        colKindWidth = 110.0
-        colSizeWidth = 85.0
+        colNameWidth = ExplorerColumnId.name.defaultWidth
+        colDateWidth = ExplorerColumnId.date.defaultWidth
+        colKindWidth = ExplorerColumnId.kind.defaultWidth
+        colSizeWidth = ExplorerColumnId.size.defaultWidth
         columnOrderRaw = "name,date,kind,size"
         showColDate = true
         showColKind = true
@@ -1346,20 +1356,25 @@ public struct NativeExplorerView: View {
                 )
             } else {
                 // LİSTE GÖRÜNÜMÜ (Finder List View Gibi)
-                VStack(spacing: 0) {
-                    listHeaderView
-                    Divider()
-                    ScrollView {
-                        LazyVStack(spacing: 2) {
-                            ForEach(Array(filteredFiles.enumerated()), id: \.element.id) { index, file in
-                                fileRowItem(file, isEven: index % 2 == 0)
+                GeometryReader { geo in
+                    ScrollView(.horizontal, showsIndicators: totalColumnsWidth > geo.size.width) {
+                        VStack(spacing: 0) {
+                            listHeaderView
+                            Divider()
+                            ScrollView(.vertical) {
+                                LazyVStack(spacing: 2) {
+                                    ForEach(Array(filteredFiles.enumerated()), id: \.element.id) { index, file in
+                                        fileRowItem(file, isEven: index % 2 == 0)
+                                    }
+                                }
+                                .padding(10)
                             }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                         }
-                        .padding(10)
+                        .frame(minWidth: max(geo.size.width, totalColumnsWidth), maxWidth: .infinity, maxHeight: geo.size.height, alignment: .topLeading)
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(minWidth: 150, maxWidth: .infinity, maxHeight: .infinity)
                 .background(
                     Color.clear
                         .contentShape(Rectangle())
@@ -1835,12 +1850,31 @@ public struct NativeExplorerView: View {
     }
     
     private func togglePreviewPane() {
-        showPreviewPane.toggle()
+        withAnimation(.easeInOut(duration: 0.2)) {
+            showPreviewPane.toggle()
+        }
         if showPreviewPane && selectedFileID == nil {
             selectedFileID = filteredFiles.first?.id
             if let first = filteredFiles.first, first.isImage, let server = manager.activeServer {
                 let client = WebDAVClient(config: server)
                 previewManager.loadThumbnail(for: first, client: client)
+            }
+        }
+        if showPreviewPane {
+            ensureWindowWidthForPreview()
+        }
+    }
+    
+    private func ensureWindowWidthForPreview() {
+        DispatchQueue.main.async {
+            if let window = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible && $0.canBecomeMain }) {
+                if window.frame.width < 960 {
+                    var frame = window.frame
+                    let diff = 960 - frame.width
+                    frame.size.width = 960
+                    frame.origin.x = max(0, frame.origin.x - diff / 2)
+                    window.setFrame(frame, display: true, animate: true)
+                }
             }
         }
     }
