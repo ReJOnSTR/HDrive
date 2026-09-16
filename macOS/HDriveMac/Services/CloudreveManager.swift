@@ -15,30 +15,20 @@ public final class CloudreveManager: ObservableObject {
         didSet {
             if let id = activeServer?.id {
                 UserDefaults.standard.set(id.uuidString, forKey: "HDrive_ActiveServerID")
+            } else {
+                UserDefaults.standard.removeObject(forKey: "HDrive_ActiveServerID")
             }
         }
     }
     
     private init() {
         loadServers()
-        if servers.isEmpty {
-            // Varsayılan Cloudreve şablonu
-            let defaultServer = CloudreveServerConfig(
-                name: "Cloudreve Sunucum",
-                serverURL: "https://your-cloudreve-domain.com/dav",
-                username: "admin@example.com",
-                password: ""
-            )
-            servers.append(defaultServer)
-            activeServer = defaultServer
+        if let activeIDStr = UserDefaults.standard.string(forKey: "HDrive_ActiveServerID"),
+           let uuid = UUID(uuidString: activeIDStr),
+           let found = servers.first(where: { $0.id == uuid }) {
+            activeServer = found
         } else {
-            if let activeIDStr = UserDefaults.standard.string(forKey: "HDrive_ActiveServerID"),
-               let uuid = UUID(uuidString: activeIDStr),
-               let found = servers.first(where: { $0.id == uuid }) {
-                activeServer = found
-            } else {
-                activeServer = servers.first
-            }
+            activeServer = servers.first
         }
     }
     
@@ -69,6 +59,10 @@ public final class CloudreveManager: ObservableObject {
         activeServer = server
     }
     
+    public func disconnectActiveServer() {
+        activeServer = nil
+    }
+    
     private func persist() {
         // Düz metin parola asla UserDefaults'a yazılmaz; Keychain kullanılır!
         let sanitized = servers.map { server -> CloudreveServerConfig in
@@ -84,7 +78,10 @@ public final class CloudreveManager: ObservableObject {
     private func loadServers() {
         if let data = UserDefaults.standard.data(forKey: userDefaultsKey),
            let saved = try? JSONDecoder().decode([CloudreveServerConfig].self, from: data) {
-            self.servers = saved.map { server in
+            let valid = saved.filter { s in
+                !s.serverURL.contains("your-cloudreve-domain.com") && !s.serverURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+            self.servers = valid.map { server in
                 var s = server
                 // Keychain'den güvenli parolayı çek
                 if let pass = KeychainHelper.shared.get(account: server.id.uuidString) {

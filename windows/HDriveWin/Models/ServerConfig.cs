@@ -16,8 +16,8 @@ public class ServerConfig
 {
     public string Id { get; set; } = Guid.NewGuid().ToString();
     public string Name { get; set; } = "Bulut Sunucum";
-    public string ServerURL { get; set; } = "http://driver-cloudreve-75b736-45-147-47-56.sslip.io/dav";
-    public string Username { get; set; } = "hallsak55@gmail.com";
+    public string ServerURL { get; set; } = "";
+    public string Username { get; set; } = "";
     public string Password { get; set; } = "";
     public StorageProtocol Protocol { get; set; } = StorageProtocol.WebDAV;
     public string BucketName { get; set; } = "";

@@ -367,7 +367,11 @@ public struct CloudreveView: View {
         isTesting = true
         testResult = nil
         
-        let client = WebDAVClient(config: manager.activeServer!)
+        guard let server = manager.activeServer else {
+            isTesting = false
+            return
+        }
+        let client = WebDAVClient(config: server)
         client.testConnection { success, message in
             isTesting = false
             isTestSuccess = success

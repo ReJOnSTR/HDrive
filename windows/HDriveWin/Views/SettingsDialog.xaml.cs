@@ -17,9 +17,16 @@ public sealed partial class SettingsDialog : ContentDialog
     public SettingsDialog()
     {
         this.InitializeComponent();
-        _editingServer = CloudreveManager.Instance.ActiveServer;
+        _editingServer = CloudreveManager.Instance.ActiveServer ?? new ServerConfig();
 
         ServersListView.ItemsSource = CloudreveManager.Instance.Servers;
+
+        if (CloudreveManager.Instance.Servers.Count == 0)
+        {
+            AccountListPanel.Visibility = Visibility.Collapsed;
+            AccountSelectProviderPanel.Visibility = Visibility.Visible;
+            AccountEditPanel.Visibility = Visibility.Collapsed;
+        }
 
         LoadViewSettings();
 
@@ -58,51 +65,49 @@ public sealed partial class SettingsDialog : ContentDialog
 
     private void CancelEditBtn_Click(object sender, RoutedEventArgs e)
     {
-        AccountListPanel.Visibility = Visibility.Visible;
-        AccountSelectProviderPanel.Visibility = Visibility.Collapsed;
-        AccountEditPanel.Visibility = Visibility.Collapsed;
+        BackFromEdit_Click(sender, e);
     }
 
     private void ProviderTile_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is Button btn && btn.Tag is string tag)
+        if (sender is Button btn && btn.Tag is string tagStr)
         {
-            var proto = tag switch
-            {
-                "GoogleDrive" => StorageProtocol.GoogleDrive,
-                "OneDrive" => StorageProtocol.OneDrive,
-                "Dropbox" => StorageProtocol.Dropbox,
-                "S3" => StorageProtocol.S3,
-                "SMB" => StorageProtocol.SMB,
-                _ => StorageProtocol.WebDAV
-            };
-
             _isNewServer = true;
-            _editingServer = new ServerConfig
+            _editingServer = new ServerConfig();
+
+            switch (tagStr)
             {
-                Name = proto switch
-                {
-                    StorageProtocol.GoogleDrive => "Google Drive",
-                    StorageProtocol.OneDrive => "OneDrive",
-                    StorageProtocol.Dropbox => "Dropbox",
-                    StorageProtocol.S3 => "Amazon S3",
-                    StorageProtocol.SMB => "SMB Paylaşımı",
-                    _ => "WebDAV Sunucum"
-                },
-                Protocol = proto,
-                ServerURL = proto switch
-                {
-                    StorageProtocol.GoogleDrive => "https://www.googleapis.com/drive/v3",
-                    StorageProtocol.OneDrive => "https://graph.microsoft.com/v1.0/me/drive",
-                    StorageProtocol.Dropbox => "https://api.dropboxapi.com/2",
-                    StorageProtocol.S3 => "https://s3.amazonaws.com",
-                    StorageProtocol.SMB => "smb://",
-                    _ => "https://"
-                },
-                Username = "",
-                Password = "",
-                Region = "us-east-1"
-            };
+                case "GoogleDrive":
+                    _editingServer.Protocol = StorageProtocol.GoogleDrive;
+                    _editingServer.Name = "Google Drive";
+                    _editingServer.ServerURL = "https://www.googleapis.com/drive/v3";
+                    break;
+                case "OneDrive":
+                    _editingServer.Protocol = StorageProtocol.OneDrive;
+                    _editingServer.Name = "OneDrive";
+                    _editingServer.ServerURL = "https://graph.microsoft.com/v1.0/me/drive";
+                    break;
+                case "Dropbox":
+                    _editingServer.Protocol = StorageProtocol.Dropbox;
+                    _editingServer.Name = "Dropbox";
+                    _editingServer.ServerURL = "https://api.dropboxapi.com/2";
+                    break;
+                case "S3":
+                    _editingServer.Protocol = StorageProtocol.S3;
+                    _editingServer.Name = "Amazon S3";
+                    _editingServer.ServerURL = "https://s3.amazonaws.com";
+                    break;
+                case "SMB":
+                    _editingServer.Protocol = StorageProtocol.SMB;
+                    _editingServer.Name = "SMB Paylaşımı";
+                    _editingServer.ServerURL = "smb://";
+                    break;
+                default:
+                    _editingServer.Protocol = StorageProtocol.WebDAV;
+                    _editingServer.Name = "WebDAV Sürücüsü";
+                    _editingServer.ServerURL = "https://";
+                    break;
+            }
 
             LoadServerIntoForm(_editingServer);
 
@@ -137,7 +142,14 @@ public sealed partial class SettingsDialog : ContentDialog
             var target = CloudreveManager.Instance.Servers.FirstOrDefault(s => s.Id == id);
             if (target != null)
             {
-                CloudreveManager.Instance.SetActiveServer(target);
+                if (CloudreveManager.Instance.ActiveServer?.Id == target.Id)
+                {
+                    CloudreveManager.Instance.DisconnectActiveServer();
+                }
+                else
+                {
+                    CloudreveManager.Instance.SetActiveServer(target);
+                }
                 // Listeyi yenile
                 ServersListView.ItemsSource = null;
                 ServersListView.ItemsSource = CloudreveManager.Instance.Servers;
@@ -149,12 +161,19 @@ public sealed partial class SettingsDialog : ContentDialog
     {
         if (sender is FrameworkElement fe && fe.Tag is string id)
         {
-            if (CloudreveManager.Instance.Servers.Count <= 1) return;
-
             var target = CloudreveManager.Instance.Servers.FirstOrDefault(s => s.Id == id);
             if (target != null)
             {
                 CloudreveManager.Instance.DeleteServer(target);
+                ServersListView.ItemsSource = null;
+                ServersListView.ItemsSource = CloudreveManager.Instance.Servers;
+
+                if (CloudreveManager.Instance.Servers.Count == 0)
+                {
+                    AccountListPanel.Visibility = Visibility.Collapsed;
+                    AccountSelectProviderPanel.Visibility = Visibility.Visible;
+                    AccountEditPanel.Visibility = Visibility.Collapsed;
+                }
             }
         }
     }

@@ -20,9 +20,9 @@ public class CloudreveManager
     public ObservableCollection<ServerConfig> Servers { get; } = new();
 
     private ServerConfig? _activeServer;
-    public ServerConfig ActiveServer
+    public ServerConfig? ActiveServer
     {
-        get => _activeServer ??= Servers.FirstOrDefault() ?? new ServerConfig();
+        get => _activeServer;
         private set => _activeServer = value;
     }
 
@@ -72,12 +72,25 @@ public class CloudreveManager
         catch { }
     }
 
+    public void DisconnectActiveServer()
+    {
+        ActiveServer = null;
+        try
+        {
+            if (File.Exists(_activeIdFilePath))
+            {
+                File.Delete(_activeIdFilePath);
+            }
+        }
+        catch { }
+    }
+
     public void DeleteServer(ServerConfig config)
     {
         Servers.Remove(config);
         if (ActiveServer?.Id == config.Id)
         {
-            ActiveServer = Servers.FirstOrDefault() ?? new ServerConfig();
+            ActiveServer = Servers.FirstOrDefault();
         }
         Persist();
     }
@@ -97,6 +110,8 @@ public class CloudreveManager
                 BucketName = s.BucketName,
                 Region = s.Region,
                 SmbShareName = s.SmbShareName,
+                ClientId = s.ClientId,
+                ClientSecret = s.ClientSecret,
                 AutoSyncEnabled = s.AutoSyncEnabled
             }).ToList();
 
@@ -106,6 +121,13 @@ public class CloudreveManager
             if (ActiveServer != null)
             {
                 File.WriteAllText(_activeIdFilePath, ActiveServer.Id);
+            }
+            else
+            {
+                if (File.Exists(_activeIdFilePath))
+                {
+                    File.Delete(_activeIdFilePath);
+                }
             }
         }
         catch { }
@@ -124,6 +146,11 @@ public class CloudreveManager
                     Servers.Clear();
                     foreach (var s in list)
                     {
+                        if (string.IsNullOrWhiteSpace(s.ServerURL) || s.ServerURL.Contains("your-cloudreve-domain.com") || s.ServerURL.Contains("driver-cloudreve"))
+                        {
+                            continue;
+                        }
+
                         var pass = CredentialService.GetPassword(s.Username);
                         if (!string.IsNullOrEmpty(pass))
                         {
@@ -132,14 +159,17 @@ public class CloudreveManager
                         Servers.Add(s);
                     }
 
-                    string? activeId = null;
-                    if (File.Exists(_activeIdFilePath))
+                    if (Servers.Count > 0)
                     {
-                        activeId = File.ReadAllText(_activeIdFilePath).Trim();
-                    }
+                        string? activeId = null;
+                        if (File.Exists(_activeIdFilePath))
+                        {
+                            activeId = File.ReadAllText(_activeIdFilePath).Trim();
+                        }
 
-                    _activeServer = Servers.FirstOrDefault(s => s.Id == activeId) ?? Servers.FirstOrDefault();
-                    return;
+                        _activeServer = Servers.FirstOrDefault(s => s.Id == activeId) ?? Servers.FirstOrDefault();
+                        return;
+                    }
                 }
             }
         }
@@ -152,7 +182,7 @@ public class CloudreveManager
             {
                 var json = File.ReadAllText(_legacyConfigFilePath);
                 var legacy = JsonSerializer.Deserialize<ServerConfig>(json);
-                if (legacy != null)
+                if (legacy != null && !string.IsNullOrWhiteSpace(legacy.ServerURL) && !legacy.ServerURL.Contains("your-cloudreve-domain.com") && !legacy.ServerURL.Contains("driver-cloudreve"))
                 {
                     var pass = CredentialService.GetPassword(legacy.Username);
                     if (!string.IsNullOrEmpty(pass)) legacy.Password = pass;
@@ -166,10 +196,8 @@ public class CloudreveManager
         }
         catch { }
 
-        // Varsayılan hesap
-        var def = new ServerConfig();
+        // Varsayılan sahte sunucu eklenmez, liste temiz bırakılır
         Servers.Clear();
-        Servers.Add(def);
-        _activeServer = def;
+        _activeServer = null;
     }
 }

@@ -192,8 +192,8 @@ public struct NativeExplorerView: View {
             if let first = tabs.first {
                 activeTabID = first.id
             }
-            if manager.activeServer?.serverURL.isEmpty == true {
-                showingSettingsSheet = true
+            if manager.activeServer == nil || manager.activeServer?.serverURL.isEmpty == true {
+                self.files = []
             } else {
                 loadDirectory(at: currentPath)
             }
@@ -836,8 +836,8 @@ public struct NativeExplorerView: View {
     private var sidebarView: some View {
         VStack(spacing: 0) {
             List {
-                // HESAPLAR (Birden fazla hesap varsa)
-                if manager.servers.count > 1 {
+                // HESAPLAR
+                if !manager.servers.isEmpty {
                     Section("Hesaplar") {
                         ForEach(manager.servers) { server in
                             let isActive = manager.activeServer?.id == server.id
@@ -880,7 +880,7 @@ public struct NativeExplorerView: View {
                             Image(systemName: isRoot ? "tray.full.fill" : "tray.full")
                                 .foregroundColor(isRoot ? .accentColor : .secondary)
                                 .font(.system(size: 13))
-                            Text(manager.servers.count > 1 ? "Tüm Dosyalar" : (manager.activeServer?.name ?? "Cloudreve"))
+                            Text(manager.servers.count > 1 ? "Tüm Dosyalar" : (manager.activeServer?.name ?? "Bulut Sürücüsü"))
                                 .font(.system(size: 13))
                                 .foregroundColor(isRoot ? .primary : .primary.opacity(0.85))
                                 .lineLimit(1)
@@ -1115,7 +1115,41 @@ public struct NativeExplorerView: View {
     // MARK: - 3. Dosyalar Alanı (Izgara / Liste)
     private var mainFilesAreaView: some View {
         Group {
-            if isLoading {
+            if manager.activeServer == nil || manager.activeServer?.serverURL.isEmpty == true {
+                VStack(spacing: 16) {
+                    Spacer()
+                    ZStack {
+                        Circle()
+                            .fill(LinearGradient(colors: [.indigo.opacity(0.15), .blue.opacity(0.1)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                            .frame(width: 88, height: 88)
+                        Image(systemName: "cloud.fill")
+                            .font(.system(size: 40))
+                            .foregroundColor(.indigo)
+                    }
+                    
+                    Text("Bağlı Bulut Sürücüsü Yok")
+                        .font(.title3.bold())
+                    
+                    Text("Dosyalarınıza erişmek için Google Drive, OneDrive, Dropbox, WebDAV veya S3 hesabınızı ekleyin.")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 420)
+                    
+                    Button(action: {
+                        showingSettingsSheet = true
+                    }) {
+                        Label("Bulut Sürücüsü Ekle", systemImage: "plus.circle.fill")
+                            .font(.system(size: 13, weight: .semibold))
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.regular)
+                    .padding(.top, 6)
+                    
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if isLoading {
                 VStack(spacing: 12) {
                     Spacer()
                     ProgressView()
@@ -1619,7 +1653,11 @@ public struct NativeExplorerView: View {
     }
     
     private func loadDirectory(at path: String) {
-        guard let server = manager.activeServer, !server.serverURL.isEmpty else { return }
+        guard let server = manager.activeServer, !server.serverURL.isEmpty else {
+            self.files = []
+            self.isLoading = false
+            return
+        }
         isLoading = true
         let client = WebDAVClient(config: server)
         loadStorageQuota()
@@ -3077,6 +3115,18 @@ struct CloudreveSettingsSheet: View {
                             Spacer()
                         }
                         .padding(.horizontal, 4)
+                    } else {
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(Color.secondary.opacity(0.5))
+                                .frame(width: 7, height: 7)
+                            Text("Bağlı Sürücü Yok")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                            Spacer()
+                        }
+                        .padding(.horizontal, 4)
                     }
                     
                     Button("Kapat") {
@@ -3122,6 +3172,8 @@ struct CloudreveSettingsSheet: View {
                 selectServer(active)
             } else if let first = manager.servers.first {
                 selectServer(first)
+            } else {
+                connectionMode = .selectProvider
             }
         }
     }
@@ -3151,68 +3203,90 @@ struct CloudreveSettingsSheet: View {
             }
             
             // Kart Listesi
-            VStack(spacing: 10) {
-                ForEach(manager.servers) { server in
-                    let isActive = (manager.activeServer?.id == server.id)
-                    
-                    HStack(spacing: 14) {
-                        ProviderLogoBadge(storageProtocol: server.storageProtocol, size: 42)
+            if manager.servers.isEmpty {
+                VStack(spacing: 12) {
+                    Image(systemName: "externaldrive.badge.plus")
+                        .font(.system(size: 38))
+                        .foregroundColor(.secondary.opacity(0.5))
+                    Text("Kayıtlı Bağlantı Yok")
+                        .font(.headline)
+                    Text("Yukarıdaki 'Yeni Bağlantı Ekle' butonuna basarak ilk bulut sürücünüzü bağlayın.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 40)
+                .background(Color.primary.opacity(0.02))
+                .cornerRadius(10)
+            } else {
+                VStack(spacing: 10) {
+                    ForEach(manager.servers) { server in
+                        let isActive = (manager.activeServer?.id == server.id)
                         
-                        VStack(alignment: .leading, spacing: 3) {
-                            HStack(spacing: 8) {
-                                Text(server.name.isEmpty ? server.storageProtocol.providerName : server.name)
-                                    .font(.system(size: 14, weight: .semibold))
-                                
-                                if isActive {
-                                    HStack(spacing: 4) {
-                                        Circle()
-                                            .fill(Color.green)
-                                            .frame(width: 6, height: 6)
-                                        Text("Aktif")
-                                            .font(.system(size: 11, weight: .bold))
-                                            .foregroundColor(.green)
+                        HStack(spacing: 14) {
+                            ProviderLogoBadge(storageProtocol: server.storageProtocol, size: 42)
+                            
+                            VStack(alignment: .leading, spacing: 3) {
+                                HStack(spacing: 8) {
+                                    Text(server.name.isEmpty ? server.storageProtocol.providerName : server.name)
+                                        .font(.system(size: 14, weight: .semibold))
+                                    
+                                    if isActive {
+                                        HStack(spacing: 4) {
+                                            Circle()
+                                                .fill(Color.green)
+                                                .frame(width: 6, height: 6)
+                                            Text("Aktif")
+                                                .font(.system(size: 11, weight: .bold))
+                                                .foregroundColor(.green)
+                                        }
+                                        .padding(.horizontal, 7)
+                                        .padding(.vertical, 2.5)
+                                        .background(Color.green.opacity(0.12))
+                                        .cornerRadius(6)
                                     }
-                                    .padding(.horizontal, 7)
-                                    .padding(.vertical, 2.5)
-                                    .background(Color.green.opacity(0.12))
-                                    .cornerRadius(6)
                                 }
+                                
+                                Text("\(server.storageProtocol.providerName) • \(server.serverURL.isEmpty ? "Yerel / Bulut Hesabı" : server.serverURL)")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
                             }
                             
-                            Text("\(server.storageProtocol.providerName) • \(server.serverURL.isEmpty ? "Yerel / Bulut Hesabı" : server.serverURL)")
-                                .font(.system(size: 12))
-                                .foregroundColor(.secondary)
-                                .lineLimit(1)
-                        }
-                        
-                        Spacer()
-                        
-                        HStack(spacing: 8) {
-                            if !isActive {
-                                Button("Bağlan") {
-                                    manager.setActiveServer(server)
-                                    onSave()
+                            Spacer()
+                            
+                            HStack(spacing: 8) {
+                                if isActive {
+                                    Button("Bağlantıyı Kes") {
+                                        manager.disconnectActiveServer()
+                                        onSave()
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
+                                } else {
+                                    Button("Bağlan") {
+                                        manager.setActiveServer(server)
+                                        onSave()
+                                    }
+                                    .buttonStyle(.borderedProminent)
+                                    .controlSize(.small)
+                                }
+                                
+                                Button(action: {
+                                    selectServer(server)
+                                    connectionMode = .edit(isNew: false)
+                                }) {
+                                    Image(systemName: "slider.horizontal.3")
+                                        .font(.system(size: 12))
                                 }
                                 .buttonStyle(.bordered)
                                 .controlSize(.small)
-                            }
-                            
-                            Button(action: {
-                                selectServer(server)
-                                connectionMode = .edit(isNew: false)
-                            }) {
-                                Image(systemName: "slider.horizontal.3")
-                                    .font(.system(size: 12))
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                            .help("Bağlantıyı Düzenle")
-                            
-                            if manager.servers.count > 1 {
+                                .help("Bağlantıyı Düzenle")
+                                
                                 Button(action: {
                                     manager.deleteServer(server)
-                                    if manager.activeServer?.id == server.id, let first = manager.servers.first {
-                                        manager.setActiveServer(first)
+                                    if manager.servers.isEmpty {
+                                        connectionMode = .selectProvider
                                     }
                                     onSave()
                                 }) {
@@ -3225,16 +3299,16 @@ struct CloudreveSettingsSheet: View {
                                 .help("Bağlantıyı Sil")
                             }
                         }
+                        .padding(14)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(Color(NSColor.controlBackgroundColor))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(isActive ? Color.accentColor.opacity(0.4) : Color.primary.opacity(0.08), lineWidth: isActive ? 1.5 : 1)
+                        )
                     }
-                    .padding(14)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(Color(NSColor.controlBackgroundColor))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10)
-                            .stroke(isActive ? Color.accentColor.opacity(0.4) : Color.primary.opacity(0.08), lineWidth: isActive ? 1.5 : 1)
-                    )
                 }
             }
         }
