@@ -556,31 +556,17 @@ public struct NativeExplorerView: View {
             }
             .frame(maxWidth: .infinity)
             
-            // Yeni Sekme Ekle (+) Menüsü / Butonu (Farklı hesaplar doğrudan açılabilir)
-            Menu {
-                if manager.servers.count > 1 {
-                    Section("Farklı Hesapla Sekme Aç") {
-                        ForEach(manager.servers) { s in
-                            Button(action: { addNewTab(server: s) }) {
-                                Label(s.name, systemImage: "cloud")
-                            }
-                        }
-                    }
-                    Divider()
-                }
-                Button("Mevcut Hesapla Yeni Sekme Aç (⌘T)") {
-                    addNewTab()
-                }
-            } label: {
+            // Yeni Sekme Ekle (+) Butonu (Doğrudan yeni sekme açar, aşağı ok / menü açılmaz)
+            Button(action: {
+                addNewTab()
+            }) {
                 Image(systemName: "plus")
                     .font(.system(size: 11, weight: .regular))
                     .foregroundColor(isPlusHovered ? .primary : .secondary)
                     .frame(width: 28, height: 28)
                     .contentShape(Rectangle())
-            } primaryAction: {
-                addNewTab()
             }
-            .menuStyle(.borderlessButton)
+            .buttonStyle(.plain)
             .frame(width: 28, height: 28)
             .help("Yeni Sekme Aç (⌘T)")
             .background(isPlusHovered ? Color.primary.opacity(0.05) : Color.clear)
@@ -867,7 +853,11 @@ public struct NativeExplorerView: View {
                         ForEach(manager.servers) { server in
                             let isServerActive = (manager.activeServer?.id == server.id)
                             Button(action: {
-                                openServerInTab(server)
+                                if NSEvent.modifierFlags.contains(.command) {
+                                    addNewTab(server: server)
+                                } else {
+                                    openServerInTab(server)
+                                }
                             }) {
                                 HStack(spacing: 8) {
                                     ProviderLogoBadge(storageProtocol: server.storageProtocol, size: 20)
@@ -891,9 +881,6 @@ public struct NativeExplorerView: View {
                             .contextMenu {
                                 Button(action: { addNewTab(server: server) }) {
                                     Label("Yeni Sekmede Aç", systemImage: "plus.rectangle.on.rectangle")
-                                }
-                                Button(action: { openServerInTab(server, forceThisTab: true) }) {
-                                    Label("Bu Sekmede Aç", systemImage: "arrow.right.circle")
                                 }
                             }
                         }
@@ -1804,9 +1791,9 @@ public struct NativeExplorerView: View {
         loadDirectory(at: path)
     }
     
-    private func openServerInTab(_ server: CloudreveServerConfig, forceThisTab: Bool = false) {
-        if !forceThisTab, let existingTab = tabs.first(where: { $0.serverId == server.id }) {
-            switchToTab(existingTab.id)
+    private func openServerInTab(_ server: CloudreveServerConfig) {
+        if let currentTab = tabs.first(where: { $0.id == activeTabID }),
+           currentTab.serverId == server.id && currentPath.isEmpty {
             return
         }
         
@@ -1816,6 +1803,7 @@ public struct NativeExplorerView: View {
             loadPinnedFolders()
         }
         
+        // Aktif sekmenin hesabını ve başlığını doğrudan seçilen hesaba geçir
         if let idx = tabs.firstIndex(where: { $0.id == activeTabID }) {
             tabs[idx].serverId = server.id
             tabs[idx].title = server.name
