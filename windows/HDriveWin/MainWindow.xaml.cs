@@ -1135,11 +1135,42 @@ public sealed partial class MainWindow : Window
         catch { }
     }
 
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern IntPtr LoadCursor(IntPtr hInstance, int lpCursorName);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern IntPtr SetCursor(IntPtr hCursor);
+
+    private const int IDC_SIZEWE = 32644;
+    private const int IDC_ARROW = 32512;
+
+    private static readonly System.Reflection.PropertyInfo? _protectedCursorProp =
+        typeof(UIElement).GetProperty("ProtectedCursor", System.Reflection.BindingFlags.Instance | System.Reflection.NonPublic | System.Reflection.Public);
+
+    private void SetElementCursor(FrameworkElement fe, bool isResize)
+    {
+        try
+        {
+            if (isResize)
+            {
+                var cursor = Microsoft.UI.Input.InputSystemCursor.Create(Microsoft.UI.Input.InputSystemCursorShape.SizeWestEast);
+                _protectedCursorProp?.SetValue(fe, cursor);
+                SetCursor(LoadCursor(IntPtr.Zero, IDC_SIZEWE));
+            }
+            else
+            {
+                _protectedCursorProp?.SetValue(fe, null);
+                SetCursor(LoadCursor(IntPtr.Zero, IDC_ARROW));
+            }
+        }
+        catch { }
+    }
+
     private void Splitter_PointerEntered(object sender, PointerRoutedEventArgs e)
     {
         if (sender is FrameworkElement fe)
         {
-            fe.ProtectedCursor = Microsoft.UI.Input.InputSystemCursor.Create(Microsoft.UI.Input.InputSystemCursorShape.SizeWestEast);
+            SetElementCursor(fe, true);
         }
     }
 
@@ -1147,7 +1178,7 @@ public sealed partial class MainWindow : Window
     {
         if (sender is FrameworkElement fe)
         {
-            fe.ProtectedCursor = null;
+            SetElementCursor(fe, false);
         }
     }
 
@@ -1161,8 +1192,8 @@ public sealed partial class MainWindow : Window
             _resizeStartX = pt.X;
 
             if (colName == "Date") _resizeStartWidth = _colDateWidth;
-            else if (colName == "Type") _resizeStartWidth = _colDateWidth;
-            else if (colName == "Size") _resizeStartWidth = _colTypeWidth;
+            else if (colName == "Type") _resizeStartWidth = _colTypeWidth;
+            else if (colName == "Size") _resizeStartWidth = _colSizeWidth;
 
             fe.CapturePointer(e.Pointer);
             e.Handled = true;
@@ -1183,12 +1214,12 @@ public sealed partial class MainWindow : Window
             }
             else if (_resizingColumnName == "Type")
             {
-                _colDateWidth = Math.Max(80, _resizeStartWidth + delta);
+                _colTypeWidth = Math.Max(70, _resizeStartWidth - delta);
                 ApplyColumnWidths();
             }
             else if (_resizingColumnName == "Size")
             {
-                _colTypeWidth = Math.Max(70, _resizeStartWidth + delta);
+                _colSizeWidth = Math.Max(60, _resizeStartWidth - delta);
                 ApplyColumnWidths();
             }
             e.Handled = true;
@@ -1201,6 +1232,7 @@ public sealed partial class MainWindow : Window
         {
             _isResizingColumn = false;
             fe.ReleasePointerCapture(e.Pointer);
+            SetElementCursor(fe, false);
             SaveCurrentSettings();
             e.Handled = true;
         }
@@ -1396,9 +1428,12 @@ public sealed partial class MainWindow : Window
             {
                 try
                 {
-                    PreviewImage.Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(cachedFile));
-                    PreviewImage.Visibility = Visibility.Visible;
-                    PreviewIconContainer.Visibility = Visibility.Collapsed;
+                    if (PreviewImage != null)
+                    {
+                        PreviewImage.Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(cachedFile));
+                        PreviewImage.Visibility = Visibility.Visible;
+                    }
+                    if (PreviewIconContainer != null) PreviewIconContainer.Visibility = Visibility.Collapsed;
                 }
                 catch { }
             }
@@ -1416,9 +1451,12 @@ public sealed partial class MainWindow : Window
                             {
                                 try
                                 {
-                                    PreviewImage.Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(downloaded));
-                                    PreviewImage.Visibility = Visibility.Visible;
-                                    PreviewIconContainer.Visibility = Visibility.Collapsed;
+                                    if (PreviewImage != null)
+                                    {
+                                        PreviewImage.Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(downloaded));
+                                        PreviewImage.Visibility = Visibility.Visible;
+                                    }
+                                    if (PreviewIconContainer != null) PreviewIconContainer.Visibility = Visibility.Collapsed;
                                 }
                                 catch { }
                             }
@@ -1437,9 +1475,9 @@ public sealed partial class MainWindow : Window
                 {
                     var content = File.ReadAllText(cachedFile);
                     if (content.Length > 8000) content = content.Substring(0, 8000) + "\n\n... (Önizleme sınırı)";
-                    PreviewTextContent.Text = content;
-                    PreviewTextScroll.Visibility = Visibility.Visible;
-                    PreviewIconContainer.Visibility = Visibility.Collapsed;
+                    if (PreviewTextContent != null) PreviewTextContent.Text = content;
+                    if (PreviewTextScroll != null) PreviewTextScroll.Visibility = Visibility.Visible;
+                    if (PreviewIconContainer != null) PreviewIconContainer.Visibility = Visibility.Collapsed;
                 }
                 catch { }
             }
@@ -1459,9 +1497,9 @@ public sealed partial class MainWindow : Window
                                 {
                                     var content = File.ReadAllText(downloaded);
                                     if (content.Length > 8000) content = content.Substring(0, 8000) + "\n\n... (Önizleme sınırı)";
-                                    PreviewTextContent.Text = content;
-                                    PreviewTextScroll.Visibility = Visibility.Visible;
-                                    PreviewIconContainer.Visibility = Visibility.Collapsed;
+                                    if (PreviewTextContent != null) PreviewTextContent.Text = content;
+                                    if (PreviewTextScroll != null) PreviewTextScroll.Visibility = Visibility.Visible;
+                                    if (PreviewIconContainer != null) PreviewIconContainer.Visibility = Visibility.Collapsed;
                                 }
                                 catch { }
                             }
