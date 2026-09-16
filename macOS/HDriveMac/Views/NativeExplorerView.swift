@@ -3539,122 +3539,68 @@ struct CloudreveSettingsSheet: View {
                 }
                 
                 if storageProtocol == .googleDrive || storageProtocol == .oneDrive || storageProtocol == .dropbox {
-                    // Doğrudan OAuth ile Giriş Yap Kartı
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Doğrudan Web ile Giriş Yap (OAuth 2.0)")
-                                    .font(.system(size: 13, weight: .semibold))
-                                Text("\(storageProtocol.providerName) resmi giriş ekranını açarak hesabınızı tek tıkla yetkilendirin.")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                            Spacer()
-                            
-                            Button(action: {
-                                startOAuthLogin()
-                            }) {
-                                HStack(spacing: 8) {
-                                    if storageProtocol == .googleDrive {
-                                        GoogleDriveLogo(size: 16)
-                                        Text("Google ile Giriş Yap")
-                                    } else if storageProtocol == .oneDrive {
-                                        OneDriveLogo(size: 16)
-                                        Text("Microsoft ile Giriş Yap")
-                                    } else {
-                                        DropboxLogo(size: 16)
-                                        Text("Dropbox ile Giriş Yap")
-                                    }
-                                }
-                                .font(.system(size: 12, weight: .semibold))
-                            }
-                            .buttonStyle(.borderedProminent)
-                        }
-                    }
-                    .padding(12)
-                    .background(Color.primary.opacity(0.04))
-                    .cornerRadius(8)
-
-                    if storageProtocol == .googleDrive {
-                        HStack(spacing: 8) {
-                            TextField("Veya tarayıcı adresindeki kodu/URL'yi yapıştırın", text: $manualCodeInput)
-                                .textFieldStyle(.roundedBorder)
-                                .font(.system(size: 12))
-                            Button("Doğrula & Bağlan") {
-                                exchangeManualCode()
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                            .disabled(manualCodeInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        }
-                    }
-
-                    HStack {
-                        Text("OAuth Client ID")
-                            .font(.system(size: 13, weight: .medium))
-                            .frame(width: 140, alignment: .leading)
-                        TextField(storageProtocol == .googleDrive ? "xxx.apps.googleusercontent.com" : "Azure / App Client ID", text: $clientId)
-                            .textFieldStyle(.roundedBorder)
+                    // Temiz ve Şık Doğrudan Giriş Kartı (Teknik OAuth Detayları Gizlendi)
+                    VStack(spacing: 20) {
+                        ProviderLogoBadge(storageProtocol: storageProtocol, size: 64)
+                            .padding(.top, 8)
                         
-                        Button(action: {
-                            openConsoleForProvider()
-                        }) {
-                            Image(systemName: "arrow.up.forward.app")
+                        VStack(spacing: 6) {
+                            Text("\(storageProtocol.providerName) Hesabınızı Bağlayın")
+                                .font(.system(size: 16, weight: .bold))
+                            
+                            Text("Resmi \(storageProtocol.providerName) giriş ekranını kullanarak hesabınızı tek tıkla yetkilendirin. Tüm dosyalarınıza doğrudan HDrive üzerinden erişebilirsiniz.")
                                 .font(.system(size: 13))
                                 .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                                .frame(maxWidth: 420)
                         }
-                        .buttonStyle(.plain)
-                        .help("Sağlayıcı Konsolundan Client ID Al")
+                        
+                        // Bağlantı / Oturum Durumu
+                        if !password.isEmpty {
+                            HStack(spacing: 6) {
+                                Circle()
+                                    .fill(Color.green)
+                                    .frame(width: 8, height: 8)
+                                Text("Oturum Açık & Bağlantı Hazır")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundColor(.green)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .background(Color.green.opacity(0.12))
+                            .cornerRadius(12)
+                        }
+                        
+                        Button(action: {
+                            startOAuthLogin()
+                        }) {
+                            HStack(spacing: 10) {
+                                if storageProtocol == .googleDrive {
+                                    GoogleDriveLogo(size: 20)
+                                    Text(password.isEmpty ? "Google ile Giriş Yap" : "Google Hesabını Yeniden Bağla")
+                                } else if storageProtocol == .oneDrive {
+                                    OneDriveLogo(size: 20)
+                                    Text(password.isEmpty ? "Microsoft ile Giriş Yap" : "Microsoft Hesabını Yeniden Bağla")
+                                } else {
+                                    DropboxLogo(size: 20)
+                                    Text(password.isEmpty ? "Dropbox ile Giriş Yap" : "Dropbox Hesabını Yeniden Bağla")
+                                }
+                            }
+                            .font(.system(size: 14, weight: .semibold))
+                            .frame(maxWidth: 320)
+                            .padding(.vertical, 10)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
                     }
-
-                    HStack {
-                        Text("OAuth Client Secret")
-                            .font(.system(size: 13, weight: .medium))
-                            .frame(width: 140, alignment: .leading)
-                        SecureField("Client Secret (İsteğe Bağlı)", text: $clientSecret)
-                            .textFieldStyle(.roundedBorder)
-                    }
-
-                    HStack {
-                        Text("Hesap E-postası")
-                            .font(.system(size: 13, weight: .medium))
-                            .frame(width: 140, alignment: .leading)
-                        TextField("hesabiniz@gmail.com veya outlook.com", text: $username)
-                            .textFieldStyle(.roundedBorder)
-                    }
-                    
-                    HStack {
-                        Text("Yetki Tokenı / Şifre")
-                            .font(.system(size: 13, weight: .medium))
-                            .frame(width: 140, alignment: .leading)
-                        SecureField("OAuth Erişim Tokenı veya Şifre", text: $password)
-                            .textFieldStyle(.roundedBorder)
-                    }
-
-                    HStack {
-                        Text("Köprü / Uç Nokta (Opsiyonel)")
-                            .font(.system(size: 13, weight: .medium))
-                            .frame(width: 140, alignment: .leading)
-                        TextField("http://localhost:8080 veya doğrudan API", text: $serverURL)
-                            .textFieldStyle(.roundedBorder)
-                            .font(.system(.body, design: .monospaced))
-                    }
-                    
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text("💡 OAuth ve Giriş Bilgisi:")
-                            .font(.caption.bold())
-                            .foregroundColor(.primary)
-                        Text("• Web ile giriş yapabilmek için Google Cloud Console veya Azure Portal'dan oluşturduğunuz Client ID'yi yukarıya yapıştırın.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Text("• Veya hazır bir tokenınız/WebDAV köprünüz varsa doğrudan ilgili kutulara girerek kaydedebilirsiniz.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.blue.opacity(0.08))
-                    .cornerRadius(6)
+                    .frame(maxWidth: .infinity)
+                    .padding(24)
+                    .background(Color(NSColor.controlBackgroundColor))
+                    .cornerRadius(12)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                    )
                     
                 } else if storageProtocol == .webdav {
                     HStack {

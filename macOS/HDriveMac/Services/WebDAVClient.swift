@@ -120,7 +120,7 @@ public struct CloudreveServerConfig: Identifiable, Codable, Hashable {
     }
 }
 
-public final class WebDAVClient: NSObject, URLSessionDelegate, XMLParserDelegate {
+public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDelegate, XMLParserDelegate {
     public let config: CloudreveServerConfig
     
     private lazy var session: URLSession = {
@@ -138,6 +138,14 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, XMLParserDelegate
         } else {
             completionHandler(.performDefaultHandling, nil)
         }
+    }
+    
+    public func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        var redirectedRequest = request
+        if let auth = self.authHeader {
+            redirectedRequest.setValue(auth, forHTTPHeaderField: "Authorization")
+        }
+        completionHandler(redirectedRequest)
     }
     
     private var authHeader: String? {

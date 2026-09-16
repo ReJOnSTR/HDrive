@@ -205,7 +205,7 @@ public sealed partial class SettingsDialog : ContentDialog
         SmbShareBox.Visibility = (s.Protocol == StorageProtocol.SMB) ? Visibility.Visible : Visibility.Collapsed;
 
         var isCloud = (s.Protocol == StorageProtocol.GoogleDrive || s.Protocol == StorageProtocol.OneDrive || s.Protocol == StorageProtocol.Dropbox);
-        OAuthFieldsGrid.Visibility = isCloud ? Visibility.Visible : Visibility.Collapsed;
+        OAuthFieldsGrid.Visibility = Visibility.Collapsed; // Teknik OAuth kutucukları gizlendi, arka planda hazır yüklenir
         ClientIdBox.Text = s.ClientId ?? "";
         ClientSecretBox.Password = s.ClientSecret ?? "";
 
