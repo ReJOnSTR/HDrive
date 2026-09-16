@@ -311,6 +311,16 @@
                             <TextBox x:Name="ServerUrlBox" Header="Sunucu Adresi / Uç Nokta" 
                                      PlaceholderText="https://bulut.alanadi.com/dav veya S3 Uç Noktası" />
 
+                            <!-- OAuth Alanları (Google Drive, OneDrive, Dropbox) -->
+                            <Grid x:Name="OAuthFieldsGrid" Visibility="Collapsed">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBox x:Name="ClientIdBox" Header="OAuth Client ID" PlaceholderText="Google/Azure Client ID" Grid.Column="0" Margin="0,0,6,0" />
+                                <PasswordBox x:Name="ClientSecretBox" Header="Client Secret (Opsiyonel)" PasswordRevealMode="Peek" PlaceholderText="İstemci gizli anahtarı" Grid.Column="1" Margin="6,0,0,0" />
+                            </Grid>
+
                             <!-- S3 Alanları -->
                             <Grid x:Name="S3FieldsGrid" Visibility="Collapsed">
                                 <Grid.ColumnDefinitions>

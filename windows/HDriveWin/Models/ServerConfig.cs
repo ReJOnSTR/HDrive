@@ -23,6 +23,8 @@ public class ServerConfig
     public string BucketName { get; set; } = "";
     public string Region { get; set; } = "us-east-1";
     public string SmbShareName { get; set; } = "";
+    public string ClientId { get; set; } = "";
+    public string ClientSecret { get; set; } = "";
     public bool AutoSyncEnabled { get; set; } = true;
 
     public string ProviderName => Protocol switch

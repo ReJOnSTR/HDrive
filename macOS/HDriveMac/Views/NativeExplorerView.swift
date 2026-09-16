@@ -2991,6 +2991,8 @@ struct CloudreveSettingsSheet: View {
     @State private var bucketName: String = ""
     @State private var region: String = "us-east-1"
     @State private var smbShare: String = ""
+    @State private var clientId: String = ""
+    @State private var clientSecret: String = ""
     
     @State private var isTesting: Bool = false
     @State private var testResult: String? = nil
@@ -3374,10 +3376,36 @@ struct CloudreveSettingsSheet: View {
                     .cornerRadius(8)
 
                     HStack {
+                        Text("OAuth Client ID")
+                            .font(.system(size: 13, weight: .medium))
+                            .frame(width: 140, alignment: .leading)
+                        TextField(storageProtocol == .googleDrive ? "xxx.apps.googleusercontent.com" : "Azure / App Client ID", text: $clientId)
+                            .textFieldStyle(.roundedBorder)
+                        
+                        Button(action: {
+                            openConsoleForProvider()
+                        }) {
+                            Image(systemName: "arrow.up.forward.app")
+                                .font(.system(size: 13))
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Sağlayıcı Konsolundan Client ID Al")
+                    }
+
+                    HStack {
+                        Text("OAuth Client Secret")
+                            .font(.system(size: 13, weight: .medium))
+                            .frame(width: 140, alignment: .leading)
+                        SecureField("Client Secret (İsteğe Bağlı)", text: $clientSecret)
+                            .textFieldStyle(.roundedBorder)
+                    }
+
+                    HStack {
                         Text("Hesap E-postası")
                             .font(.system(size: 13, weight: .medium))
                             .frame(width: 140, alignment: .leading)
-                        TextField("hesabiniz@gmail.com", text: $username)
+                        TextField("hesabiniz@gmail.com veya outlook.com", text: $username)
                             .textFieldStyle(.roundedBorder)
                     }
                     
@@ -3397,6 +3425,19 @@ struct CloudreveSettingsSheet: View {
                             .textFieldStyle(.roundedBorder)
                             .font(.system(.body, design: .monospaced))
                     }
+                    
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("💡 OAuth ve Giriş Bilgisi:")
+                            .font(.caption.bold())
+                            .foregroundColor(.primary)
+                        Text("• Web ile giriş yapabilmek için Google Cloud Console veya Azure Portal'dan oluşturduğunuz Client ID'yi yukarıya yapıştırın.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text("• Veya hazır bir tokenınız/WebDAV köprünüz varsa doğrudan ilgili kutulara girerek kaydedebilirsiniz.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Color.blue.opacity(0.08))
                     .cornerRadius(6)
@@ -3679,6 +3720,8 @@ struct CloudreveSettingsSheet: View {
         bucketName = server.bucketName
         region = server.region
         smbShare = server.smbShare
+        clientId = server.clientId
+        clientSecret = server.clientSecret
         testResult = nil
     }
     
@@ -3692,6 +3735,8 @@ struct CloudreveSettingsSheet: View {
         smbShare = ""
         username = ""
         password = ""
+        clientId = ""
+        clientSecret = ""
         
         switch proto {
         case .googleDrive:
@@ -3711,20 +3756,49 @@ struct CloudreveSettingsSheet: View {
         connectionMode = .edit(isNew: true)
     }
     
+    private func openConsoleForProvider() {
+        let urlStr: String
+        switch storageProtocol {
+        case .googleDrive:
+            urlStr = "https://console.cloud.google.com/apis/credentials"
+        case .oneDrive:
+            urlStr = "https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade"
+        case .dropbox:
+            urlStr = "https://www.dropbox.com/developers/apps"
+        default:
+            urlStr = ""
+        }
+        if let u = URL(string: urlStr) {
+            NSWorkspace.shared.open(u)
+        }
+    }
+
     private func startOAuthLogin() {
+        let trimmedClientId = clientId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let clientName = storageProtocol.providerName
+        
+        guard !trimmedClientId.isEmpty else {
+            isTestSuccess = false
+            testResult = "⚠️ '\(clientName)' resmi girişi için 'OAuth Client ID' zorunludur.\n\nOAuth 2.0 protokolü gereği Google ve Microsoft isteklerinde 'client_id' ve 'response_type' parametreleri şarttır. Lütfen yukarıdaki 'OAuth Client ID' kutucuğuna konsolunuzdan aldığınız kimliği yapıştırın (veya sağdaki simgeye tıklayarak konsol sayfasına gidin)."
+            return
+        }
+        
+        guard let encodedClientId = trimmedClientId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+            return
+        }
+        
         isTesting = true
         testResult = nil
         
         let authEndpoint: String
-        let clientName = storageProtocol.providerName
         
         switch storageProtocol {
         case .googleDrive:
-            authEndpoint = "https://accounts.google.com/o/oauth2/v2/auth"
+            authEndpoint = "https://accounts.google.com/o/oauth2/v2/auth?client_id=\(encodedClientId)&response_type=code&redirect_uri=http%3A%2F%2F127.0.0.1%3A8080%2Foauth%2Fcallback&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive&access_type=offline&prompt=consent"
         case .oneDrive:
-            authEndpoint = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
+            authEndpoint = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=\(encodedClientId)&response_type=code&redirect_uri=https%3A%2F%2Flogin.microsoftonline.com%2Fcommon%2Foauth2%2Fnativeclient&response_mode=query&scope=offline_access%20Files.ReadWrite%20User.Read"
         case .dropbox:
-            authEndpoint = "https://www.dropbox.com/oauth2/authorize"
+            authEndpoint = "https://www.dropbox.com/oauth2/authorize?client_id=\(encodedClientId)&response_type=code&redirect_uri=http%3A%2F%2Flocalhost%3A8080%2Foauth%2Fcallback"
         default:
             authEndpoint = ""
         }
@@ -3733,16 +3807,10 @@ struct CloudreveSettingsSheet: View {
             NSWorkspace.shared.open(url)
         }
         
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
             self.isTesting = false
-            if self.username.isEmpty {
-                self.username = self.storageProtocol == .googleDrive ? "kullanici@gmail.com" : "kullanici@outlook.com"
-            }
-            if self.password.isEmpty {
-                self.password = "oauth2_token_\(UUID().uuidString.prefix(12))"
-            }
             self.isTestSuccess = true
-            self.testResult = "✅ \(clientName) Web Yetkilendirmesi (OAuth 2.0) tamamlandı! Hesap oturumu doğrulandı."
+            self.testResult = "🌐 Tarayıcınızda \(clientName) yetkilendirme sayfası açıldı. Giriş yaptıktan sonra aldığınız erişim tokenını 'Yetki Tokenı / Şifre' alanına girebilirsiniz."
         }
     }
     
@@ -3758,6 +3826,8 @@ struct CloudreveSettingsSheet: View {
         cfg.bucketName = bucketName.trimmingCharacters(in: .whitespacesAndNewlines)
         cfg.region = region.trimmingCharacters(in: .whitespacesAndNewlines)
         cfg.smbShare = smbShare.trimmingCharacters(in: .whitespacesAndNewlines)
+        cfg.clientId = clientId.trimmingCharacters(in: .whitespacesAndNewlines)
+        cfg.clientSecret = clientSecret.trimmingCharacters(in: .whitespacesAndNewlines)
         
         manager.saveServer(cfg)
         manager.setActiveServer(cfg)
@@ -3776,6 +3846,8 @@ struct CloudreveSettingsSheet: View {
         cfg.bucketName = bucketName.trimmingCharacters(in: .whitespacesAndNewlines)
         cfg.region = region.trimmingCharacters(in: .whitespacesAndNewlines)
         cfg.smbShare = smbShare.trimmingCharacters(in: .whitespacesAndNewlines)
+        cfg.clientId = clientId.trimmingCharacters(in: .whitespacesAndNewlines)
+        cfg.clientSecret = clientSecret.trimmingCharacters(in: .whitespacesAndNewlines)
         
         let client = WebDAVClient(config: cfg)
         client.testConnection { success, message in

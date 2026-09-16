@@ -174,10 +174,14 @@ public sealed partial class SettingsDialog : ContentDialog
         SmbShareBox.Visibility = (s.Protocol == StorageProtocol.SMB) ? Visibility.Visible : Visibility.Collapsed;
 
         var isCloud = (s.Protocol == StorageProtocol.GoogleDrive || s.Protocol == StorageProtocol.OneDrive || s.Protocol == StorageProtocol.Dropbox);
+        OAuthFieldsGrid.Visibility = isCloud ? Visibility.Visible : Visibility.Collapsed;
+        ClientIdBox.Text = s.ClientId ?? "";
+        ClientSecretBox.Password = s.ClientSecret ?? "";
+
         CloudInfoTipBorder.Visibility = isCloud ? Visibility.Visible : Visibility.Collapsed;
         if (isCloud)
         {
-            CloudInfoTipText.Text = $"💡 {s.ProviderName} doğrudan API tokenı veya yerel WebDAV köprüsü üzerinden bağlanabilir.";
+            CloudInfoTipText.Text = $"💡 {s.ProviderName} doğrudan API tokenı veya OAuth Client ID ile yetkilendirilebilir.";
         }
 
         TestResultInfoBar.IsOpen = false;
@@ -192,6 +196,8 @@ public sealed partial class SettingsDialog : ContentDialog
         _editingServer.BucketName = BucketBox.Text.Trim();
         _editingServer.Region = RegionBox.Text.Trim();
         _editingServer.SmbShareName = SmbShareBox.Text.Trim();
+        _editingServer.ClientId = ClientIdBox.Text.Trim();
+        _editingServer.ClientSecret = ClientSecretBox.Password;
 
         CloudreveManager.Instance.SaveServer(_editingServer);
         CloudreveManager.Instance.SetActiveServer(_editingServer);
@@ -219,7 +225,9 @@ public sealed partial class SettingsDialog : ContentDialog
             Protocol = _editingServer.Protocol,
             BucketName = BucketBox.Text.Trim(),
             Region = RegionBox.Text.Trim(),
-            SmbShareName = SmbShareBox.Text.Trim()
+            SmbShareName = SmbShareBox.Text.Trim(),
+            ClientId = ClientIdBox.Text.Trim(),
+            ClientSecret = ClientSecretBox.Password
         };
 
         if (tempConfig.Protocol == StorageProtocol.GoogleDrive || tempConfig.Protocol == StorageProtocol.OneDrive || tempConfig.Protocol == StorageProtocol.Dropbox)

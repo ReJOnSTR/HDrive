@@ -92,6 +92,8 @@ public struct CloudreveServerConfig: Identifiable, Codable, Hashable {
     public var bucketName: String = ""
     public var region: String = "us-east-1"
     public var smbShare: String = ""
+    public var clientId: String = ""
+    public var clientSecret: String = ""
     
     public init(
         name: String = "Bulut Sunucum",
@@ -101,7 +103,9 @@ public struct CloudreveServerConfig: Identifiable, Codable, Hashable {
         storageProtocol: StorageProtocol = .webdav,
         bucketName: String = "",
         region: String = "us-east-1",
-        smbShare: String = ""
+        smbShare: String = "",
+        clientId: String = "",
+        clientSecret: String = ""
     ) {
         self.name = name
         self.serverURL = serverURL
@@ -111,6 +115,8 @@ public struct CloudreveServerConfig: Identifiable, Codable, Hashable {
         self.bucketName = bucketName
         self.region = region
         self.smbShare = smbShare
+        self.clientId = clientId
+        self.clientSecret = clientSecret
     }
 }
 
