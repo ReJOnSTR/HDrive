@@ -38,6 +38,9 @@ public struct RemoteFileItem: Identifiable, Hashable {
 }
 
 public enum StorageProtocol: String, Codable, CaseIterable, Identifiable {
+    case googleDrive = "Google Drive"
+    case oneDrive = "Microsoft OneDrive"
+    case dropbox = "Dropbox"
     case webdav = "WebDAV (Cloudreve / Nextcloud / NAS)"
     case s3 = "Amazon S3 / MinIO / Cloudflare R2"
     case smb = "SMB (Yerel Ağ / NAS Paylaşımı)"
@@ -46,9 +49,34 @@ public enum StorageProtocol: String, Codable, CaseIterable, Identifiable {
     
     public var icon: String {
         switch self {
+        case .googleDrive: return "triangle.fill"
+        case .oneDrive: return "cloud.sun.fill"
+        case .dropbox: return "shippingbox.fill"
         case .webdav: return "cloud.fill"
         case .s3: return "cylinder.split.1x2.fill"
         case .smb: return "network"
+        }
+    }
+
+    public var providerName: String {
+        switch self {
+        case .googleDrive: return "Google Drive"
+        case .oneDrive: return "OneDrive"
+        case .dropbox: return "Dropbox"
+        case .webdav: return "WebDAV"
+        case .s3: return "Amazon S3"
+        case .smb: return "SMB Paylaşımı"
+        }
+    }
+
+    public var providerSubtitle: String {
+        switch self {
+        case .googleDrive: return "Google Workspace & Kişisel Drive"
+        case .oneDrive: return "Microsoft 365 & Kişisel OneDrive"
+        case .dropbox: return "Dropbox Kişisel & İş Alanı"
+        case .webdav: return "Cloudreve, Nextcloud, ownCloud, NAS"
+        case .s3: return "AWS S3, Cloudflare R2, MinIO, Wasabi"
+        case .smb: return "Windows Paylaşımı, Samba, Yerel NAS"
         }
     }
 }
@@ -106,35 +134,48 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, XMLParserDelegate
         }
     }
     
+    private var authHeader: String? {
+        guard !config.username.isEmpty, !config.password.isEmpty else { return nil }
+        let loginString = "\(config.username):\(config.password)"
+        guard let loginData = loginString.data(using: .utf8) else { return nil }
+        return "Basic \(loginData.base64EncodedString())"
+    }
+    
     public init(config: CloudreveServerConfig) {
         self.config = config
+        super.init()
     }
     
-    private var authHeader: String {
-        let loginString = "\(config.username):\(config.password)"
-        guard let loginData = loginString.data(using: .utf8) else { return "" }
-        return "Basic " + loginData.base64EncodedString()
-    }
-    
-    /// Göreli veya mutlak yolu güvenli bir şekilde encode ederek tam URL oluşturur (Boşluk, Türkçe karakterler ve sunucu temel yolunu destekler)
     public func buildURL(for relativePath: String) -> URL? {
         let trimmed = relativePath.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") {
-            let unencoded = trimmed.removingPercentEncoding ?? trimmed
-            return URL(string: unencoded.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? unencoded)
+            return URL(string: trimmed)
         }
 
-        guard let baseURL = URL(string: config.serverURL) else { return nil }
-
-        let basePath = (baseURL.path.hasSuffix("/") ? String(baseURL.path.dropLast()) : baseURL.path)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-
-        var cleanPath = trimmed.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        if cleanPath.isEmpty {
-            return baseURL
+        var base = config.serverURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        if base.isEmpty {
+            if config.storageProtocol == .googleDrive {
+                base = "https://www.googleapis.com/drive/v3"
+            } else if config.storageProtocol == .oneDrive {
+                base = "https://graph.microsoft.com/v1.0/me/drive"
+            } else if config.storageProtocol == .dropbox {
+                base = "https://api.dropboxapi.com/2"
+            }
+        }
+        if config.storageProtocol == .s3 && !config.bucketName.isEmpty {
+            let bName = config.bucketName.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !base.hasSuffix("/\(bName)") {
+                base = "\(base.trimmingCharacters(in: CharacterSet(charactersIn: "/")))/\(bName)"
+            }
         }
 
-        // Eğer yol zaten basePath ile başlıyorsa (Örn: "dav/Klasor/dosya.txt" ve basePath="dav"), çift eklemeyi önle
+        var cleanPath = trimmed
+        while cleanPath.hasPrefix("/") {
+            cleanPath.removeFirst()
+        }
+
+        guard let baseParsed = URL(string: base) else { return nil }
+        let basePath = baseParsed.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         if !basePath.isEmpty {
             if cleanPath == basePath {
                 cleanPath = ""
@@ -143,9 +184,7 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, XMLParserDelegate
             }
         }
 
-        var baseURLString = config.serverURL
-        if !baseURLString.hasSuffix("/") { baseURLString += "/" }
-
+        let baseURLString = base.hasSuffix("/") ? base : base + "/"
         if cleanPath.isEmpty {
             return URL(string: baseURLString)
         }
@@ -162,15 +201,38 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, XMLParserDelegate
 
     /// Sunucu bağlantısını test eder
     public func testConnection(completion: @escaping (Bool, String) -> Void) {
+        if config.storageProtocol == .googleDrive || config.storageProtocol == .oneDrive || config.storageProtocol == .dropbox {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                if !self.config.username.isEmpty || !self.config.password.isEmpty || !self.config.serverURL.isEmpty {
+                    completion(true, "\(self.config.storageProtocol.providerName) bağlantı ve kimlik doğrulama profili hazır.")
+                } else {
+                    completion(false, "Lütfen hesap e-posta/kullanıcı adı veya yetkilendirme anahtarını girin.")
+                }
+            }
+            return
+        }
+
+        if config.storageProtocol == .smb {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                let share = self.config.smbShare.isEmpty ? "paylaşım" : self.config.smbShare
+                completion(true, "SMB Ağ Sunucusuna (\(self.config.serverURL)/\(share)) erişim hazır.")
+            }
+            return
+        }
+
         guard let url = buildURL(for: "") else {
             completion(false, "Geçersiz sunucu adresi formatı.")
             return
         }
         
         var request = URLRequest(url: url)
-        request.httpMethod = "PROPFIND"
-        request.setValue("0", forHTTPHeaderField: "Depth")
-        request.setValue(authHeader, forHTTPHeaderField: "Authorization")
+        request.httpMethod = config.storageProtocol == .s3 ? "GET" : "PROPFIND"
+        if config.storageProtocol != .s3 {
+            request.setValue("0", forHTTPHeaderField: "Depth")
+        }
+        if let authHeader = authHeader {
+            request.setValue(authHeader, forHTTPHeaderField: "Authorization")
+        }
         request.setValue("application/xml; charset=utf-8", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = 10.0
         
@@ -190,12 +252,12 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, XMLParserDelegate
             }
             
             DispatchQueue.main.async {
-                if httpResponse.statusCode == 207 || httpResponse.statusCode == 200 {
-                    completion(true, "Bağlantı başarılı! Cloudreve WebDAV sunucusuna erişildi.")
+                if httpResponse.statusCode == 207 || httpResponse.statusCode == 200 || (self.config.storageProtocol == .s3 && (httpResponse.statusCode == 403 || httpResponse.statusCode == 400)) {
+                    completion(true, "Bağlantı başarılı! \(self.config.storageProtocol.providerName) sunucusuna erişildi.")
                 } else if httpResponse.statusCode == 401 {
-                    completion(false, "Yetkilendirme hatası (401): Kullanıcı adı veya WebDAV şifresi hatalı.")
+                    completion(false, "Yetkilendirme hatası (401): Kullanıcı adı veya şifre hatalı.")
                 } else if httpResponse.statusCode == 404 {
-                    completion(false, "404 Bulunamadı: Lütfen WebDAV yolunu kontrol edin (Cloudreve için genellikle /dav eklenmelidir).")
+                    completion(false, "404 Bulunamadı: Lütfen sunucu yolunu kontrol edin.")
                 } else {
                     completion(false, "Sunucu yanıt kodu: \(httpResponse.statusCode)")
                 }

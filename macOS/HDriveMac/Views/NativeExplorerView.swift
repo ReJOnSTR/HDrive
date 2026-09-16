@@ -2743,6 +2743,59 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     }
 }
 
+// MARK: - Sağlayıcı Logo ve Rozet Bileşeni
+struct ProviderLogoBadge: View {
+    let storageProtocol: StorageProtocol
+    var size: CGFloat = 36
+    
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: size * 0.26)
+                .fill(backgroundGradient)
+                .frame(width: size, height: size)
+                .shadow(color: shadowColor.opacity(0.25), radius: 3, x: 0, y: 1.5)
+            
+            Image(systemName: storageProtocol.icon)
+                .font(.system(size: size * 0.48, weight: .semibold))
+                .foregroundColor(.white)
+        }
+    }
+    
+    private var backgroundGradient: LinearGradient {
+        switch storageProtocol {
+        case .googleDrive:
+            return LinearGradient(colors: [Color(red: 0.26, green: 0.52, blue: 0.96), Color(red: 0.20, green: 0.66, blue: 0.33)], startPoint: .topLeading, endPoint: .bottomTrailing)
+        case .oneDrive:
+            return LinearGradient(colors: [Color(red: 0.0, green: 0.47, blue: 0.83), Color(red: 0.0, green: 0.64, blue: 0.94)], startPoint: .topLeading, endPoint: .bottomTrailing)
+        case .dropbox:
+            return LinearGradient(colors: [Color(red: 0.0, green: 0.38, blue: 1.0), Color(red: 0.1, green: 0.55, blue: 1.0)], startPoint: .topLeading, endPoint: .bottomTrailing)
+        case .webdav:
+            return LinearGradient(colors: [Color(red: 0.01, green: 0.52, blue: 0.78), Color(red: 0.06, green: 0.71, blue: 0.85)], startPoint: .topLeading, endPoint: .bottomTrailing)
+        case .s3:
+            return LinearGradient(colors: [Color(red: 1.0, green: 0.60, blue: 0.0), Color(red: 0.92, green: 0.40, blue: 0.0)], startPoint: .topLeading, endPoint: .bottomTrailing)
+        case .smb:
+            return LinearGradient(colors: [Color(red: 0.06, green: 0.73, blue: 0.51), Color(red: 0.02, green: 0.55, blue: 0.42)], startPoint: .topLeading, endPoint: .bottomTrailing)
+        }
+    }
+    
+    private var shadowColor: Color {
+        switch storageProtocol {
+        case .googleDrive: return .blue
+        case .oneDrive: return .blue
+        case .dropbox: return .blue
+        case .webdav: return .cyan
+        case .s3: return .orange
+        case .smb: return .green
+        }
+    }
+}
+
+enum ConnectionViewMode {
+    case list
+    case selectProvider
+    case edit(isNew: Bool)
+}
+
 struct CloudreveSettingsSheet: View {
     @Binding var isPresented: Bool
     let onSave: () -> Void
@@ -2751,9 +2804,10 @@ struct CloudreveSettingsSheet: View {
     @ObservedObject var mounter = DriveMounter.shared
     
     @State private var currentTab: SettingsTab = .account
+    @State private var connectionMode: ConnectionViewMode = .list
     
     @State private var selectedServerID: UUID? = nil
-    @State private var serverName: String = "Cloudreve"
+    @State private var serverName: String = "Bulut Sürücüm"
     @State private var serverURL: String = ""
     @State private var username: String = ""
     @State private var password: String = ""
@@ -2796,6 +2850,7 @@ struct CloudreveSettingsSheet: View {
                         let isSelected = (currentTab == tab)
                         Button(action: {
                             currentTab = tab
+                            if tab == .account { connectionMode = .list }
                         }) {
                             HStack(spacing: 10) {
                                 ZStack {
@@ -2837,7 +2892,7 @@ struct CloudreveSettingsSheet: View {
                             Circle()
                                 .fill(Color.green)
                                 .frame(width: 7, height: 7)
-                            Text(active.name.isEmpty ? "Cloudreve" : active.name)
+                            Text(active.name.isEmpty ? "HDrive" : active.name)
                                 .font(.system(size: 11, weight: .medium))
                                 .foregroundColor(.secondary)
                                 .lineLimit(1)
@@ -2847,7 +2902,6 @@ struct CloudreveSettingsSheet: View {
                     }
                     
                     Button("Kapat") {
-                        saveCurrentAccount()
                         isPresented = false
                     }
                     .buttonStyle(.bordered)
@@ -2867,7 +2921,14 @@ struct CloudreveSettingsSheet: View {
                 VStack(alignment: .leading, spacing: 20) {
                     switch currentTab {
                     case .account:
-                        accountSettingsSection
+                        switch connectionMode {
+                        case .list:
+                            connectionsListView
+                        case .selectProvider:
+                            providerSelectionView
+                        case .edit(let isNew):
+                            serverEditView(isNew: isNew)
+                        }
                     case .appearance:
                         appearanceSettingsSection
                     case .about:
@@ -2877,7 +2938,7 @@ struct CloudreveSettingsSheet: View {
                 .padding(24)
             }
         }
-        .frame(width: 740, height: 530)
+        .frame(width: 760, height: 560)
         .onAppear {
             if let active = manager.activeServer {
                 selectServer(active)
@@ -2887,86 +2948,210 @@ struct CloudreveSettingsSheet: View {
         }
     }
     
-    // MARK: - 1. SEKME: HESAP & WEBDAV SUNUCUSU
-    private var accountSettingsSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            // Başlık
+    // MARK: - 1. SEKME A: BAĞLANTILARIM LİSTESİ
+    private var connectionsListView: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            // Başlık ve Ekle Butonu
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Bağlantılarım & Bulut Depolama")
+                        .font(.title2.bold())
+                    Text("Tüm bulut hesaplarınızı ve ağ paylaşımlarınızı buradan yönetin.")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+                
+                Button(action: {
+                    connectionMode = .selectProvider
+                }) {
+                    Label("Yeni Bağlantı Ekle", systemImage: "plus.circle.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.regular)
+            }
+            
+            // Kart Listesi
+            VStack(spacing: 10) {
+                ForEach(manager.servers) { server in
+                    let isActive = (manager.activeServer?.id == server.id)
+                    
+                    HStack(spacing: 14) {
+                        ProviderLogoBadge(storageProtocol: server.storageProtocol, size: 42)
+                        
+                        VStack(alignment: .leading, spacing: 3) {
+                            HStack(spacing: 8) {
+                                Text(server.name.isEmpty ? server.storageProtocol.providerName : server.name)
+                                    .font(.system(size: 14, weight: .semibold))
+                                
+                                if isActive {
+                                    HStack(spacing: 4) {
+                                        Circle()
+                                            .fill(Color.green)
+                                            .frame(width: 6, height: 6)
+                                        Text("Aktif")
+                                            .font(.system(size: 11, weight: .bold))
+                                            .foregroundColor(.green)
+                                    }
+                                    .padding(.horizontal, 7)
+                                    .padding(.vertical, 2.5)
+                                    .background(Color.green.opacity(0.12))
+                                    .cornerRadius(6)
+                                }
+                            }
+                            
+                            Text("\(server.storageProtocol.providerName) • \(server.serverURL.isEmpty ? "Yerel / Bulut Hesabı" : server.serverURL)")
+                                .font(.system(size: 12))
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                        }
+                        
+                        Spacer()
+                        
+                        HStack(spacing: 8) {
+                            if !isActive {
+                                Button("Bağlan") {
+                                    manager.setActiveServer(server)
+                                    onSave()
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                            }
+                            
+                            Button(action: {
+                                selectServer(server)
+                                connectionMode = .edit(isNew: false)
+                            }) {
+                                Image(systemName: "slider.horizontal.3")
+                                    .font(.system(size: 12))
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .help("Bağlantıyı Düzenle")
+                            
+                            if manager.servers.count > 1 {
+                                Button(action: {
+                                    manager.deleteServer(server)
+                                    if manager.activeServer?.id == server.id, let first = manager.servers.first {
+                                        manager.setActiveServer(first)
+                                    }
+                                    onSave()
+                                }) {
+                                    Image(systemName: "trash")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.red)
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                .help("Bağlantıyı Sil")
+                            }
+                        }
+                    }
+                    .padding(14)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(Color(NSColor.controlBackgroundColor))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(isActive ? Color.accentColor.opacity(0.4) : Color.primary.opacity(0.08), lineWidth: isActive ? 1.5 : 1)
+                    )
+                }
+            }
+        }
+    }
+    
+    // MARK: - 1. SEKME B: SAĞLAYICI SEÇİM GALERİSİ (GRID)
+    private var providerSelectionView: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack {
+                Button(action: { connectionMode = .list }) {
+                    Label("Bağlantılarıma Dön", systemImage: "chevron.left")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                
+                Spacer()
+            }
+            
             VStack(alignment: .leading, spacing: 3) {
-                Text("Hesap & WebDAV Sunucusu")
+                Text("Bulut Depolama Servisi Seçin")
                     .font(.title2.bold())
-                Text("Cloudreve sunucusu bağlantı ve kimlik bilgilerinizi yapılandırın.")
+                Text("Bağlanmak istediğiniz servise tıklayarak bilgilerinizi yapılandırın.")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
             }
             
-            // Kayıtlı Hesaplar Seçim Çubuğu
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Kayıtlı Hesaplar")
-                    .font(.caption.bold())
-                    .foregroundColor(.secondary)
-                
-                HStack(spacing: 8) {
-                    ForEach(manager.servers) { server in
-                        let isSelected = (selectedServerID == server.id)
-                        let isActive = (manager.activeServer?.id == server.id)
-                        
-                        Button(action: {
-                            selectServer(server)
-                        }) {
-                            HStack(spacing: 6) {
-                                Image(systemName: isActive ? "cloud.fill" : "cloud")
-                                    .foregroundColor(isActive ? .green : .secondary)
-                                Text(server.name.isEmpty ? "Hesap" : server.name)
-                                    .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)], spacing: 14) {
+                ForEach(StorageProtocol.allCases) { proto in
+                    Button(action: {
+                        startNewServer(for: proto)
+                    }) {
+                        HStack(spacing: 14) {
+                            ProviderLogoBadge(storageProtocol: proto, size: 44)
+                            
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(proto.providerName)
+                                    .font(.system(size: 14, weight: .bold))
+                                    .foregroundColor(.primary)
+                                Text(proto.providerSubtitle)
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(2)
+                                    .multilineTextAlignment(.leading)
                             }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .fill(isSelected ? Color.accentColor.opacity(0.15) : Color(NSColor.controlBackgroundColor))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .stroke(isSelected ? Color.accentColor : Color.primary.opacity(0.1), lineWidth: 1)
-                            )
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(.secondary)
                         }
-                        .buttonStyle(.plain)
+                        .padding(14)
+                        .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(Color(NSColor.controlBackgroundColor))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(Color.primary.opacity(0.1), lineWidth: 1)
+                        )
                     }
-                    
-                    Button(action: createNewAccount) {
-                        Label("Ekle", systemImage: "plus")
-                            .font(.caption)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    
-                    if manager.servers.count > 1 {
-                        Button(action: deleteSelectedAccount) {
-                            Image(systemName: "trash")
-                                .font(.caption)
-                                .foregroundColor(.red)
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .help("Seçili Hesabı Sil")
-                    }
+                    .buttonStyle(.plain)
                 }
             }
-            
-            // Inset Grouped Kart: Sunucu ve Kimlik Bilgileri
-            VStack(spacing: 12) {
-                HStack {
-                    Text("Depolama Türü")
-                        .font(.system(size: 13, weight: .medium))
-                        .frame(width: 140, alignment: .leading)
-                    Picker("", selection: $storageProtocol) {
-                        ForEach(StorageProtocol.allCases) { p in
-                            Text(p.rawValue).tag(p)
-                        }
-                    }
-                    .labelsHidden()
+        }
+    }
+    
+    // MARK: - 1. SEKME C: DÜZENLEME & DETAY FORMU
+    private func serverEditView(isNew: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 12) {
+                Button(action: {
+                    connectionMode = isNew ? .selectProvider : .list
+                }) {
+                    Label(isNew ? "Sağlayıcılar" : "Geri", systemImage: "chevron.left")
                 }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
                 
+                Spacer()
+                
+                ProviderLogoBadge(storageProtocol: storageProtocol, size: 28)
+                Text(storageProtocol.providerName)
+                    .font(.headline)
+            }
+            
+            VStack(alignment: .leading, spacing: 3) {
+                Text(isNew ? "Yeni Bağlantı Yapılandırması" : "Bağlantı Ayarlarını Düzenle")
+                    .font(.title2.bold())
+                Text("Gerekli sunucu ve kimlik doğrulama parametrelerini eksiksiz girin.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+            
+            // Inset Grouped Form
+            VStack(spacing: 12) {
                 HStack {
                     Text("Hesap Adı")
                         .font(.system(size: 13, weight: .medium))
@@ -2975,7 +3160,43 @@ struct CloudreveSettingsSheet: View {
                         .textFieldStyle(.roundedBorder)
                 }
                 
-                if storageProtocol == .webdav {
+                if storageProtocol == .googleDrive || storageProtocol == .oneDrive || storageProtocol == .dropbox {
+                    HStack {
+                        Text("Hesap E-postası")
+                            .font(.system(size: 13, weight: .medium))
+                            .frame(width: 140, alignment: .leading)
+                        TextField("hesabiniz@gmail.com", text: $username)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                    
+                    HStack {
+                        Text("Yetki Tokenı / Şifre")
+                            .font(.system(size: 13, weight: .medium))
+                            .frame(width: 140, alignment: .leading)
+                        SecureField("API Erişim Anahtarı veya Token", text: $password)
+                            .textFieldStyle(.roundedBorder)
+                    }
+
+                    HStack {
+                        Text("Köprü / Uç Nokta (Opsiyonel)")
+                            .font(.system(size: 13, weight: .medium))
+                            .frame(width: 140, alignment: .leading)
+                        TextField("http://localhost:8080 veya WebDAV köprüsü", text: $serverURL)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(.body, design: .monospaced))
+                    }
+                    
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("💡 Bilgi: \(storageProtocol.providerName) doğrudan API tokenı veya yerel WebDAV/rclone köprüsü üzerinden kesintisiz çalışır.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.blue.opacity(0.08))
+                    .cornerRadius(6)
+                    
+                } else if storageProtocol == .webdav {
                     HStack {
                         Text("Sunucu Adresi")
                             .font(.system(size: 13, weight: .medium))
@@ -3102,29 +3323,8 @@ struct CloudreveSettingsSheet: View {
                 )
             }
             
-            // Eylem Butonları & Aktif Sürücü Rozeti
+            // Eylem Butonları
             HStack(spacing: 12) {
-                if let curID = selectedServerID, manager.activeServer?.id == curID {
-                    HStack(spacing: 6) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
-                        Text("Aktif Sürücü Olarak Ayarlı")
-                            .font(.caption.bold())
-                            .foregroundColor(.green)
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(Color.green.opacity(0.12))
-                    .cornerRadius(6)
-                } else {
-                    Button("Aktif Hesap Olarak Ayarla") {
-                        makeCurrentActive()
-                    }
-                    .buttonStyle(.bordered)
-                }
-                
-                Spacer()
-                
                 Button(action: testConnection) {
                     if isTesting {
                         ProgressView().controlSize(.small)
@@ -3133,10 +3333,17 @@ struct CloudreveSettingsSheet: View {
                     }
                 }
                 .buttonStyle(.bordered)
-                .disabled(isTesting || serverURL.isEmpty)
+                .disabled(isTesting)
                 
-                Button("Değişiklikleri Kaydet") {
-                    saveCurrentAccount()
+                Spacer()
+                
+                Button("İptal") {
+                    connectionMode = .list
+                }
+                .buttonStyle(.bordered)
+                
+                Button("Kaydet ve Bağlan") {
+                    saveAndConnect()
                 }
                 .buttonStyle(.borderedProminent)
             }
@@ -3158,7 +3365,7 @@ struct CloudreveSettingsSheet: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("macOS Finder Standartları")
                         .font(.system(size: 13, weight: .semibold))
-                    Text("• Çift tıklanan dosyalar varsayılan macOS uygulamasıyla (Önizleme, Not Defteri, Excel vb.) yerinde açılır.")
+                    Text("• Çift tıklanan dosyalar varsayılan macOS uygulamasıyla yerinde açılır.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                     Text("• Cmd+S ile kaydedilen tüm değişiklikler arka planda anında buluta eşitlenir.")
@@ -3167,10 +3374,10 @@ struct CloudreveSettingsSheet: View {
                     Text("• Cmd+C / Cmd+V Finder ve Masaüstü arasında gerçek dosya kopyalamayı destekler.")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                    Text("• Arama alanının dışına veya boşluğa tıklandığında aramadan otomatik çıkılır.")
+                    Text("• Arama alanının dışına tıklandığında aramadan otomatik çıkılır.")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                    Text("• Sütun ayraçları sürüklenerek boyutlandırılabilir ve çift tıkla otomatik sığdırılabilir.")
+                    Text("• Sütun ayraçları sürüklenerek boyutlandırılabilir.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -3191,7 +3398,7 @@ struct CloudreveSettingsSheet: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Finder Ağ Sürücüsü Olarak Bağla")
                             .font(.system(size: 13, weight: .semibold))
-                        Text("Cloudreve sunucunuzu Finder'da doğrudan bir ağ diski olarak bağlar.")
+                        Text("Aktif sunucunuzu Finder'da doğrudan bir ağ diski olarak bağlar.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -3217,7 +3424,7 @@ struct CloudreveSettingsSheet: View {
         }
     }
     
-    // MARK: - 4. SEKME: HAKKINDA
+    // MARK: - 3. SEKME: HAKKINDA
     private var aboutSection: some View {
         VStack(spacing: 16) {
             Spacer(minLength: 10)
@@ -3235,12 +3442,12 @@ struct CloudreveSettingsSheet: View {
             VStack(spacing: 4) {
                 Text("HDrive for Mac")
                     .font(.title.bold())
-                Text("Sürüm 1.2.7 (Universal Binary)")
+                Text("Sürüm 1.2.9 (Universal Binary)")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
             }
             
-            Text("Cloudreve Bulut Depolama için Apple HIG ve macOS Sonoma/Sequoia Standartlarında Yüksek Performanslı Masaüstü İstemcisi.")
+            Text("Google Drive, OneDrive, Dropbox, WebDAV, Amazon S3 ve SMB Depolama için Apple HIG Standartlarında Masaüstü İstemcisi.")
                 .font(.caption)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
@@ -3258,9 +3465,6 @@ struct CloudreveSettingsSheet: View {
     
     // MARK: - Yardımcı Metotlar
     private func selectServer(_ server: CloudreveServerConfig) {
-        if selectedServerID != nil {
-            saveCurrentAccount()
-        }
         selectedServerID = server.id
         serverName = server.name
         serverURL = server.serverURL
@@ -3273,56 +3477,52 @@ struct CloudreveSettingsSheet: View {
         testResult = nil
     }
     
-    private func createNewAccount() {
-        saveCurrentAccount()
-        let newServer = CloudreveServerConfig(
-            name: "Yeni Hesap \(manager.servers.count + 1)",
-            serverURL: "https://",
-            username: "",
-            password: "",
-            storageProtocol: .webdav,
-            bucketName: "",
-            region: "us-east-1",
-            smbShare: ""
-        )
-        manager.servers.append(newServer)
-        selectedServerID = newServer.id
-        serverName = newServer.name
-        serverURL = newServer.serverURL
-        username = newServer.username
-        password = newServer.password
-        storageProtocol = newServer.storageProtocol
-        bucketName = newServer.bucketName
-        region = newServer.region
-        smbShare = newServer.smbShare
+    private func startNewServer(for proto: StorageProtocol) {
+        let newID = UUID()
+        selectedServerID = newID
+        serverName = "\(proto.providerName)"
+        storageProtocol = proto
+        bucketName = ""
+        region = "us-east-1"
+        smbShare = ""
+        username = ""
+        password = ""
+        
+        switch proto {
+        case .googleDrive:
+            serverURL = "https://www.googleapis.com/drive/v3"
+        case .oneDrive:
+            serverURL = "https://graph.microsoft.com/v1.0/me/drive"
+        case .dropbox:
+            serverURL = "https://api.dropboxapi.com/2"
+        case .webdav:
+            serverURL = "https://"
+        case .s3:
+            serverURL = "https://s3.amazonaws.com"
+        case .smb:
+            serverURL = "smb://"
+        }
         testResult = nil
+        connectionMode = .edit(isNew: true)
     }
     
-    private func deleteSelectedAccount() {
-        guard manager.servers.count > 1, let curID = selectedServerID,
-              let target = manager.servers.first(where: { $0.id == curID }) else { return }
-        manager.deleteServer(target)
-        if let next = manager.servers.first {
-            selectedServerID = next.id
-            serverName = next.name
-            serverURL = next.serverURL
-            username = next.username
-            password = next.password
-            storageProtocol = next.storageProtocol
-            bucketName = next.bucketName
-            region = next.region
-            smbShare = next.smbShare
-            testResult = nil
-        }
+    private func saveAndConnect() {
+        guard let curID = selectedServerID else { return }
+        var cfg = manager.servers.first(where: { $0.id == curID }) ?? CloudreveServerConfig()
+        cfg.id = curID
+        cfg.name = serverName.trimmingCharacters(in: .whitespacesAndNewlines)
+        cfg.serverURL = serverURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        cfg.username = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        cfg.password = password
+        cfg.storageProtocol = storageProtocol
+        cfg.bucketName = bucketName.trimmingCharacters(in: .whitespacesAndNewlines)
+        cfg.region = region.trimmingCharacters(in: .whitespacesAndNewlines)
+        cfg.smbShare = smbShare.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        manager.saveServer(cfg)
+        manager.setActiveServer(cfg)
         onSave()
-    }
-    
-    private func makeCurrentActive() {
-        saveCurrentAccount()
-        if let curID = selectedServerID, let target = manager.servers.first(where: { $0.id == curID }) {
-            manager.setActiveServer(target)
-            onSave()
-        }
+        connectionMode = .list
     }
     
     private func testConnection() {
@@ -3343,21 +3543,6 @@ struct CloudreveSettingsSheet: View {
             isTestSuccess = success
             testResult = message
         }
-    }
-    
-    private func saveCurrentAccount() {
-        guard let curID = selectedServerID else { return }
-        var cfg = manager.servers.first(where: { $0.id == curID }) ?? CloudreveServerConfig()
-        cfg.name = serverName.trimmingCharacters(in: .whitespacesAndNewlines)
-        cfg.serverURL = serverURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        cfg.username = username.trimmingCharacters(in: .whitespacesAndNewlines)
-        cfg.password = password
-        cfg.storageProtocol = storageProtocol
-        cfg.bucketName = bucketName.trimmingCharacters(in: .whitespacesAndNewlines)
-        cfg.region = region.trimmingCharacters(in: .whitespacesAndNewlines)
-        cfg.smbShare = smbShare.trimmingCharacters(in: .whitespacesAndNewlines)
-        manager.saveServer(cfg)
-        onSave()
     }
 }
 

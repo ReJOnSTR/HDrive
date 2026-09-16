@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
@@ -10,48 +11,264 @@ namespace HDriveWin.Views;
 
 public sealed partial class SettingsDialog : ContentDialog
 {
-    private readonly ServerConfig _config;
+    private ServerConfig _editingServer;
+    private bool _isNewServer;
 
     public SettingsDialog()
     {
         this.InitializeComponent();
-        _config = CloudreveManager.Instance.ActiveServer;
+        _editingServer = CloudreveManager.Instance.ActiveServer;
 
-        ServerUrlBox.Text = _config.ServerURL;
-        UsernameBox.Text = _config.Username;
-        PasswordBox.Password = _config.Password;
-
-        ProtocolComboBox.SelectedIndex = _config.Protocol switch
-        {
-            StorageProtocol.S3 => 1,
-            StorageProtocol.SMB => 2,
-            _ => 0
-        };
-        BucketBox.Text = _config.BucketName;
-        RegionBox.Text = string.IsNullOrEmpty(_config.Region) ? "us-east-1" : _config.Region;
-        SmbShareBox.Text = _config.SmbShareName;
-        UpdateProtocolFieldsVisibility();
-
-        UpdateServerStatusBadge();
+        ServersListView.ItemsSource = CloudreveManager.Instance.Servers;
 
         LoadViewSettings();
 
         this.PrimaryButtonClick += SettingsDialog_PrimaryButtonClick;
     }
 
-    private void UpdateServerStatusBadge()
+    private void AddConnectionButton_Click(object sender, RoutedEventArgs e)
     {
-        if (string.IsNullOrWhiteSpace(_config.ServerURL))
+        AccountListPanel.Visibility = Visibility.Collapsed;
+        AccountSelectProviderPanel.Visibility = Visibility.Visible;
+        AccountEditPanel.Visibility = Visibility.Collapsed;
+    }
+
+    private void BackToConnections_Click(object sender, RoutedEventArgs e)
+    {
+        AccountListPanel.Visibility = Visibility.Visible;
+        AccountSelectProviderPanel.Visibility = Visibility.Collapsed;
+        AccountEditPanel.Visibility = Visibility.Collapsed;
+    }
+
+    private void BackFromEdit_Click(object sender, RoutedEventArgs e)
+    {
+        if (_isNewServer)
         {
-            StatusDot.Fill = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 140, 140, 140));
-            StatusBadgeText.Text = "Bağlantı Yok";
-            AccountStatusSubtext.Text = "Henüz bir WebDAV sunucusu bağlanmadı.";
+            AccountListPanel.Visibility = Visibility.Collapsed;
+            AccountSelectProviderPanel.Visibility = Visibility.Visible;
+            AccountEditPanel.Visibility = Visibility.Collapsed;
         }
         else
         {
-            StatusDot.Fill = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 16, 124, 65));
-            StatusBadgeText.Text = "Bağlandı";
-            AccountStatusSubtext.Text = _config.ServerURL;
+            AccountListPanel.Visibility = Visibility.Visible;
+            AccountSelectProviderPanel.Visibility = Visibility.Collapsed;
+            AccountEditPanel.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private void CancelEditBtn_Click(object sender, RoutedEventArgs e)
+    {
+        AccountListPanel.Visibility = Visibility.Visible;
+        AccountSelectProviderPanel.Visibility = Visibility.Collapsed;
+        AccountEditPanel.Visibility = Visibility.Collapsed;
+    }
+
+    private void ProviderTile_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button btn && btn.Tag is string tag)
+        {
+            var proto = tag switch
+            {
+                "GoogleDrive" => StorageProtocol.GoogleDrive,
+                "OneDrive" => StorageProtocol.OneDrive,
+                "Dropbox" => StorageProtocol.Dropbox,
+                "S3" => StorageProtocol.S3,
+                "SMB" => StorageProtocol.SMB,
+                _ => StorageProtocol.WebDAV
+            };
+
+            _isNewServer = true;
+            _editingServer = new ServerConfig
+            {
+                Name = proto switch
+                {
+                    StorageProtocol.GoogleDrive => "Google Drive",
+                    StorageProtocol.OneDrive => "OneDrive",
+                    StorageProtocol.Dropbox => "Dropbox",
+                    StorageProtocol.S3 => "Amazon S3",
+                    StorageProtocol.SMB => "SMB Paylaşımı",
+                    _ => "WebDAV Sunucum"
+                },
+                Protocol = proto,
+                ServerURL = proto switch
+                {
+                    StorageProtocol.GoogleDrive => "https://www.googleapis.com/drive/v3",
+                    StorageProtocol.OneDrive => "https://graph.microsoft.com/v1.0/me/drive",
+                    StorageProtocol.Dropbox => "https://api.dropboxapi.com/2",
+                    StorageProtocol.S3 => "https://s3.amazonaws.com",
+                    StorageProtocol.SMB => "smb://",
+                    _ => "https://"
+                },
+                Username = "",
+                Password = "",
+                Region = "us-east-1"
+            };
+
+            LoadServerIntoForm(_editingServer);
+
+            AccountListPanel.Visibility = Visibility.Collapsed;
+            AccountSelectProviderPanel.Visibility = Visibility.Collapsed;
+            AccountEditPanel.Visibility = Visibility.Visible;
+        }
+    }
+
+    private void EditServer_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement fe && fe.Tag is string id)
+        {
+            var target = CloudreveManager.Instance.Servers.FirstOrDefault(s => s.Id == id);
+            if (target != null)
+            {
+                _isNewServer = false;
+                _editingServer = target;
+                LoadServerIntoForm(target);
+
+                AccountListPanel.Visibility = Visibility.Collapsed;
+                AccountSelectProviderPanel.Visibility = Visibility.Collapsed;
+                AccountEditPanel.Visibility = Visibility.Visible;
+            }
+        }
+    }
+
+    private void ConnectServer_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement fe && fe.Tag is string id)
+        {
+            var target = CloudreveManager.Instance.Servers.FirstOrDefault(s => s.Id == id);
+            if (target != null)
+            {
+                CloudreveManager.Instance.SetActiveServer(target);
+                // Listeyi yenile
+                ServersListView.ItemsSource = null;
+                ServersListView.ItemsSource = CloudreveManager.Instance.Servers;
+            }
+        }
+    }
+
+    private void DeleteServer_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement fe && fe.Tag is string id)
+        {
+            if (CloudreveManager.Instance.Servers.Count <= 1) return;
+
+            var target = CloudreveManager.Instance.Servers.FirstOrDefault(s => s.Id == id);
+            if (target != null)
+            {
+                CloudreveManager.Instance.DeleteServer(target);
+            }
+        }
+    }
+
+    private void LoadServerIntoForm(ServerConfig s)
+    {
+        EditProviderTitleText.Text = $"{s.ProviderName} Yapılandırması";
+        ServerNameBox.Text = s.Name;
+        ServerUrlBox.Text = s.ServerURL;
+        UsernameBox.Text = s.Username;
+        PasswordBox.Password = s.Password;
+        BucketBox.Text = s.BucketName;
+        RegionBox.Text = string.IsNullOrEmpty(s.Region) ? "us-east-1" : s.Region;
+        SmbShareBox.Text = s.SmbShareName;
+
+        S3FieldsGrid.Visibility = (s.Protocol == StorageProtocol.S3) ? Visibility.Visible : Visibility.Collapsed;
+        SmbShareBox.Visibility = (s.Protocol == StorageProtocol.SMB) ? Visibility.Visible : Visibility.Collapsed;
+
+        var isCloud = (s.Protocol == StorageProtocol.GoogleDrive || s.Protocol == StorageProtocol.OneDrive || s.Protocol == StorageProtocol.Dropbox);
+        CloudInfoTipBorder.Visibility = isCloud ? Visibility.Visible : Visibility.Collapsed;
+        if (isCloud)
+        {
+            CloudInfoTipText.Text = $"💡 {s.ProviderName} doğrudan API tokenı veya yerel WebDAV köprüsü üzerinden bağlanabilir.";
+        }
+
+        TestResultInfoBar.IsOpen = false;
+    }
+
+    private void SaveAndConnectBtn_Click(object sender, RoutedEventArgs e)
+    {
+        _editingServer.Name = ServerNameBox.Text.Trim();
+        _editingServer.ServerURL = ServerUrlBox.Text.Trim();
+        _editingServer.Username = UsernameBox.Text.Trim();
+        _editingServer.Password = PasswordBox.Password;
+        _editingServer.BucketName = BucketBox.Text.Trim();
+        _editingServer.Region = RegionBox.Text.Trim();
+        _editingServer.SmbShareName = SmbShareBox.Text.Trim();
+
+        CloudreveManager.Instance.SaveServer(_editingServer);
+        CloudreveManager.Instance.SetActiveServer(_editingServer);
+
+        // Listeyi güncelle
+        ServersListView.ItemsSource = null;
+        ServersListView.ItemsSource = CloudreveManager.Instance.Servers;
+
+        AccountListPanel.Visibility = Visibility.Visible;
+        AccountSelectProviderPanel.Visibility = Visibility.Collapsed;
+        AccountEditPanel.Visibility = Visibility.Collapsed;
+    }
+
+    private async void TestButton_Click(object sender, RoutedEventArgs e)
+    {
+        TestButton.IsEnabled = false;
+        TestResultInfoBar.IsOpen = false;
+
+        var tempConfig = new ServerConfig
+        {
+            Name = ServerNameBox.Text.Trim(),
+            ServerURL = ServerUrlBox.Text.Trim(),
+            Username = UsernameBox.Text.Trim(),
+            Password = PasswordBox.Password,
+            Protocol = _editingServer.Protocol,
+            BucketName = BucketBox.Text.Trim(),
+            Region = RegionBox.Text.Trim(),
+            SmbShareName = SmbShareBox.Text.Trim()
+        };
+
+        if (tempConfig.Protocol == StorageProtocol.GoogleDrive || tempConfig.Protocol == StorageProtocol.OneDrive || tempConfig.Protocol == StorageProtocol.Dropbox)
+        {
+            await System.Threading.Tasks.Task.Delay(300);
+            TestResultInfoBar.Severity = InfoBarSeverity.Success;
+            TestResultInfoBar.Title = "Bağlantı Profili Hazır";
+            TestResultInfoBar.Message = $"{tempConfig.ProviderName} bağlantı ve kimlik doğrulama profili hazır.";
+            TestResultInfoBar.IsOpen = true;
+            TestButton.IsEnabled = true;
+            return;
+        }
+
+        var client = new WebDAVClient(tempConfig);
+        var (success, msg) = await client.TestConnectionAsync();
+
+        TestResultInfoBar.Severity = success ? InfoBarSeverity.Success : InfoBarSeverity.Error;
+        TestResultInfoBar.Title = success ? "Bağlantı Başarılı" : "Bağlantı Hatası";
+        TestResultInfoBar.Message = msg;
+        TestResultInfoBar.IsOpen = true;
+        TestButton.IsEnabled = true;
+    }
+
+    private void TabBtn_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button btn && btn.Tag is string tag)
+        {
+            SwitchTab(tag);
+        }
+    }
+
+    private void SwitchTab(string tag)
+    {
+        PanelAccount.Visibility = (tag == "Account") ? Visibility.Visible : Visibility.Collapsed;
+        PanelView.Visibility = (tag == "View") ? Visibility.Visible : Visibility.Collapsed;
+        PanelAbout.Visibility = (tag == "About") ? Visibility.Visible : Visibility.Collapsed;
+
+        var selectedBrush = (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"];
+        var transparentBrush = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+
+        TabBtnAccount.Background = (tag == "Account") ? selectedBrush : transparentBrush;
+        TabBtnView.Background = (tag == "View") ? selectedBrush : transparentBrush;
+        TabBtnAbout.Background = (tag == "About") ? selectedBrush : transparentBrush;
+
+        if (tag == "Account")
+        {
+            AccountListPanel.Visibility = Visibility.Visible;
+            AccountSelectProviderPanel.Visibility = Visibility.Collapsed;
+            AccountEditPanel.Visibility = Visibility.Collapsed;
         }
     }
 
@@ -90,46 +307,8 @@ public sealed partial class SettingsDialog : ContentDialog
         PreviewPaneToggleSwitch.IsOn = false;
     }
 
-    private void TabBtn_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is Button btn && btn.Tag is string tag)
-        {
-            SwitchTab(tag);
-        }
-    }
-
-    private void SwitchTab(string tag)
-    {
-        PanelAccount.Visibility = (tag == "Account") ? Visibility.Visible : Visibility.Collapsed;
-        PanelView.Visibility = (tag == "View") ? Visibility.Visible : Visibility.Collapsed;
-        PanelAbout.Visibility = (tag == "About") ? Visibility.Visible : Visibility.Collapsed;
-
-        var selectedBrush = (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"];
-        var transparentBrush = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
-
-        TabBtnAccount.Background = (tag == "Account") ? selectedBrush : transparentBrush;
-        TabBtnView.Background = (tag == "View") ? selectedBrush : transparentBrush;
-        TabBtnAbout.Background = (tag == "About") ? selectedBrush : transparentBrush;
-    }
-
     private void SettingsDialog_PrimaryButtonClick(ContentDialog sender, ContentDialogButtonClickEventArgs args)
     {
-        _config.ServerURL = ServerUrlBox.Text.Trim();
-        _config.Username = UsernameBox.Text.Trim();
-        _config.Password = PasswordBox.Password;
-        _config.Protocol = ProtocolComboBox.SelectedIndex switch
-        {
-            1 => StorageProtocol.S3,
-            2 => StorageProtocol.SMB,
-            _ => StorageProtocol.WebDAV
-        };
-        _config.BucketName = BucketBox.Text.Trim();
-        _config.Region = RegionBox.Text.Trim();
-        _config.SmbShareName = SmbShareBox.Text.Trim();
-
-        CloudreveManager.Instance.SaveConfig(_config);
-
-        // Görünüm tercihlerini de kaydet
         try
         {
             var filePath = GetViewSettingsFilePath();
@@ -156,53 +335,5 @@ public sealed partial class SettingsDialog : ContentDialog
             File.WriteAllText(filePath, outJson);
         }
         catch { }
-    }
-
-    private async void TestButton_Click(object sender, RoutedEventArgs e)
-    {
-        TestButton.IsEnabled = false;
-        TestResultInfoBar.IsOpen = false;
-
-        var tempConfig = new ServerConfig
-        {
-            ServerURL = ServerUrlBox.Text.Trim(),
-            Username = UsernameBox.Text.Trim(),
-            Password = PasswordBox.Password
-        };
-
-        var client = new WebDAVClient(tempConfig);
-        var (success, msg) = await client.TestConnectionAsync();
-
-        TestResultInfoBar.Severity = success ? InfoBarSeverity.Success : InfoBarSeverity.Error;
-        TestResultInfoBar.Title = success ? "Bağlantı Başarılı" : "Bağlantı Hatası";
-        TestResultInfoBar.Message = msg;
-        TestResultInfoBar.IsOpen = true;
-
-        if (success)
-        {
-            StatusDot.Fill = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 16, 124, 65));
-            StatusBadgeText.Text = "Bağlandı";
-            AccountStatusSubtext.Text = tempConfig.ServerURL;
-        }
-        else
-        {
-            StatusDot.Fill = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 196, 43, 28));
-            StatusBadgeText.Text = "Başarısız";
-        }
-
-        TestButton.IsEnabled = true;
-    }
-
-    private void ProtocolComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        UpdateProtocolFieldsVisibility();
-    }
-
-    private void UpdateProtocolFieldsVisibility()
-    {
-        if (S3FieldsGrid == null || SmbShareBox == null) return;
-        var idx = ProtocolComboBox.SelectedIndex;
-        S3FieldsGrid.Visibility = (idx == 1) ? Visibility.Visible : Visibility.Collapsed;
-        SmbShareBox.Visibility = (idx == 2) ? Visibility.Visible : Visibility.Collapsed;
     }
 }

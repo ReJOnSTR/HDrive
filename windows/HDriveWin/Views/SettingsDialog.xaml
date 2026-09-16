@@ -4,13 +4,14 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:models="using:HDriveWin.Models"
     mc:Ignorable="d"
     Title="Ayarlar"
-    PrimaryButtonText="Kaydet ve Uygula"
     CloseButtonText="Kapat"
-    DefaultButton="Primary">
+    PrimaryButtonText="Uygula"
+    DefaultButton="Close">
 
-    <Grid Width="520" Margin="0,4,0,0">
+    <Grid Width="580" Margin="0,4,0,0">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -31,7 +32,7 @@
             </Border>
             <StackPanel Grid.Column="1" VerticalAlignment="Center">
                 <TextBlock Text="HDrive Tercihleri" FontSize="16" FontWeight="SemiBold" />
-                <TextBlock Text="Cloudreve bağlantı ve görünüm ayarlarını yönetin." 
+                <TextBlock Text="Bulut hesaplarınızı ve masaüstü görünüm ayarlarınızı yönetin." 
                            FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
             </StackPanel>
         </Grid>
@@ -52,7 +53,7 @@
                         Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
                     <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
                         <FontIcon Glyph="&#xE774;" FontSize="13" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
-                        <TextBlock Text="Hesap" FontSize="12" FontWeight="SemiBold" />
+                        <TextBlock Text="Bağlantılarım" FontSize="12" FontWeight="SemiBold" />
                     </StackPanel>
                 </Button>
 
@@ -75,93 +76,294 @@
         </Border>
 
         <!-- Sekme İçerikleri -->
-        <Grid Grid.Row="2" MinHeight="340">
+        <Grid Grid.Row="2" MinHeight="360">
 
-            <!-- 1. SEKME: HESAP & WEBDAV SUNUCUSU -->
+            <!-- 1. SEKME: BAĞLANTILARIM / BULUT DEPOLAMA -->
             <StackPanel x:Name="PanelAccount" Spacing="12" Visibility="Visible">
-                <!-- Canlı Bağlantı Durumu Kartı -->
-                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                        BorderThickness="1" CornerRadius="8" Padding="14">
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <StackPanel Grid.Column="0" Spacing="2">
-                            <TextBlock Text="Sunucu Durumu" FontWeight="SemiBold" FontSize="13" />
-                            <TextBlock x:Name="AccountStatusSubtext" Text="Cloudreve WebDAV uç noktası" 
+
+                <!-- 1.A: KAYITLI BAĞLANTILAR LİSTESİ -->
+                <StackPanel x:Name="AccountListPanel" Spacing="12" Visibility="Visible">
+                    <Grid Margin="0,0,0,4">
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock Text="Bulut Hesaplarım" FontSize="14" FontWeight="SemiBold" />
+                            <TextBlock Text="Aktif sürücüyü seçin veya yeni bir sağlayıcı ekleyin." 
                                        FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                         </StackPanel>
-                        <!-- Durum Rozeti -->
-                        <Border Grid.Column="1" x:Name="StatusBadgeBorder"
-                                Background="{ThemeResource SubtleFillColorSecondaryBrush}"
-                                CornerRadius="12" Padding="10,4" VerticalAlignment="Center">
-                            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                                <Ellipse x:Name="StatusDot" Width="8" Height="8" Fill="#107C41" />
-                                <TextBlock x:Name="StatusBadgeText" Text="Yapılandırıldı" FontSize="11" FontWeight="Medium" />
+                        <Button Click="AddConnectionButton_Click" HorizontalAlignment="Right" 
+                                Style="{ThemeResource AccentButtonStyle}">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <FontIcon Glyph="&#xE710;" FontSize="12" />
+                                <TextBlock Text="Yeni Bağlantı Ekle" FontSize="12" />
                             </StackPanel>
-                        </Border>
+                        </Button>
                     </Grid>
-                </Border>
 
-                <!-- Sunucu ve Kimlik Girişleri Kartı -->
-                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                        BorderThickness="1" CornerRadius="8" Padding="16">
-                    <StackPanel Spacing="14">
-                        <ComboBox x:Name="ProtocolComboBox" Header="Depolama Protokolü / Sağlayıcı" 
-                                  HorizontalAlignment="Stretch" SelectionChanged="ProtocolComboBox_SelectionChanged">
-                            <ComboBoxItem Content="WebDAV (Cloudreve / Nextcloud / NAS)" Tag="WebDAV" IsSelected="True" />
-                            <ComboBoxItem Content="Amazon S3 / MinIO / Cloudflare R2" Tag="S3" />
-                            <ComboBoxItem Content="SMB (Windows Ağ Paylaşımı / NAS)" Tag="SMB" />
-                        </ComboBox>
+                    <ListView x:Name="ServersListView" SelectionMode="None" MaxHeight="280">
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="models:ServerConfig">
+                                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                        BorderThickness="1" CornerRadius="8" Padding="12,10" Margin="0,3">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
 
-                        <TextBox x:Name="ServerUrlBox" Header="Sunucu Adresi / Uç Nokta" 
-                                 PlaceholderText="https://bulut.alanadi.com/dav veya S3 Uç Noktası" />
+                                        <!-- Sağlayıcı Rozeti -->
+                                        <Border Grid.Column="0" Width="36" Height="36" CornerRadius="8" 
+                                                Background="{ThemeResource AccentFillColorDefaultBrush}" 
+                                                VerticalAlignment="Center" Margin="0,0,12,0">
+                                            <FontIcon Glyph="{x:Bind GlyphIcon}" FontSize="18" Foreground="White" 
+                                                      HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                        </Border>
 
-                        <!-- S3 Alanları -->
-                        <Grid x:Name="S3FieldsGrid" Visibility="Collapsed">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <TextBox x:Name="BucketBox" Header="Bucket Adı" PlaceholderText="depo-bucket-adi" Grid.Column="0" Margin="0,0,6,0" />
-                            <TextBox x:Name="RegionBox" Header="Bölge (Region)" PlaceholderText="us-east-1, auto" Text="us-east-1" Grid.Column="1" Margin="6,0,0,0" />
-                        </Grid>
+                                        <!-- Başlık & Açıklama -->
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                                            <TextBlock Text="{x:Bind Name}" FontWeight="SemiBold" FontSize="13" />
+                                            <TextBlock Text="{x:Bind Subtitle}" FontSize="11" 
+                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
 
-                        <!-- SMB Alanları -->
-                        <TextBox x:Name="SmbShareBox" Header="Paylaşım Adı (Share)" PlaceholderText="Public, Data vb." Visibility="Collapsed" />
-                        
-                        <TextBox x:Name="UsernameBox" Header="Kullanıcı Adı veya Access Key" 
-                                 PlaceholderText="admin@example.com veya AKIA..." />
-                        
-                        <PasswordBox x:Name="PasswordBox" Header="Şifre veya Secret Key" 
-                                     PasswordRevealMode="Peek"
-                                     PlaceholderText="Şifreniz veya S3 Secret Key" />
+                                        <!-- Butonlar -->
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                            <Button Tag="{x:Bind Id}" Click="ConnectServer_Click" Content="Bağlan" 
+                                                    Style="{ThemeResource SubtleButtonStyle}" FontSize="12" />
+                                            <Button Tag="{x:Bind Id}" Click="EditServer_Click" Style="{ThemeResource SubtleButtonStyle}" Padding="6">
+                                                <FontIcon Glyph="&#xE70F;" FontSize="12" />
+                                            </Button>
+                                            <Button Tag="{x:Bind Id}" Click="DeleteServer_Click" Style="{ThemeResource SubtleButtonStyle}" Padding="6">
+                                                <FontIcon Glyph="&#xE74D;" FontSize="12" Foreground="#C42B1C" />
+                                            </Button>
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                </StackPanel>
 
-                        <Grid Margin="0,4,0,0">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <InfoBar x:Name="TestResultInfoBar" IsOpen="False" Severity="Informational" Grid.Column="0" Margin="0,0,8,0" />
-                            <Button x:Name="TestButton" Grid.Column="1" Click="TestButton_Click" VerticalAlignment="Center">
-                                <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <FontIcon Glyph="&#xE768;" FontSize="13" />
-                                    <TextBlock Text="Bağlantıyı Test Et" />
-                                </StackPanel>
-                            </Button>
-                        </Grid>
+                <!-- 1.B: BULUT SAĞLAYICI SEÇİM GALERİSİ -->
+                <StackPanel x:Name="AccountSelectProviderPanel" Spacing="14" Visibility="Collapsed">
+                    <Grid>
+                        <Button Click="BackToConnections_Click" Style="{ThemeResource SubtleButtonStyle}" HorizontalAlignment="Left">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <FontIcon Glyph="&#xE72B;" FontSize="12" />
+                                <TextBlock Text="Bağlantılarıma Dön" FontSize="12" />
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+
+                    <StackPanel Spacing="2">
+                        <TextBlock Text="Bulut Depolama Servisi Seçin" FontSize="15" FontWeight="SemiBold" />
+                        <TextBlock Text="Bağlanmak istediğiniz servisi seçerek hızlıca kurun." 
+                                   FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                     </StackPanel>
-                </Border>
+
+                    <!-- 2 Sütunlu Sağlayıcı Izgarası -->
+                    <Grid Margin="0,6,0,0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Google Drive -->
+                        <Button Grid.Row="0" Grid.Column="0" Tag="GoogleDrive" Click="ProviderTile_Click" 
+                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="12" Margin="0,0,6,8"
+                                Style="{ThemeResource CardButtonStyle}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Border Width="36" Height="36" CornerRadius="8" Background="#4285F4" Margin="0,0,10,0">
+                                    <FontIcon Glyph="&#xE753;" FontSize="18" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                </Border>
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                    <TextBlock Text="Google Drive" FontWeight="SemiBold" FontSize="13" />
+                                    <TextBlock Text="Google Workspace &amp; Kişisel" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                </StackPanel>
+                            </Grid>
+                        </Button>
+
+                        <!-- OneDrive -->
+                        <Button Grid.Row="0" Grid.Column="1" Tag="OneDrive" Click="ProviderTile_Click" 
+                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="12" Margin="6,0,0,8"
+                                Style="{ThemeResource CardButtonStyle}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Border Width="36" Height="36" CornerRadius="8" Background="#0078D4" Margin="0,0,10,0">
+                                    <FontIcon Glyph="&#xE753;" FontSize="18" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                </Border>
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                    <TextBlock Text="Microsoft OneDrive" FontWeight="SemiBold" FontSize="13" />
+                                    <TextBlock Text="Microsoft 365 &amp; SharePoint" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                </StackPanel>
+                            </Grid>
+                        </Button>
+
+                        <!-- Dropbox -->
+                        <Button Grid.Row="1" Grid.Column="0" Tag="Dropbox" Click="ProviderTile_Click" 
+                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="12" Margin="0,0,6,8"
+                                Style="{ThemeResource CardButtonStyle}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Border Width="36" Height="36" CornerRadius="8" Background="#0061FF" Margin="0,0,10,0">
+                                    <FontIcon Glyph="&#xE7B8;" FontSize="18" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                </Border>
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                    <TextBlock Text="Dropbox" FontWeight="SemiBold" FontSize="13" />
+                                    <TextBlock Text="Dropbox Kişisel &amp; İş Alanı" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                </StackPanel>
+                            </Grid>
+                        </Button>
+
+                        <!-- WebDAV -->
+                        <Button Grid.Row="1" Grid.Column="1" Tag="WebDAV" Click="ProviderTile_Click" 
+                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="12" Margin="6,0,0,8"
+                                Style="{ThemeResource CardButtonStyle}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Border Width="36" Height="36" CornerRadius="8" Background="#0284C7" Margin="0,0,10,0">
+                                    <FontIcon Glyph="&#xE753;" FontSize="18" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                </Border>
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                    <TextBlock Text="WebDAV Sunucusu" FontWeight="SemiBold" FontSize="13" />
+                                    <TextBlock Text="Cloudreve, Nextcloud, NAS" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                </StackPanel>
+                            </Grid>
+                        </Button>
+
+                        <!-- Amazon S3 -->
+                        <Button Grid.Row="2" Grid.Column="0" Tag="S3" Click="ProviderTile_Click" 
+                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="12" Margin="0,0,6,0"
+                                Style="{ThemeResource CardButtonStyle}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Border Width="36" Height="36" CornerRadius="8" Background="#FF9900" Margin="0,0,10,0">
+                                    <FontIcon Glyph="&#xEDA2;" FontSize="18" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                </Border>
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                    <TextBlock Text="Amazon S3 / MinIO" FontWeight="SemiBold" FontSize="13" />
+                                    <TextBlock Text="AWS S3, Cloudflare R2, MinIO" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                </StackPanel>
+                            </Grid>
+                        </Button>
+
+                        <!-- SMB -->
+                        <Button Grid.Row="2" Grid.Column="1" Tag="SMB" Click="ProviderTile_Click" 
+                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="12" Margin="6,0,0,0"
+                                Style="{ThemeResource CardButtonStyle}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Border Width="36" Height="36" CornerRadius="8" Background="#10B981" Margin="0,0,10,0">
+                                    <FontIcon Glyph="&#xE839;" FontSize="18" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                </Border>
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                    <TextBlock Text="SMB / Yerel Ağ" FontWeight="SemiBold" FontSize="13" />
+                                    <TextBlock Text="Windows Paylaşımı &amp; Samba" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                </StackPanel>
+                            </Grid>
+                        </Button>
+                    </Grid>
+                </StackPanel>
+
+                <!-- 1.C: BAĞLANTI DÜZENLEME & PARAMETRELER FORMU -->
+                <StackPanel x:Name="AccountEditPanel" Spacing="12" Visibility="Collapsed">
+                    <Grid>
+                        <Button Click="BackFromEdit_Click" Style="{ThemeResource SubtleButtonStyle}" HorizontalAlignment="Left">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <FontIcon Glyph="&#xE72B;" FontSize="12" />
+                                <TextBlock Text="Geri" FontSize="12" />
+                            </StackPanel>
+                        </Button>
+                        <TextBlock x:Name="EditProviderTitleText" Text="Bağlantı Ayarları" FontWeight="SemiBold" 
+                                   FontSize="14" HorizontalAlignment="Right" VerticalAlignment="Center" />
+                    </Grid>
+
+                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1" CornerRadius="8" Padding="16">
+                        <StackPanel Spacing="12">
+                            <TextBox x:Name="ServerNameBox" Header="Hesap / Sürücü Adı" PlaceholderText="Örn: Kişisel Drive" />
+
+                            <TextBox x:Name="ServerUrlBox" Header="Sunucu Adresi / Uç Nokta" 
+                                     PlaceholderText="https://bulut.alanadi.com/dav veya S3 Uç Noktası" />
+
+                            <!-- S3 Alanları -->
+                            <Grid x:Name="S3FieldsGrid" Visibility="Collapsed">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBox x:Name="BucketBox" Header="Bucket Adı" PlaceholderText="depo-bucket-adi" Grid.Column="0" Margin="0,0,6,0" />
+                                <TextBox x:Name="RegionBox" Header="Bölge (Region)" PlaceholderText="us-east-1, auto" Text="us-east-1" Grid.Column="1" Margin="6,0,0,0" />
+                            </Grid>
+
+                            <!-- SMB Alanları -->
+                            <TextBox x:Name="SmbShareBox" Header="Paylaşım Adı (Share)" PlaceholderText="Public, Data vb." Visibility="Collapsed" />
+                            
+                            <TextBox x:Name="UsernameBox" Header="Kullanıcı Adı veya E-posta" 
+                                     PlaceholderText="admin@example.com veya AKIA..." />
+                            
+                            <PasswordBox x:Name="PasswordBox" Header="Şifre veya Yetki Tokenı" 
+                                         PasswordRevealMode="Peek"
+                                         PlaceholderText="Şifreniz veya erişim anahtarınız" />
+
+                            <!-- Bilgi İpucu Kutusu -->
+                            <Border x:Name="CloudInfoTipBorder" Background="{ThemeResource SubtleFillColorSecondaryBrush}" 
+                                    CornerRadius="6" Padding="10" Visibility="Collapsed">
+                                <TextBlock x:Name="CloudInfoTipText" Text="💡 Bilgi: Bu servis doğrudan API veya yerel WebDAV köprüsü üzerinden bağlanabilir." 
+                                           FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                            </Border>
+
+                            <Grid Margin="0,4,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <InfoBar x:Name="TestResultInfoBar" IsOpen="False" Severity="Informational" Grid.Column="0" Margin="0,0,8,0" />
+                                <Button x:Name="TestButton" Grid.Column="1" Click="TestButton_Click" VerticalAlignment="Center">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <FontIcon Glyph="&#xE768;" FontSize="13" />
+                                        <TextBlock Text="Test Et" />
+                                    </StackPanel>
+                                </Button>
+                            </Grid>
+
+                            <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" Margin="0,8,0,0">
+                                <Button Content="İptal" Click="CancelEditBtn_Click" Style="{ThemeResource SubtleButtonStyle}" />
+                                <Button Content="Kaydet ve Bağlan" Click="SaveAndConnectBtn_Click" Style="{ThemeResource AccentButtonStyle}" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
             </StackPanel>
 
-
-
-            <!-- 3. SEKME: GÖRÜNÜM & GEZGİN -->
+            <!-- 2. SEKME: GÖRÜNÜM & GEZGİN -->
             <StackPanel x:Name="PanelView" Spacing="12" Visibility="Collapsed">
-                <!-- Varsayılan Görünüm Kartı -->
                 <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                         BorderThickness="1" CornerRadius="8" Padding="14">
@@ -214,7 +416,7 @@
                 </Border>
             </StackPanel>
 
-            <!-- 4. SEKME: HAKKINDA -->
+            <!-- 3. SEKME: HAKKINDA -->
             <StackPanel x:Name="PanelAbout" Spacing="12" Visibility="Collapsed">
                 <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
@@ -228,11 +430,11 @@
                         </Border>
                         <TextBlock Text="HDrive for Windows" FontSize="18" FontWeight="Bold" HorizontalAlignment="Center" />
                         <Border Background="{ThemeResource SubtleFillColorSecondaryBrush}" CornerRadius="10" Padding="8,2" HorizontalAlignment="Center">
-                            <TextBlock Text="Sürüm 1.2.7 (WinUI 3 x64)" FontSize="11" FontWeight="SemiBold" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                            <TextBlock Text="Sürüm 1.2.9 (WinUI 3 x64)" FontSize="11" FontWeight="SemiBold" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
                         </Border>
-                        <TextBlock Text="Cloudreve Bulut Depolama için Yüksek Performanslı Masaüstü İstemcisi" 
+                        <TextBlock Text="Google Drive, OneDrive, Dropbox, WebDAV, Amazon S3 ve SMB için Yüksek Performanslı Masaüstü İstemcisi" 
                                    FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" 
-                                   TextAlignment="Center" MaxWidth="380" />
+                                   TextAlignment="Center" MaxWidth="440" />
                         <TextBlock Text="Tüm hakları saklıdır © 2026 HDrive Team" 
                                    FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}" 
                                    HorizontalAlignment="Center" Margin="0,8,0,0" />
