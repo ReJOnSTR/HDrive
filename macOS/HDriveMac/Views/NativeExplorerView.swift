@@ -116,10 +116,24 @@ public struct NativeExplorerView: View {
     @State private var isClipboardCut: Bool = false
     
     // Depolama Kotası & Derin Arama (Deep Search)
-    @State private var storageQuota: StorageQuota? = nil
+    @State private var storageQuotas: [UUID: StorageQuota] = [:]
     @State private var isDeepSearchEnabled: Bool = false
     @State private var deepSearchResults: [RemoteFileItem] = []
     @State private var isDeepSearching: Bool = false
+    
+    private var activeTabServer: CloudreveServerConfig? {
+        if let curTab = tabs.first(where: { $0.id == activeTabID }),
+           let sId = curTab.serverId,
+           let found = manager.servers.first(where: { $0.id == sId }) {
+            return found
+        }
+        return manager.activeServer
+    }
+    
+    private var currentStorageQuota: StorageQuota? {
+        guard let server = activeTabServer else { return nil }
+        return storageQuotas[server.id]
+    }
     
     // Sekme Hover Durumları
     @State private var hoveredTabID: UUID? = nil
@@ -948,47 +962,75 @@ public struct NativeExplorerView: View {
     
     // MARK: - Sabit Alt Kullanım / Depolama Bölümü (Sticky Sidebar Footer)
     private var sidebarStorageFooterView: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            if let quota = storageQuota {
+        let server = activeTabServer
+        let quota = currentStorageQuota
+        
+        return VStack(alignment: .leading, spacing: 6) {
+            if let server = server, let q = quota {
                 HStack(spacing: 6) {
-                    Image(systemName: "internaldrive.fill")
-                        .font(.system(size: 11))
-                        .foregroundColor(quota.usedPercentage > 0.9 ? .red : (quota.usedPercentage > 0.75 ? .orange : .blue))
+                    ProviderLogoBadge(storageProtocol: server.storageProtocol, size: 15)
                     
-                    Text("Depolama")
-                        .font(.system(size: 11, weight: .medium))
+                    Text(server.name)
+                        .font(.system(size: 11, weight: .semibold))
                         .foregroundColor(.primary)
+                        .lineLimit(1)
                     
                     Spacer()
                     
-                    Text("%\(Int(quota.usedPercentage * 100))")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(.secondary)
+                    if q.totalBytes > 0 {
+                        Text("%\(Int(q.usedPercentage * 100))")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(.secondary)
+                    }
                 }
                 
-                ProgressView(value: quota.usedPercentage)
-                    .progressViewStyle(.linear)
-                    .tint(quota.usedPercentage > 0.9 ? Color.red : (quota.usedPercentage > 0.75 ? Color.orange : Color.blue))
-                    .scaleEffect(x: 1, y: 0.8, anchor: .center)
+                if q.totalBytes > 0 {
+                    ProgressView(value: q.usedPercentage)
+                        .progressViewStyle(.linear)
+                        .tint(q.usedPercentage > 0.9 ? Color.red : (q.usedPercentage > 0.75 ? Color.orange : Color.blue))
+                        .scaleEffect(x: 1, y: 0.8, anchor: .center)
+                }
                 
                 HStack(spacing: 3) {
-                    Text(quota.formattedUsed)
+                    Text(q.formattedUsed)
                         .font(.system(size: 10, weight: .medium))
                         .foregroundColor(.primary.opacity(0.85))
                     
-                    Text("/ \(quota.formattedTotal)")
-                        .font(.system(size: 10))
-                        .foregroundColor(.secondary)
+                    if q.totalBytes > 0 {
+                        Text("/ \(q.formattedTotal)")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                    } else {
+                        Text("kullanılıyor")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                    }
                     
                     Spacer()
                     
-                    Button(action: { loadStorageQuota() }) {
+                    Button(action: { loadStorageQuota(for: server) }) {
                         Image(systemName: "arrow.clockwise")
                             .font(.system(size: 9))
                             .foregroundColor(.secondary)
                     }
                     .buttonStyle(.plain)
-                    .help("Depolama bilgisini yenile")
+                    .help("\(server.name) depolama bilgisini yenile")
+                }
+            } else if let server = server {
+                HStack(spacing: 6) {
+                    ProviderLogoBadge(storageProtocol: server.storageProtocol, size: 15)
+                    Text(server.name)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                    Spacer()
+                    Button(action: { loadStorageQuota(for: server) }) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("\(server.name) depolama bilgisini yenile")
                 }
             } else {
                 HStack(spacing: 6) {
@@ -999,13 +1041,6 @@ public struct NativeExplorerView: View {
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
                     Spacer()
-                    Button(action: { loadStorageQuota() }) {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 10))
-                            .foregroundColor(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Depolama bilgisini yenile")
                 }
             }
         }
@@ -1530,11 +1565,17 @@ public struct NativeExplorerView: View {
             Spacer()
             
             // Yerel Finder Hissiyatı: Kullanılabilir Depolama Alanı veya Sunucu Adı
-            if let quota = storageQuota {
-                Text("\(quota.formattedAvailable) kullanılabilir / \(quota.formattedTotal)")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-            } else if let server = manager.activeServer {
+            if let server = activeTabServer, let quota = currentStorageQuota {
+                if quota.totalBytes > 0 {
+                    Text("\(server.name): \(quota.formattedAvailable) kullanılabilir / \(quota.formattedTotal)")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                } else {
+                    Text("\(server.name): \(quota.formattedUsed) kullanılıyor")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            } else if let server = activeTabServer {
                 Text(server.name)
                     .font(.caption2)
                     .foregroundColor(.secondary)
@@ -1666,7 +1707,7 @@ public struct NativeExplorerView: View {
         }
         isLoading = true
         let client = WebDAVClient(config: server)
-        loadStorageQuota()
+        loadStorageQuota(for: server)
         
         client.listFiles(at: path) { result in
             isLoading = false
@@ -1693,15 +1734,15 @@ public struct NativeExplorerView: View {
         }
     }
     
-    private func loadStorageQuota() {
-        guard let server = manager.activeServer else { return }
+    private func loadStorageQuota(for targetServer: CloudreveServerConfig? = nil) {
+        guard let server = targetServer ?? activeTabServer else { return }
         let client = WebDAVClient(config: server)
         client.fetchQuota { result in
             switch result {
             case .success(let q):
-                self.storageQuota = q
-            case .failure:
-                break
+                self.storageQuotas[server.id] = q
+            case .failure(let err):
+                print("[HDrive] Kota sorgulanamadı (\(server.name)): \(err.localizedDescription)")
             }
         }
     }

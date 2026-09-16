@@ -738,6 +738,113 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
     
     /// RFC 4331 Depolama Alanı ve Kota Bilgisi Sorgular
     public func fetchQuota(completion: @escaping (Result<StorageQuota, Error>) -> Void) {
+        if config.storageProtocol == .googleDrive {
+            guard let url = URL(string: "https://www.googleapis.com/drive/v3/about?fields=storageQuota,user") else {
+                completion(.failure(NSError(domain: "HDrive", code: 400, userInfo: [NSLocalizedDescriptionKey: "Geçersiz Google Drive URL'si"])))
+                return
+            }
+            var request = URLRequest(url: url)
+            request.httpMethod = "GET"
+            if let auth = authHeader {
+                request.setValue(auth, forHTTPHeaderField: "Authorization")
+            }
+            
+            session.dataTask(with: request) { data, response, error in
+                if let error = error {
+                    DispatchQueue.main.async { completion(.failure(error)) }
+                    return
+                }
+                guard let data = data,
+                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let quotaDict = json["storageQuota"] as? [String: Any] else {
+                    DispatchQueue.main.async { completion(.failure(NSError(domain: "HDrive", code: 500, userInfo: [NSLocalizedDescriptionKey: "Google Drive kota bilgisi alınamadı"]))) }
+                    return
+                }
+                
+                let usageStr = quotaDict["usage"] as? String ?? "\(quotaDict["usage"] as? Int64 ?? 0)"
+                let usage = Int64(usageStr) ?? 0
+                
+                var limit: Int64 = 0
+                if let lStr = quotaDict["limit"] as? String {
+                    limit = Int64(lStr) ?? 0
+                } else if let lNum = quotaDict["limit"] as? NSNumber {
+                    limit = lNum.int64Value
+                }
+                
+                let available = limit > usage ? (limit - usage) : 0
+                let q = StorageQuota(usedBytes: usage, availableBytes: available)
+                DispatchQueue.main.async { completion(.success(q)) }
+            }.resume()
+            return
+        }
+        
+        if config.storageProtocol == .oneDrive {
+            guard let url = URL(string: "https://graph.microsoft.com/v1.0/me/drive") else {
+                completion(.failure(NSError(domain: "HDrive", code: 400, userInfo: [NSLocalizedDescriptionKey: "Geçersiz OneDrive URL'si"])))
+                return
+            }
+            var request = URLRequest(url: url)
+            request.httpMethod = "GET"
+            if let auth = authHeader {
+                request.setValue(auth, forHTTPHeaderField: "Authorization")
+            }
+            
+            session.dataTask(with: request) { data, response, error in
+                if let error = error {
+                    DispatchQueue.main.async { completion(.failure(error)) }
+                    return
+                }
+                guard let data = data,
+                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let quotaDict = json["quota"] as? [String: Any] else {
+                    DispatchQueue.main.async { completion(.failure(NSError(domain: "HDrive", code: 500, userInfo: [NSLocalizedDescriptionKey: "OneDrive kota bilgisi alınamadı"]))) }
+                    return
+                }
+                
+                let total = (quotaDict["total"] as? NSNumber)?.int64Value ?? 0
+                let used = (quotaDict["used"] as? NSNumber)?.int64Value ?? 0
+                let remaining = (quotaDict["remaining"] as? NSNumber)?.int64Value ?? max(0, total - used)
+                let q = StorageQuota(usedBytes: used, availableBytes: remaining)
+                DispatchQueue.main.async { completion(.success(q)) }
+            }.resume()
+            return
+        }
+        
+        if config.storageProtocol == .dropbox {
+            guard let url = URL(string: "https://api.dropboxapi.com/2/users/get_space_usage") else {
+                completion(.failure(NSError(domain: "HDrive", code: 400, userInfo: [NSLocalizedDescriptionKey: "Geçersiz Dropbox URL'si"])))
+                return
+            }
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            if let auth = authHeader {
+                request.setValue(auth, forHTTPHeaderField: "Authorization")
+            }
+            
+            session.dataTask(with: request) { data, response, error in
+                if let error = error {
+                    DispatchQueue.main.async { completion(.failure(error)) }
+                    return
+                }
+                guard let data = data,
+                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                    DispatchQueue.main.async { completion(.failure(NSError(domain: "HDrive", code: 500, userInfo: [NSLocalizedDescriptionKey: "Dropbox kota bilgisi alınamadı"]))) }
+                    return
+                }
+                
+                let used = (json["used"] as? NSNumber)?.int64Value ?? 0
+                var total: Int64 = 0
+                if let alloc = json["allocation"] as? [String: Any],
+                   let allocated = (alloc["allocated"] as? NSNumber)?.int64Value {
+                    total = allocated
+                }
+                let available = max(0, total - used)
+                let q = StorageQuota(usedBytes: used, availableBytes: available)
+                DispatchQueue.main.async { completion(.success(q)) }
+            }.resume()
+            return
+        }
+        
         guard let url = buildURL(for: "") else {
             completion(.failure(NSError(domain: "HDrive", code: 400, userInfo: [NSLocalizedDescriptionKey: "Geçersiz URL"])))
             return
