@@ -110,15 +110,35 @@
                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                         BorderThickness="1" CornerRadius="8" Padding="16">
                     <StackPanel Spacing="14">
-                        <TextBox x:Name="ServerUrlBox" Header="WebDAV Sunucu Adresi" 
-                                 PlaceholderText="http://sunucu:5212/dav veya https://cloud.sirket.com/dav" />
+                        <ComboBox x:Name="ProtocolComboBox" Header="Depolama Protokolü / Sağlayıcı" 
+                                  HorizontalAlignment="Stretch" SelectionChanged="ProtocolComboBox_SelectionChanged">
+                            <ComboBoxItem Content="WebDAV (Cloudreve / Nextcloud / NAS)" Tag="WebDAV" IsSelected="True" />
+                            <ComboBoxItem Content="Amazon S3 / MinIO / Cloudflare R2" Tag="S3" />
+                            <ComboBoxItem Content="SMB (Windows Ağ Paylaşımı / NAS)" Tag="SMB" />
+                        </ComboBox>
+
+                        <TextBox x:Name="ServerUrlBox" Header="Sunucu Adresi / Uç Nokta" 
+                                 PlaceholderText="https://bulut.alanadi.com/dav veya S3 Uç Noktası" />
+
+                        <!-- S3 Alanları -->
+                        <Grid x:Name="S3FieldsGrid" Visibility="Collapsed">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="BucketBox" Header="Bucket Adı" PlaceholderText="depo-bucket-adi" Grid.Column="0" Margin="0,0,6,0" />
+                            <TextBox x:Name="RegionBox" Header="Bölge (Region)" PlaceholderText="us-east-1, auto" Text="us-east-1" Grid.Column="1" Margin="6,0,0,0" />
+                        </Grid>
+
+                        <!-- SMB Alanları -->
+                        <TextBox x:Name="SmbShareBox" Header="Paylaşım Adı (Share)" PlaceholderText="Public, Data vb." Visibility="Collapsed" />
                         
-                        <TextBox x:Name="UsernameBox" Header="Kullanıcı Adı veya E-posta" 
-                                 PlaceholderText="admin@example.com" />
+                        <TextBox x:Name="UsernameBox" Header="Kullanıcı Adı veya Access Key" 
+                                 PlaceholderText="admin@example.com veya AKIA..." />
                         
-                        <PasswordBox x:Name="PasswordBox" Header="WebDAV Şifresi" 
+                        <PasswordBox x:Name="PasswordBox" Header="Şifre veya Secret Key" 
                                      PasswordRevealMode="Peek"
-                                     PlaceholderText="Cloudreve hesap ayarlarından üretilen WebDAV şifresi" />
+                                     PlaceholderText="Şifreniz veya S3 Secret Key" />
 
                         <Grid Margin="0,4,0,0">
                             <Grid.ColumnDefinitions>

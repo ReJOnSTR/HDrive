@@ -27,10 +27,12 @@ swiftc -parse-as-library \
   macOS/HDriveMac/Services/WebDAVClient.swift \
   macOS/HDriveMac/Services/CloudreveManager.swift \
   macOS/HDriveMac/Services/DriveMounter.swift \
+  macOS/HDriveMac/Services/TransferManager.swift \
   macOS/HDriveMac/Services/BonjourBrowser.swift \
   macOS/HDriveMac/Services/FileOpener.swift \
   macOS/HDriveMac/Services/FilePreviewManager.swift \
   macOS/HDriveMac/Services/FileIconProvider.swift \
+  macOS/HDriveMac/Views/TransferPopoverView.swift \
   macOS/HDriveMac/Views/NativeExplorerView.swift \
   macOS/HDriveMac/HDriveMacApp.swift \
   -o "macOS/HDrive.app/Contents/MacOS/HDrive"

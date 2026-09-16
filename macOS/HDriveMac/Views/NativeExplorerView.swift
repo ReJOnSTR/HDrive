@@ -50,6 +50,7 @@ public struct NativeExplorerView: View {
     @ObservedObject var mounter = DriveMounter.shared
     @ObservedObject var opener = FileOpener.shared
     @ObservedObject var previewManager = FilePreviewManager.shared
+    @ObservedObject var transferManager = TransferManager.shared
     
     // Sekmeler (Tabs)
     private static let initialTab = ExplorerTab(title: "Cloudreve", path: "")
@@ -126,6 +127,7 @@ public struct NativeExplorerView: View {
     @State private var showingSettingsSheet: Bool = false
     @State private var showingDiagnosticsSheet: Bool = false
     @State private var showingLocalShareSheet: Bool = false
+    @State private var showingTransferPopover: Bool = false
     @State private var showingNewFolderAlert: Bool = false
     @State private var newFolderName: String = ""
     @State private var statusAlertMessage: String? = nil
@@ -282,6 +284,26 @@ public struct NativeExplorerView: View {
                 Label("Yenile", systemImage: "arrow.clockwise")
             }
             .help("Yenile")
+            
+            Button(action: { showingTransferPopover.toggle() }) {
+                HStack(spacing: 3) {
+                    Image(systemName: transferManager.isTransferring ? "arrow.up.arrow.down.circle.fill" : "arrow.up.arrow.down.circle")
+                        .foregroundColor(transferManager.isTransferring ? .accentColor : .primary)
+                    if transferManager.activeTransfersCount > 0 {
+                        Text("\(transferManager.activeTransfersCount)")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Color.accentColor)
+                            .clipShape(Capsule())
+                    }
+                }
+            }
+            .popover(isPresented: $showingTransferPopover, arrowEdge: .bottom) {
+                TransferPopoverView()
+            }
+            .help("Transfer Kuyruğu (İndirme / Yükleme)")
             
             Button(action: { showingLocalShareSheet = true }) {
                 Label("Paylaşım & QR", systemImage: "qrcode")
@@ -1800,18 +1822,16 @@ public struct NativeExplorerView: View {
     
     private func uploadFile() {
         let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = false
+        panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
         
-        if panel.runModal() == .OK, let selectedURL = panel.url, let server = manager.activeServer {
+        if panel.runModal() == .OK, let server = manager.activeServer {
             let client = WebDAVClient(config: server)
-            let dest = (currentPath.isEmpty ? "" : currentPath + "/") + selectedURL.lastPathComponent
-            client.uploadFile(localFileURL: selectedURL, toRemotePath: dest) { error in
-                if error == nil {
-                    loadDirectory(at: currentPath)
-                }
+            for selectedURL in panel.urls {
+                TransferManager.shared.enqueueUpload(fileURL: selectedURL, remoteFolder: currentPath, client: client)
             }
+            showingTransferPopover = true
         }
     }
     
@@ -1831,26 +1851,8 @@ public struct NativeExplorerView: View {
         
         let client = WebDAVClient(config: server)
         let relPath = currentPath.isEmpty ? file.name : "\(currentPath)/\(file.name)"
-        isLoading = true
-        client.downloadFile(href: relPath, to: target, progress: { _ in }) { error in
-            if error != nil {
-                client.downloadFile(href: file.href, to: target, progress: { _ in }) { err2 in
-                    isLoading = false
-                    if err2 == nil && FileManager.default.fileExists(atPath: target.path) {
-                        SyncLogManager.shared.log("İndirildi: \(file.name)")
-                        NSWorkspace.shared.selectFile(target.path, inFileViewerRootedAtPath: target.deletingLastPathComponent().path)
-                    } else {
-                        SyncLogManager.shared.log("İndirme hatası: \(file.name) - \(err2?.localizedDescription ?? "")", isError: true)
-                    }
-                }
-            } else {
-                isLoading = false
-                if FileManager.default.fileExists(atPath: target.path) {
-                    SyncLogManager.shared.log("İndirildi: \(file.name)")
-                    NSWorkspace.shared.selectFile(target.path, inFileViewerRootedAtPath: target.deletingLastPathComponent().path)
-                }
-            }
-        }
+        TransferManager.shared.enqueueDownload(fileName: file.name, remoteHref: relPath, localTargetURL: target, client: client, expectedSize: file.size)
+        showingTransferPopover = true
     }
     
     private func deleteFile(_ file: RemoteFileItem) {
@@ -2755,6 +2757,10 @@ struct CloudreveSettingsSheet: View {
     @State private var serverURL: String = ""
     @State private var username: String = ""
     @State private var password: String = ""
+    @State private var storageProtocol: StorageProtocol = .webdav
+    @State private var bucketName: String = ""
+    @State private var region: String = "us-east-1"
+    @State private var smbShare: String = ""
     
     @State private var isTesting: Bool = false
     @State private var testResult: String? = nil
@@ -2950,6 +2956,18 @@ struct CloudreveSettingsSheet: View {
             // Inset Grouped Kart: Sunucu ve Kimlik Bilgileri
             VStack(spacing: 12) {
                 HStack {
+                    Text("Depolama Türü")
+                        .font(.system(size: 13, weight: .medium))
+                        .frame(width: 140, alignment: .leading)
+                    Picker("", selection: $storageProtocol) {
+                        ForEach(StorageProtocol.allCases) { p in
+                            Text(p.rawValue).tag(p)
+                        }
+                    }
+                    .labelsHidden()
+                }
+                
+                HStack {
                     Text("Hesap Adı")
                         .font(.system(size: 13, weight: .medium))
                         .frame(width: 140, alignment: .leading)
@@ -2957,29 +2975,105 @@ struct CloudreveSettingsSheet: View {
                         .textFieldStyle(.roundedBorder)
                 }
                 
-                HStack {
-                    Text("Sunucu Adresi")
-                        .font(.system(size: 13, weight: .medium))
-                        .frame(width: 140, alignment: .leading)
-                    TextField("https://bulut.alanadi.com/dav", text: $serverURL)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.system(.body, design: .monospaced))
-                }
-                
-                HStack {
-                    Text("Kullanıcı Adı / E-posta")
-                        .font(.system(size: 13, weight: .medium))
-                        .frame(width: 140, alignment: .leading)
-                    TextField("admin@example.com", text: $username)
-                        .textFieldStyle(.roundedBorder)
-                }
-                
-                HStack {
-                    Text("WebDAV Şifresi")
-                        .font(.system(size: 13, weight: .medium))
-                        .frame(width: 140, alignment: .leading)
-                    SecureField("WebDAV şifreniz", text: $password)
-                        .textFieldStyle(.roundedBorder)
+                if storageProtocol == .webdav {
+                    HStack {
+                        Text("Sunucu Adresi")
+                            .font(.system(size: 13, weight: .medium))
+                            .frame(width: 140, alignment: .leading)
+                        TextField("https://bulut.alanadi.com/dav", text: $serverURL)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(.body, design: .monospaced))
+                    }
+                    
+                    HStack {
+                        Text("Kullanıcı Adı / E-posta")
+                            .font(.system(size: 13, weight: .medium))
+                            .frame(width: 140, alignment: .leading)
+                        TextField("admin@example.com", text: $username)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                    
+                    HStack {
+                        Text("WebDAV Şifresi")
+                            .font(.system(size: 13, weight: .medium))
+                            .frame(width: 140, alignment: .leading)
+                        SecureField("WebDAV şifreniz", text: $password)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                } else if storageProtocol == .s3 {
+                    HStack {
+                        Text("S3 Uç Noktası (Endpoint)")
+                            .font(.system(size: 13, weight: .medium))
+                            .frame(width: 140, alignment: .leading)
+                        TextField("https://s3.amazonaws.com veya MinIO URL", text: $serverURL)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(.body, design: .monospaced))
+                    }
+
+                    HStack {
+                        Text("Bucket Adı")
+                            .font(.system(size: 13, weight: .medium))
+                            .frame(width: 140, alignment: .leading)
+                        TextField("depo-bucket-adi", text: $bucketName)
+                            .textFieldStyle(.roundedBorder)
+                    }
+
+                    HStack {
+                        Text("Bölge (Region)")
+                            .font(.system(size: 13, weight: .medium))
+                            .frame(width: 140, alignment: .leading)
+                        TextField("us-east-1, eu-central-1, auto", text: $region)
+                            .textFieldStyle(.roundedBorder)
+                    }
+
+                    HStack {
+                        Text("Access Key ID")
+                            .font(.system(size: 13, weight: .medium))
+                            .frame(width: 140, alignment: .leading)
+                        TextField("AKIAIOSFODNN7EXAMPLE", text: $username)
+                            .textFieldStyle(.roundedBorder)
+                    }
+
+                    HStack {
+                        Text("Secret Access Key")
+                            .font(.system(size: 13, weight: .medium))
+                            .frame(width: 140, alignment: .leading)
+                        SecureField("Secret Key", text: $password)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                } else if storageProtocol == .smb {
+                    HStack {
+                        Text("Sunucu Adresi / IP")
+                            .font(.system(size: 13, weight: .medium))
+                            .frame(width: 140, alignment: .leading)
+                        TextField("smb://192.168.1.100 veya nas.local", text: $serverURL)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(.body, design: .monospaced))
+                    }
+
+                    HStack {
+                        Text("Paylaşım Adı (Share)")
+                            .font(.system(size: 13, weight: .medium))
+                            .frame(width: 140, alignment: .leading)
+                        TextField("Public, Data vb.", text: $smbShare)
+                            .textFieldStyle(.roundedBorder)
+                    }
+
+                    HStack {
+                        Text("Kullanıcı Adı (Opsiyonel)")
+                            .font(.system(size: 13, weight: .medium))
+                            .frame(width: 140, alignment: .leading)
+                        TextField("Kullanıcı Adı", text: $username)
+                            .textFieldStyle(.roundedBorder)
+                    }
+
+                    HStack {
+                        Text("Şifre (Opsiyonel)")
+                            .font(.system(size: 13, weight: .medium))
+                            .frame(width: 140, alignment: .leading)
+                        SecureField("Şifre", text: $password)
+                            .textFieldStyle(.roundedBorder)
+                    }
                 }
             }
             .padding(16)
@@ -3172,6 +3266,10 @@ struct CloudreveSettingsSheet: View {
         serverURL = server.serverURL
         username = server.username
         password = server.password
+        storageProtocol = server.storageProtocol
+        bucketName = server.bucketName
+        region = server.region
+        smbShare = server.smbShare
         testResult = nil
     }
     
@@ -3181,7 +3279,11 @@ struct CloudreveSettingsSheet: View {
             name: "Yeni Hesap \(manager.servers.count + 1)",
             serverURL: "https://",
             username: "",
-            password: ""
+            password: "",
+            storageProtocol: .webdav,
+            bucketName: "",
+            region: "us-east-1",
+            smbShare: ""
         )
         manager.servers.append(newServer)
         selectedServerID = newServer.id
@@ -3189,6 +3291,10 @@ struct CloudreveSettingsSheet: View {
         serverURL = newServer.serverURL
         username = newServer.username
         password = newServer.password
+        storageProtocol = newServer.storageProtocol
+        bucketName = newServer.bucketName
+        region = newServer.region
+        smbShare = newServer.smbShare
         testResult = nil
     }
     
@@ -3202,6 +3308,10 @@ struct CloudreveSettingsSheet: View {
             serverURL = next.serverURL
             username = next.username
             password = next.password
+            storageProtocol = next.storageProtocol
+            bucketName = next.bucketName
+            region = next.region
+            smbShare = next.smbShare
             testResult = nil
         }
         onSave()
@@ -3222,6 +3332,10 @@ struct CloudreveSettingsSheet: View {
         cfg.serverURL = serverURL.trimmingCharacters(in: .whitespacesAndNewlines)
         cfg.username = username.trimmingCharacters(in: .whitespacesAndNewlines)
         cfg.password = password
+        cfg.storageProtocol = storageProtocol
+        cfg.bucketName = bucketName.trimmingCharacters(in: .whitespacesAndNewlines)
+        cfg.region = region.trimmingCharacters(in: .whitespacesAndNewlines)
+        cfg.smbShare = smbShare.trimmingCharacters(in: .whitespacesAndNewlines)
         
         let client = WebDAVClient(config: cfg)
         client.testConnection { success, message in
@@ -3238,6 +3352,10 @@ struct CloudreveSettingsSheet: View {
         cfg.serverURL = serverURL.trimmingCharacters(in: .whitespacesAndNewlines)
         cfg.username = username.trimmingCharacters(in: .whitespacesAndNewlines)
         cfg.password = password
+        cfg.storageProtocol = storageProtocol
+        cfg.bucketName = bucketName.trimmingCharacters(in: .whitespacesAndNewlines)
+        cfg.region = region.trimmingCharacters(in: .whitespacesAndNewlines)
+        cfg.smbShare = smbShare.trimmingCharacters(in: .whitespacesAndNewlines)
         manager.saveServer(cfg)
         onSave()
     }

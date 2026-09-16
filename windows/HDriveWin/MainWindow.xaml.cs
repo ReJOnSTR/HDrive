@@ -209,6 +209,33 @@ public sealed partial class MainWindow : Window
 
         try
         {
+            TransferListView.ItemsSource = TransferManager.Instance.Items;
+            TransferManager.Instance.Items.CollectionChanged += (s, e) =>
+            {
+                DispatcherQueue?.TryEnqueue(() =>
+                {
+                    TransferEmptyText.Visibility = TransferManager.Instance.Items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+                });
+            };
+            TransferManager.Instance.PropertyChanged += (s, e) =>
+            {
+                if (e.PropertyName == nameof(TransferManager.ActiveTransfersCount))
+                {
+                    DispatcherQueue?.TryEnqueue(() =>
+                    {
+                        var count = TransferManager.Instance.ActiveTransfersCount;
+                        TransferButton.Label = count > 0 ? $"Transferler ({count})" : "Transferler";
+                    });
+                }
+            };
+        }
+        catch (Exception ex)
+        {
+            App.LogCrash("MainWindow.TransferManagerSetup", ex);
+        }
+
+        try
+        {
             LoadPinnedFolders();
         }
         catch (Exception ex)
@@ -1556,18 +1583,18 @@ public sealed partial class MainWindow : Window
         picker.SuggestedStartLocation = PickerLocationId.Desktop;
         picker.FileTypeFilter.Add("*");
 
-        var file = await picker.PickSingleFileAsync();
-        if (file != null)
+        var files = await picker.PickMultipleFilesAsync();
+        if (files != null && files.Count > 0)
         {
-            LoadingRing.IsActive = true;
-            var client = new WebDAVClient(CloudreveManager.Instance.ActiveServer);
-            var success = await client.UploadFileAsync(file.Path, _currentPath);
-            LoadingRing.IsActive = false;
+            var server = CloudreveManager.Instance.ActiveServer;
+            if (server == null) return;
+            var client = new WebDAVClient(server);
 
-            if (success)
+            foreach (var file in files)
             {
-                await LoadDirectoryAsync(_currentPath);
+                TransferManager.Instance.EnqueueUpload(file.Path, _currentPath, client);
             }
+            TransferFlyout.ShowAt(TransferButton);
         }
     }
 
@@ -1703,6 +1730,10 @@ public sealed partial class MainWindow : Window
         var itemsToDownload = GetSelectedItems().Where(i => !i.IsDirectory).ToList();
         if (itemsToDownload.Count == 0) return;
 
+        var server = CloudreveManager.Instance.ActiveServer;
+        if (server == null) return;
+        var client = new WebDAVClient(server);
+
         if (itemsToDownload.Count == 1)
         {
             var item = itemsToDownload[0];
@@ -1722,24 +1753,12 @@ public sealed partial class MainWindow : Window
             var file = await savePicker.PickSaveFileAsync();
             if (file != null)
             {
-                LoadingRing.IsActive = true;
-                var server = CloudreveManager.Instance.ActiveServer;
-                if (server != null)
-                {
-                    var client = new WebDAVClient(server);
-                    var cachedFile = await client.DownloadFileToCacheAsync(item.Path);
-                    if (!string.IsNullOrEmpty(cachedFile) && File.Exists(cachedFile))
-                    {
-                        File.Copy(cachedFile, file.Path, true);
-                        Process.Start(new ProcessStartInfo { FileName = "explorer.exe", Arguments = $"/select,\"{file.Path}\"", UseShellExecute = true });
-                    }
-                }
-                LoadingRing.IsActive = false;
+                TransferManager.Instance.EnqueueDownload(item.Name, item.Path, file.Path, client, item.Size);
+                TransferFlyout.ShowAt(TransferButton);
             }
         }
         else
         {
-            // Çoklu indirme: Kullanıcıdan hedef klasör seçmesini iste
             var folderPicker = new Windows.Storage.Pickers.FolderPicker();
             folderPicker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.Downloads;
             folderPicker.FileTypeFilter.Add("*");
@@ -1750,22 +1769,12 @@ public sealed partial class MainWindow : Window
             var folder = await folderPicker.PickSingleFolderAsync();
             if (folder != null)
             {
-                LoadingRing.IsActive = true;
-                var server = CloudreveManager.Instance.ActiveServer;
-                if (server != null)
+                foreach (var item in itemsToDownload)
                 {
-                    var client = new WebDAVClient(server);
-                    foreach (var item in itemsToDownload)
-                    {
-                        var cachedFile = await client.DownloadFileToCacheAsync(item.Path);
-                        if (!string.IsNullOrEmpty(cachedFile) && File.Exists(cachedFile))
-                        {
-                            var targetPath = Path.Combine(folder.Path, item.Name);
-                            File.Copy(cachedFile, targetPath, true);
-                        }
-                    }
+                    var targetPath = Path.Combine(folder.Path, item.Name);
+                    TransferManager.Instance.EnqueueDownload(item.Name, item.Path, targetPath, client, item.Size);
                 }
-                LoadingRing.IsActive = false;
+                TransferFlyout.ShowAt(TransferButton);
             }
         }
     }
@@ -2657,6 +2666,33 @@ public sealed partial class MainWindow : Window
             await dialog.ShowAsync();
         }
         catch { }
+    }
+
+    private void TransferButton_Click(object sender, RoutedEventArgs e)
+    {
+        TransferEmptyText.Visibility = TransferManager.Instance.Items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void TransferClearCompleted_Click(object sender, RoutedEventArgs e)
+    {
+        TransferManager.Instance.ClearCompleted();
+        TransferEmptyText.Visibility = TransferManager.Instance.Items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void TransferCancel_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement fe && fe.Tag is Guid id)
+        {
+            TransferManager.Instance.CancelTask(id);
+        }
+    }
+
+    private void TransferRetry_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement fe && fe.Tag is Guid id)
+        {
+            TransferManager.Instance.RetryTask(id);
+        }
     }
 
     #region Kenar Çubuğu Sabit Klasörler (Pinned Favorites)

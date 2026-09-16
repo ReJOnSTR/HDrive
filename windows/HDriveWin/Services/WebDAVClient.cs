@@ -15,6 +15,8 @@ public class WebDAVClient
 {
     private readonly ServerConfig _config;
     private readonly HttpClient _httpClient;
+    public ServerConfig Config => _config;
+    public HttpClient HttpClient => _httpClient;
 
     public WebDAVClient(ServerConfig config)
     {
@@ -36,7 +38,7 @@ public class WebDAVClient
         }
     }
 
-    private Uri BuildUri(string relativePath)
+    public Uri BuildUri(string relativePath)
     {
         var trimmed = relativePath?.Trim() ?? "";
         if (trimmed.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
@@ -46,6 +48,13 @@ public class WebDAVClient
         }
 
         var baseUriStr = _config.ServerURL.TrimEnd('/');
+        if (_config.Protocol == StorageProtocol.S3 && !string.IsNullOrEmpty(_config.BucketName))
+        {
+            if (!baseUriStr.EndsWith("/" + _config.BucketName, StringComparison.OrdinalIgnoreCase))
+            {
+                baseUriStr = $"{baseUriStr}/{_config.BucketName}";
+            }
+        }
         var cleanPath = trimmed.TrimStart('/');
 
         // ServerURL'in yol bileşenini kontrol et (Örn: "/dav") ve çift eklemeyi önle
@@ -82,10 +91,67 @@ public class WebDAVClient
         return new Uri(result);
     }
 
+    public string GetUncPath(string relativePath)
+    {
+        var raw = _config.ServerURL.Trim().Replace('/', '\\');
+        if (raw.StartsWith("smb:\\\\", StringComparison.OrdinalIgnoreCase))
+        {
+            raw = "\\\\" + raw.Substring(6).TrimStart('\\');
+        }
+        else if (raw.StartsWith("smb:\\", StringComparison.OrdinalIgnoreCase))
+        {
+            raw = "\\\\" + raw.Substring(5).TrimStart('\\');
+        }
+        else if (!raw.StartsWith("\\\\"))
+        {
+            raw = "\\\\" + raw.TrimStart('\\');
+        }
+
+        if (!string.IsNullOrEmpty(_config.SmbShareName) && !raw.EndsWith(_config.SmbShareName, StringComparison.OrdinalIgnoreCase))
+        {
+            raw = Path.Combine(raw, _config.SmbShareName);
+        }
+
+        var rel = relativePath.Trim('/').Replace('/', '\\');
+        return string.IsNullOrEmpty(rel) ? raw : Path.Combine(raw, rel);
+    }
+
     public async Task<(bool Success, string Message)> TestConnectionAsync()
     {
         try
         {
+            if (_config.Protocol == StorageProtocol.SMB)
+            {
+                return await Task.Run(() =>
+                {
+                    try
+                    {
+                        var unc = GetUncPath("/");
+                        if (Directory.Exists(unc))
+                        {
+                            return (true, "SMB Ağ Paylaşımına başarıyla bağlanıldı!");
+                        }
+                        return (false, $"Ağ paylaşımına erişilemedi: {unc}");
+                    }
+                    catch (Exception ex)
+                    {
+                        return (false, $"SMB erişim hatası: {ex.Message}");
+                    }
+                });
+            }
+
+            if (_config.Protocol == StorageProtocol.S3)
+            {
+                var s3Uri = BuildUri("/");
+                var s3Req = new HttpRequestMessage(HttpMethod.Get, s3Uri);
+                var s3Resp = await _httpClient.SendAsync(s3Req);
+                if (s3Resp.IsSuccessStatusCode || s3Resp.StatusCode == System.Net.HttpStatusCode.Forbidden || (int)s3Resp.StatusCode == 400)
+                {
+                    return (true, "Amazon S3 / MinIO uç noktasına bağlanıldı!");
+                }
+                return (false, $"S3 sunucu yanıtı: {(int)s3Resp.StatusCode}");
+            }
+
             var request = new HttpRequestMessage(new HttpMethod("PROPFIND"), BuildUri("/"))
             {
                 Headers = { { "Depth", "0" } }
@@ -107,6 +173,40 @@ public class WebDAVClient
 
     public async Task<List<FileItem>> ListDirectoryAsync(string relativePath)
     {
+        if (_config.Protocol == StorageProtocol.SMB)
+        {
+            return await Task.Run(() =>
+            {
+                var list = new List<FileItem>();
+                var unc = GetUncPath(relativePath);
+                if (!Directory.Exists(unc)) return list;
+
+                var dirInfo = new DirectoryInfo(unc);
+                foreach (var dir in dirInfo.GetDirectories())
+                {
+                    list.Add(new FileItem
+                    {
+                        Name = dir.Name,
+                        Path = (relativePath.TrimEnd('/') + "/" + dir.Name).TrimStart('/'),
+                        IsDirectory = true,
+                        ModifiedDate = dir.LastWriteTime
+                    });
+                }
+                foreach (var file in dirInfo.GetFiles())
+                {
+                    list.Add(new FileItem
+                    {
+                        Name = file.Name,
+                        Path = (relativePath.TrimEnd('/') + "/" + file.Name).TrimStart('/'),
+                        IsDirectory = false,
+                        Size = file.Length,
+                        ModifiedDate = file.LastWriteTime
+                    });
+                }
+                return list;
+            });
+        }
+
         var items = new List<FileItem>();
         var uri = BuildUri(relativePath);
 
@@ -158,20 +258,21 @@ public class WebDAVClient
                 var displayName = resp.Descendants(d + "displayname").FirstOrDefault()?.Value;
                 if (string.IsNullOrEmpty(displayName))
                 {
-                    var trimmed = decodedHref.TrimEnd('/');
-                    displayName = Path.GetFileName(trimmed);
+                    var cleanPathStr = decodedHref.TrimEnd('/');
+                    var lastSlash = cleanPathStr.LastIndexOf('/');
+                    displayName = lastSlash >= 0 ? cleanPathStr.Substring(lastSlash + 1) : cleanPathStr;
                 }
 
                 if (string.IsNullOrEmpty(displayName) || displayName == "." || displayName == "..") continue;
 
                 long size = 0;
                 var sizeStr = resp.Descendants(d + "getcontentlength").FirstOrDefault()?.Value;
-                if (long.TryParse(sizeStr, out var parsedSize))
+                if (!string.IsNullOrEmpty(sizeStr))
                 {
-                    size = parsedSize;
+                    long.TryParse(sizeStr, out size);
                 }
 
-                DateTime? modDate = null;
+                DateTime modDate = DateTime.MinValue;
                 var dateStr = resp.Descendants(d + "getlastmodified").FirstOrDefault()?.Value;
                 if (!string.IsNullOrEmpty(dateStr) && DateTime.TryParse(dateStr, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedDate))
                 {
@@ -209,12 +310,29 @@ public class WebDAVClient
 
     public async Task<string?> DownloadFileToCacheAsync(string remotePath)
     {
-        var uri = BuildUri(remotePath);
         var filename = Path.GetFileName(remotePath);
         var cacheDir = Path.Combine(Path.GetTempPath(), "HDriveCache");
         Directory.CreateDirectory(cacheDir);
-
         var localPath = Path.Combine(cacheDir, filename);
+
+        if (_config.Protocol == StorageProtocol.SMB)
+        {
+            return await Task.Run(() =>
+            {
+                try
+                {
+                    var unc = GetUncPath(remotePath);
+                    File.Copy(unc, localPath, true);
+                    return localPath;
+                }
+                catch
+                {
+                    return null;
+                }
+            });
+        }
+
+        var uri = BuildUri(remotePath);
 
         try
         {
@@ -258,19 +376,31 @@ public class WebDAVClient
             }
             else
             {
-                var uri = BuildUri(item.Path);
                 var destFile = Path.Combine(localFolder, item.Name);
-                try
+                if (_config.Protocol == StorageProtocol.SMB)
                 {
-                    var response = await _httpClient.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead);
-                    if (response.IsSuccessStatusCode)
+                    try
                     {
-                        using var stream = await response.Content.ReadAsStreamAsync();
-                        using var fileStream = new FileStream(destFile, FileMode.Create, FileAccess.Write, FileShare.None);
-                        await stream.CopyToAsync(fileStream);
+                        var unc = GetUncPath(item.Path);
+                        File.Copy(unc, destFile, true);
                     }
+                    catch { }
                 }
-                catch { }
+                else
+                {
+                    var uri = BuildUri(item.Path);
+                    try
+                    {
+                        var response = await _httpClient.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead);
+                        if (response.IsSuccessStatusCode)
+                        {
+                            using var stream = await response.Content.ReadAsStreamAsync();
+                            using var fileStream = new FileStream(destFile, FileMode.Create, FileAccess.Write, FileShare.None);
+                            await stream.CopyToAsync(fileStream);
+                        }
+                    }
+                    catch { }
+                }
             }
         }
     }
@@ -305,6 +435,29 @@ public class WebDAVClient
     {
         var filename = Path.GetFileName(localFilePath);
         var remotePath = remoteDirectoryPath.TrimEnd('/') + "/" + filename;
+
+        if (_config.Protocol == StorageProtocol.SMB)
+        {
+            return await Task.Run(() =>
+            {
+                try
+                {
+                    var uncDest = GetUncPath(remotePath);
+                    var dir = Path.GetDirectoryName(uncDest);
+                    if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                    {
+                        Directory.CreateDirectory(dir);
+                    }
+                    File.Copy(localFilePath, uncDest, true);
+                    return true;
+                }
+                catch
+                {
+                    return false;
+                }
+            });
+        }
+
         var uri = BuildUri(remotePath);
 
         try
@@ -322,6 +475,23 @@ public class WebDAVClient
 
     public async Task<bool> CreateFolderAsync(string remotePath)
     {
+        if (_config.Protocol == StorageProtocol.SMB)
+        {
+            return await Task.Run(() =>
+            {
+                try
+                {
+                    var unc = GetUncPath(remotePath);
+                    Directory.CreateDirectory(unc);
+                    return true;
+                }
+                catch
+                {
+                    return false;
+                }
+            });
+        }
+
         var uri = BuildUri(remotePath);
         try
         {
@@ -337,6 +507,32 @@ public class WebDAVClient
 
     public async Task<bool> DeleteAsync(string remotePath, bool isDirectory = false)
     {
+        if (_config.Protocol == StorageProtocol.SMB)
+        {
+            return await Task.Run(() =>
+            {
+                try
+                {
+                    var unc = GetUncPath(remotePath);
+                    if (Directory.Exists(unc))
+                    {
+                        Directory.Delete(unc, true);
+                        return true;
+                    }
+                    if (File.Exists(unc))
+                    {
+                        File.Delete(unc);
+                        return true;
+                    }
+                    return true;
+                }
+                catch
+                {
+                    return false;
+                }
+            });
+        }
+
         var path = remotePath;
         if (isDirectory && !path.EndsWith("/"))
         {
@@ -372,6 +568,34 @@ public class WebDAVClient
 
     public async Task<bool> MoveAsync(string sourceRemotePath, string destRemotePath, bool overwrite = false)
     {
+        if (_config.Protocol == StorageProtocol.SMB)
+        {
+            return await Task.Run(() =>
+            {
+                try
+                {
+                    var src = GetUncPath(sourceRemotePath);
+                    var dst = GetUncPath(destRemotePath);
+                    if (Directory.Exists(src))
+                    {
+                        Directory.Move(src, dst);
+                        return true;
+                    }
+                    if (File.Exists(src))
+                    {
+                        if (overwrite && File.Exists(dst)) File.Delete(dst);
+                        File.Move(src, dst);
+                        return true;
+                    }
+                    return false;
+                }
+                catch
+                {
+                    return false;
+                }
+            });
+        }
+
         var sourceUri = BuildUri(sourceRemotePath);
         var destUri = BuildUri(destRemotePath);
         try

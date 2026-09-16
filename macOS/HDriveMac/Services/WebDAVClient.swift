@@ -37,19 +37,52 @@ public struct RemoteFileItem: Identifiable, Hashable {
     }
 }
 
+public enum StorageProtocol: String, Codable, CaseIterable, Identifiable {
+    case webdav = "WebDAV (Cloudreve / Nextcloud / NAS)"
+    case s3 = "Amazon S3 / MinIO / Cloudflare R2"
+    case smb = "SMB (Yerel Ağ / NAS Paylaşımı)"
+    
+    public var id: String { rawValue }
+    
+    public var icon: String {
+        switch self {
+        case .webdav: return "cloud.fill"
+        case .s3: return "cylinder.split.1x2.fill"
+        case .smb: return "network"
+        }
+    }
+}
+
 public struct CloudreveServerConfig: Identifiable, Codable, Hashable {
     public var id: UUID = UUID()
-    public var name: String = "Cloudreve Sunucum"
+    public var name: String = "Bulut Sunucum"
     public var serverURL: String = "https://example.com/dav"
     public var username: String = ""
     public var password: String = ""
     public var autoMountOnStart: Bool = false
+    public var storageProtocol: StorageProtocol = .webdav
+    public var bucketName: String = ""
+    public var region: String = "us-east-1"
+    public var smbShare: String = ""
     
-    public init(name: String = "Cloudreve Sunucum", serverURL: String = "", username: String = "", password: String = "") {
+    public init(
+        name: String = "Bulut Sunucum",
+        serverURL: String = "",
+        username: String = "",
+        password: String = "",
+        storageProtocol: StorageProtocol = .webdav,
+        bucketName: String = "",
+        region: String = "us-east-1",
+        smbShare: String = ""
+    ) {
         self.name = name
         self.serverURL = serverURL
         self.username = username
         self.password = password
+        self.storageProtocol = storageProtocol
+        self.bucketName = bucketName
+        self.region = region
+        self.smbShare = smbShare
     }
 }
 

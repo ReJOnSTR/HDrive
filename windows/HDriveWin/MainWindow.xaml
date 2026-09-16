@@ -221,6 +221,73 @@
                         </AppBarButton.Flyout>
                     </AppBarButton>
                     <AppBarToggleButton x:Name="PreviewPaneToggle" Icon="PreviewLink" Label="Önizleme" Click="PreviewPaneToggle_Click" />
+                    <AppBarButton x:Name="TransferButton" Label="Transferler" Click="TransferButton_Click">
+                        <AppBarButton.Icon>
+                            <FontIcon Glyph="&#xE896;" />
+                        </AppBarButton.Icon>
+                        <AppBarButton.Flyout>
+                            <Flyout x:Name="TransferFlyout" Placement="Bottom">
+                                <Grid Width="360" MaxHeight="420">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="*" />
+                                    </Grid.RowDefinitions>
+
+                                    <!-- Başlık & Temizle -->
+                                    <Grid Grid.Row="0" Margin="0,0,0,10">
+                                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                            <FontIcon Glyph="&#xE896;" FontSize="16" Foreground="{ThemeResource AccentFillColorDefaultBrush}" />
+                                            <TextBlock Text="Transfer Kuyruğu" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                        <Button Content="Temizle" Click="TransferClearCompleted_Click" HorizontalAlignment="Right"
+                                                Style="{ThemeResource SubtleButtonStyle}" FontSize="12" />
+                                    </Grid>
+
+                                    <!-- Liste veya Boş Durum -->
+                                    <ListView x:Name="TransferListView" Grid.Row="1" SelectionMode="None">
+                                        <ListView.ItemTemplate>
+                                            <DataTemplate>
+                                                <Grid Padding="8,8" Margin="0,2" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="6">
+                                                    <Grid.RowDefinitions>
+                                                        <RowDefinition Height="Auto" />
+                                                        <RowDefinition Height="Auto" />
+                                                        <RowDefinition Height="Auto" />
+                                                    </Grid.RowDefinitions>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+
+                                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="{Binding FileName}" FontWeight="Medium" FontSize="12" TextTrimming="CharacterEllipsis" />
+                                                    <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding StatusText}" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+
+                                                    <ProgressBar Grid.Row="1" Grid.ColumnSpan="2" Value="{Binding ProgressPercent}" Maximum="100" Margin="0,6" />
+
+                                                    <StackPanel Grid.Row="2" Grid.Column="0" Orientation="Horizontal" Spacing="8">
+                                                        <TextBlock Text="{Binding FormattedSize}" FontSize="10" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                        <TextBlock Text="{Binding FormattedSpeed}" FontSize="10" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" FontWeight="SemiBold" />
+                                                    </StackPanel>
+
+                                                    <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Spacing="4">
+                                                        <Button Tag="{Binding Id}" Click="TransferCancel_Click" Style="{ThemeResource SubtleButtonStyle}" Padding="4" ToolTipService.ToolTip="İptal">
+                                                            <FontIcon Glyph="&#xE711;" FontSize="10" />
+                                                        </Button>
+                                                        <Button Tag="{Binding Id}" Click="TransferRetry_Click" Style="{ThemeResource SubtleButtonStyle}" Padding="4" ToolTipService.ToolTip="Yeniden Dene">
+                                                            <FontIcon Glyph="&#xE72C;" FontSize="10" />
+                                                        </Button>
+                                                    </StackPanel>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ListView.ItemTemplate>
+                                    </ListView>
+
+                                    <TextBlock x:Name="TransferEmptyText" Grid.Row="1" Text="Aktif veya geçmiş transfer bulunmuyor" 
+                                               HorizontalAlignment="Center" VerticalAlignment="Center" 
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" Margin="0,40" />
+                                </Grid>
+                            </Flyout>
+                        </AppBarButton.Flyout>
+                    </AppBarButton>
                     <AppBarButton x:Name="LocalShareButton" Label="Paylaşım &amp; QR" Click="LocalShareButton_Click">
                         <AppBarButton.Icon>
                             <FontIcon Glyph="&#xED14;" />

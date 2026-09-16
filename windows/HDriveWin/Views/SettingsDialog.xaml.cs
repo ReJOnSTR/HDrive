@@ -21,6 +21,17 @@ public sealed partial class SettingsDialog : ContentDialog
         UsernameBox.Text = _config.Username;
         PasswordBox.Password = _config.Password;
 
+        ProtocolComboBox.SelectedIndex = _config.Protocol switch
+        {
+            StorageProtocol.S3 => 1,
+            StorageProtocol.SMB => 2,
+            _ => 0
+        };
+        BucketBox.Text = _config.BucketName;
+        RegionBox.Text = string.IsNullOrEmpty(_config.Region) ? "us-east-1" : _config.Region;
+        SmbShareBox.Text = _config.SmbShareName;
+        UpdateProtocolFieldsVisibility();
+
         UpdateServerStatusBadge();
 
         LoadViewSettings();
@@ -106,6 +117,15 @@ public sealed partial class SettingsDialog : ContentDialog
         _config.ServerURL = ServerUrlBox.Text.Trim();
         _config.Username = UsernameBox.Text.Trim();
         _config.Password = PasswordBox.Password;
+        _config.Protocol = ProtocolComboBox.SelectedIndex switch
+        {
+            1 => StorageProtocol.S3,
+            2 => StorageProtocol.SMB,
+            _ => StorageProtocol.WebDAV
+        };
+        _config.BucketName = BucketBox.Text.Trim();
+        _config.Region = RegionBox.Text.Trim();
+        _config.SmbShareName = SmbShareBox.Text.Trim();
 
         CloudreveManager.Instance.SaveConfig(_config);
 
@@ -171,5 +191,18 @@ public sealed partial class SettingsDialog : ContentDialog
         }
 
         TestButton.IsEnabled = true;
+    }
+
+    private void ProtocolComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        UpdateProtocolFieldsVisibility();
+    }
+
+    private void UpdateProtocolFieldsVisibility()
+    {
+        if (S3FieldsGrid == null || SmbShareBox == null) return;
+        var idx = ProtocolComboBox.SelectedIndex;
+        S3FieldsGrid.Visibility = (idx == 1) ? Visibility.Visible : Visibility.Collapsed;
+        SmbShareBox.Visibility = (idx == 2) ? Visibility.Visible : Visibility.Collapsed;
     }
 }
