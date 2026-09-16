@@ -23,10 +23,6 @@ public sealed partial class SettingsDialog : ContentDialog
 
         UpdateServerStatusBadge();
 
-        SyncToggle.IsOn = FolderSyncEngine.Instance.IsSyncEnabled;
-        SyncStatusText.Text = $"Durum: {FolderSyncEngine.Instance.SyncStatus}";
-        LocalFolderPathText.Text = FolderSyncEngine.Instance.LocalFolderPath;
-
         LoadViewSettings();
 
         this.PrimaryButtonClick += SettingsDialog_PrimaryButtonClick;
@@ -94,7 +90,6 @@ public sealed partial class SettingsDialog : ContentDialog
     private void SwitchTab(string tag)
     {
         PanelAccount.Visibility = (tag == "Account") ? Visibility.Visible : Visibility.Collapsed;
-        PanelSync.Visibility = (tag == "Sync") ? Visibility.Visible : Visibility.Collapsed;
         PanelView.Visibility = (tag == "View") ? Visibility.Visible : Visibility.Collapsed;
         PanelAbout.Visibility = (tag == "About") ? Visibility.Visible : Visibility.Collapsed;
 
@@ -102,7 +97,6 @@ public sealed partial class SettingsDialog : ContentDialog
         var transparentBrush = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
 
         TabBtnAccount.Background = (tag == "Account") ? selectedBrush : transparentBrush;
-        TabBtnSync.Background = (tag == "Sync") ? selectedBrush : transparentBrush;
         TabBtnView.Background = (tag == "View") ? selectedBrush : transparentBrush;
         TabBtnAbout.Background = (tag == "About") ? selectedBrush : transparentBrush;
     }
@@ -112,7 +106,6 @@ public sealed partial class SettingsDialog : ContentDialog
         _config.ServerURL = ServerUrlBox.Text.Trim();
         _config.Username = UsernameBox.Text.Trim();
         _config.Password = PasswordBox.Password;
-        _config.AutoSyncEnabled = SyncToggle.IsOn;
 
         CloudreveManager.Instance.SaveConfig(_config);
 
@@ -178,23 +171,5 @@ public sealed partial class SettingsDialog : ContentDialog
         }
 
         TestButton.IsEnabled = true;
-    }
-
-    private void SyncToggle_Toggled(object sender, RoutedEventArgs e)
-    {
-        FolderSyncEngine.Instance.IsSyncEnabled = SyncToggle.IsOn;
-        SyncStatusText.Text = $"Durum: {FolderSyncEngine.Instance.SyncStatus}";
-    }
-
-    private void OpenFolder_Click(object sender, RoutedEventArgs e)
-    {
-        FolderSyncEngine.Instance.OpenLocalFolderInExplorer();
-    }
-
-    private async void SyncNow_Click(object sender, RoutedEventArgs e)
-    {
-        SyncStatusText.Text = "Durum: Eşitleniyor...";
-        await FolderSyncEngine.Instance.SyncNowAsync();
-        SyncStatusText.Text = $"Durum: {FolderSyncEngine.Instance.SyncStatus}";
     }
 }

@@ -39,16 +39,7 @@ public final class FileOpener: ObservableObject {
             }
         }
         
-        // 2. Senkronize klasörde var mı kontrol et
-        let syncCandidate = FolderSyncEngine.shared.localFolderURL.appendingPathComponent(file.name)
-        if FileManager.default.fileExists(atPath: syncCandidate.path) {
-            if NSWorkspace.shared.open(syncCandidate) {
-                completion(true, nil)
-                return
-            }
-        }
-        
-        // 3. Önizleme önbelleğinde zaten mevcut ve boyutu geçerli mi?
+        // 2. Önizleme önbelleğinde zaten mevcut ve boyutu geçerli mi?
         let previewCandidate = FilePreviewManager.shared.previewCacheDir.appendingPathComponent(file.name)
         if let attrs = try? FileManager.default.attributesOfItem(atPath: previewCandidate.path),
            let size = attrs[.size] as? Int64, size > 0 {

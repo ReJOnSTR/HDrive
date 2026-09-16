@@ -27,7 +27,6 @@ swiftc -parse-as-library \
   macOS/HDriveMac/Services/WebDAVClient.swift \
   macOS/HDriveMac/Services/CloudreveManager.swift \
   macOS/HDriveMac/Services/DriveMounter.swift \
-  macOS/HDriveMac/Services/FolderSyncEngine.swift \
   macOS/HDriveMac/Services/BonjourBrowser.swift \
   macOS/HDriveMac/Services/FileOpener.swift \
   macOS/HDriveMac/Services/FilePreviewManager.swift \

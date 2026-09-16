@@ -49,8 +49,8 @@
                 <TextBlock Grid.Row="2" Grid.Column="0" Text="Değiştirilme:" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" VerticalAlignment="Center" />
                 <TextBlock x:Name="PropModified" Grid.Row="2" Grid.Column="1" Text="--" FontSize="12" VerticalAlignment="Center" />
 
-                <!-- Korumalı Durum -->
-                <TextBlock Grid.Row="3" Grid.Column="0" Text="Eşitleme Durumu:" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" VerticalAlignment="Center" />
+                <!-- Depolama -->
+                <TextBlock Grid.Row="3" Grid.Column="0" Text="Depolama:" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" VerticalAlignment="Center" />
                 <StackPanel Grid.Row="3" Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                     <FontIcon Glyph="&#xE73E;" FontSize="12" Foreground="#107C41" />
                     <TextBlock Text="Cloudreve Bulutunda Mevcut" FontSize="12" />

@@ -176,21 +176,6 @@ public sealed partial class MainWindow : Window
 
         try
         {
-            // Senkronizasyon durumunu dinle
-            FolderSyncEngine.Instance.PropertyChanged += (s, e) =>
-            {
-                if (e.PropertyName == nameof(FolderSyncEngine.SyncStatus))
-                {
-                    DispatcherQueue?.TryEnqueue(() =>
-                    {
-                        if (SyncStatusText != null)
-                        {
-                            SyncStatusText.Text = $"Eşitleme: {FolderSyncEngine.Instance.SyncStatus}";
-                        }
-                    });
-                }
-            };
-
             // Canlı Harici Uygulama Düzenleme (In-Place Edit Auto-Sync) Dinleyicisi
             LiveEditWatcherService.Instance.FileAutoSynced += (s, e) =>
             {
@@ -198,9 +183,9 @@ public sealed partial class MainWindow : Window
                 {
                     if (e.Success)
                     {
-                        if (SyncStatusText != null)
+                        if (StatusConnectionText != null)
                         {
-                            SyncStatusText.Text = $"Otomatik Eşitlendi: {e.FileName}";
+                            StatusConnectionText.Text = $"Düzenleme kaydedildi: {e.FileName}";
                         }
                         if (e.RemoteDirectory == _currentPath)
                         {
@@ -209,9 +194,9 @@ public sealed partial class MainWindow : Window
                     }
                     else
                     {
-                        if (SyncStatusText != null)
+                        if (StatusConnectionText != null)
                         {
-                            SyncStatusText.Text = $"Otomatik eşitleme başarısız: {e.FileName}";
+                            StatusConnectionText.Text = $"Düzenleme kaydedilemedi: {e.FileName}";
                         }
                     }
                 });
@@ -219,7 +204,7 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            App.LogCrash("MainWindow.FolderSyncEngineSetup", ex);
+            App.LogCrash("MainWindow.LiveEditWatcherSetup", ex);
         }
 
         try
@@ -1556,18 +1541,6 @@ public sealed partial class MainWindow : Window
             var success = await client.CreateFolderAsync(targetPath);
             if (success)
             {
-                try
-                {
-                    FolderSyncEngine.Instance.SuppressWatcher(() =>
-                    {
-                        var rel = targetPath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
-                        var localTarget = Path.Combine(FolderSyncEngine.Instance.LocalFolderPath, rel);
-                        Directory.CreateDirectory(localTarget);
-                        FolderSyncEngine.Instance.RegisterRemoteFile(targetPath);
-                    });
-                }
-                catch { }
-
                 await LoadDirectoryAsync(_currentPath);
             }
         }
@@ -1593,24 +1566,6 @@ public sealed partial class MainWindow : Window
 
             if (success)
             {
-                try
-                {
-                    FolderSyncEngine.Instance.SuppressWatcher(() =>
-                    {
-                        var relDir = _currentPath.Trim('/').Replace('/', Path.DirectorySeparatorChar);
-                        var localDir = string.IsNullOrEmpty(relDir)
-                            ? FolderSyncEngine.Instance.LocalFolderPath
-                            : Path.Combine(FolderSyncEngine.Instance.LocalFolderPath, relDir);
-                        Directory.CreateDirectory(localDir);
-                        var localDest = Path.Combine(localDir, Path.GetFileName(file.Path));
-                        File.Copy(file.Path, localDest, overwrite: true);
-
-                        var relPath = Path.GetRelativePath(FolderSyncEngine.Instance.LocalFolderPath, localDest).Replace('\\', '/');
-                        FolderSyncEngine.Instance.RegisterRemoteFile(relPath);
-                    });
-                }
-                catch { }
-
                 await LoadDirectoryAsync(_currentPath);
             }
         }
@@ -1648,10 +1603,6 @@ public sealed partial class MainWindow : Window
                 {
                     var pinnedPath = tag.Substring("pinned:".Length);
                     NavigateToPath(pinnedPath);
-                }
-                else if (tag == "local")
-                {
-                    FolderSyncEngine.Instance.OpenLocalFolderInExplorer();
                 }
             }
         }
@@ -2431,28 +2382,6 @@ public sealed partial class MainWindow : Window
 
             var client = new WebDAVClient(server);
 
-            FolderSyncEngine.Instance.SuppressWatcher(() =>
-            {
-                foreach (var item in itemsToDelete)
-                {
-                    try
-                    {
-                        var rel = item.Path.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
-                        var localTarget = Path.Combine(FolderSyncEngine.Instance.LocalFolderPath, rel);
-                        if (File.Exists(localTarget))
-                        {
-                            File.Delete(localTarget);
-                        }
-                        else if (Directory.Exists(localTarget))
-                        {
-                            Directory.Delete(localTarget, true);
-                        }
-                        FolderSyncEngine.Instance.UnregisterRemoteFile(item.Path);
-                    }
-                    catch { }
-                }
-            });
-
             foreach (var item in itemsToDelete)
             {
                 await client.DeleteAsync(item.Path, item.IsDirectory);
@@ -2492,33 +2421,22 @@ public sealed partial class MainWindow : Window
             }
 
             var storageItems = new List<IStorageItem>();
-            var syncFolder = FolderSyncEngine.Instance.LocalFolderPath;
             var cacheDir = Path.Combine(Path.GetTempPath(), "HDriveCache");
             Directory.CreateDirectory(cacheDir);
 
             foreach (var item in selectedItems)
             {
                 string? localPath = null;
-                var relPath = item.Path.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
-                var syncPath = Path.Combine(syncFolder, relPath);
-
-                if (File.Exists(syncPath) || Directory.Exists(syncPath))
+                var cachedPath = Path.Combine(cacheDir, Path.GetFileName(item.Path));
+                if (File.Exists(cachedPath))
                 {
-                    localPath = syncPath;
+                    localPath = cachedPath;
                 }
-                else
+                else if (item.IsDirectory)
                 {
-                    var cachedPath = Path.Combine(cacheDir, Path.GetFileName(item.Path));
-                    if (File.Exists(cachedPath))
-                    {
-                        localPath = cachedPath;
-                    }
-                    else if (item.IsDirectory)
-                    {
-                        var cachedFolderPath = Path.Combine(cacheDir, Path.GetFileName(item.Path.TrimEnd('/')));
-                        Directory.CreateDirectory(cachedFolderPath);
-                        localPath = cachedFolderPath;
-                    }
+                    var cachedFolderPath = Path.Combine(cacheDir, Path.GetFileName(item.Path.TrimEnd('/')));
+                    Directory.CreateDirectory(cachedFolderPath);
+                    localPath = cachedFolderPath;
                 }
 
                 if (!string.IsNullOrEmpty(localPath))
@@ -2575,7 +2493,6 @@ public sealed partial class MainWindow : Window
             }
 
             var storageItems = new List<IStorageItem>();
-            var syncFolder = FolderSyncEngine.Instance.LocalFolderPath;
             var cacheDir = Path.Combine(Path.GetTempPath(), "HDriveCache");
             Directory.CreateDirectory(cacheDir);
 
@@ -2585,30 +2502,20 @@ public sealed partial class MainWindow : Window
             foreach (var item in selectedItems)
             {
                 string? localPath = null;
-                var relPath = item.Path.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
-                var syncPath = Path.Combine(syncFolder, relPath);
-
-                if (File.Exists(syncPath) || Directory.Exists(syncPath))
+                var cachedPath = Path.Combine(cacheDir, Path.GetFileName(item.Path));
+                if (File.Exists(cachedPath))
                 {
-                    localPath = syncPath;
+                    localPath = cachedPath;
+                }
+                else if (!item.IsDirectory)
+                {
+                    localPath = await client.DownloadFileToCacheAsync(item.Path);
                 }
                 else
                 {
-                    var cachedPath = Path.Combine(cacheDir, Path.GetFileName(item.Path));
-                    if (File.Exists(cachedPath))
-                    {
-                        localPath = cachedPath;
-                    }
-                    else if (!item.IsDirectory)
-                    {
-                        localPath = await client.DownloadFileToCacheAsync(item.Path);
-                    }
-                    else
-                    {
-                        var cachedFolderPath = Path.Combine(cacheDir, Path.GetFileName(item.Path.TrimEnd('/')));
-                        Directory.CreateDirectory(cachedFolderPath);
-                        localPath = cachedFolderPath;
-                    }
+                    var cachedFolderPath = Path.Combine(cacheDir, Path.GetFileName(item.Path.TrimEnd('/')));
+                    Directory.CreateDirectory(cachedFolderPath);
+                    localPath = cachedFolderPath;
                 }
 
                 if (!string.IsNullOrEmpty(localPath))
@@ -2705,40 +2612,12 @@ public sealed partial class MainWindow : Window
             if (ok)
             {
                 count++;
-                try
-                {
-                    FolderSyncEngine.Instance.SuppressWatcher(() =>
-                    {
-                        var relDir = remoteDir.Trim('/').Replace('/', Path.DirectorySeparatorChar);
-                        var localDir = string.IsNullOrEmpty(relDir)
-                            ? FolderSyncEngine.Instance.LocalFolderPath
-                            : Path.Combine(FolderSyncEngine.Instance.LocalFolderPath, relDir);
-                        Directory.CreateDirectory(localDir);
-                        var localDest = Path.Combine(localDir, Path.GetFileName(file.Path));
-                        File.Copy(file.Path, localDest, overwrite: true);
-
-                        var relPath = Path.GetRelativePath(FolderSyncEngine.Instance.LocalFolderPath, localDest).Replace('\\', '/');
-                        FolderSyncEngine.Instance.RegisterRemoteFile(relPath);
-                    });
-                }
-                catch { }
             }
         }
         else if (item is StorageFolder folder)
         {
             var targetSubDir = remoteDir.TrimEnd('/') + "/" + folder.Name;
             await client.CreateFolderAsync(targetSubDir);
-            try
-            {
-                FolderSyncEngine.Instance.SuppressWatcher(() =>
-                {
-                    var relDir = targetSubDir.Trim('/').Replace('/', Path.DirectorySeparatorChar);
-                    var localDir = Path.Combine(FolderSyncEngine.Instance.LocalFolderPath, relDir);
-                    Directory.CreateDirectory(localDir);
-                    FolderSyncEngine.Instance.RegisterRemoteFile(targetSubDir);
-                });
-            }
-            catch { }
 
             var subItems = await folder.GetItemsAsync();
             foreach (var sub in subItems)
@@ -2753,15 +2632,7 @@ public sealed partial class MainWindow : Window
 
     #region Üç Nokta (...) Menüsü ve Hızlı Eylemler
 
-    private void SyncNow_Click(object sender, RoutedEventArgs e)
-    {
-        _ = FolderSyncEngine.Instance.SyncNowAsync();
-    }
 
-    private void OpenLocalFolder_Click(object sender, RoutedEventArgs e)
-    {
-        FolderSyncEngine.Instance.OpenLocalFolderInExplorer();
-    }
 
     private void SelectAll_Click(object sender, RoutedEventArgs e)
     {

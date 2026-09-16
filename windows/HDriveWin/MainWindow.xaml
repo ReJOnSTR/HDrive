@@ -237,12 +237,6 @@
                                 <MenuFlyoutItem Text="Yenile" Click="RefreshButton_Click">
                                     <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE72C;" /></MenuFlyoutItem.Icon>
                                 </MenuFlyoutItem>
-                                <MenuFlyoutItem Text="Şimdi Eşitle" Click="SyncNow_Click">
-                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE895;" /></MenuFlyoutItem.Icon>
-                                </MenuFlyoutItem>
-                                <MenuFlyoutItem Text="Yerel Klasörü Aç" Click="OpenLocalFolder_Click">
-                                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xED43;" /></MenuFlyoutItem.Icon>
-                                </MenuFlyoutItem>
                                 <MenuFlyoutSeparator />
                                 <MenuFlyoutItem Text="Tümünü Seç" Click="SelectAll_Click">
                                     <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8B3;" /></MenuFlyoutItem.Icon>
@@ -819,7 +813,7 @@
                 </Grid.ColumnDefinitions>
                 <TextBlock x:Name="ItemCountText" Grid.Column="0" Text="0 öğe" 
                            VerticalAlignment="Center" Style="{ThemeResource CaptionTextBlockStyle}" />
-                <TextBlock x:Name="SyncStatusText" Grid.Column="1" Text="Eşitleme: Hazır" 
+                <TextBlock x:Name="StatusConnectionText" Grid.Column="1" Text="Bulut Bağlantısı Aktif" 
                            VerticalAlignment="Center" Style="{ThemeResource CaptionTextBlockStyle}" 
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
             </Grid>

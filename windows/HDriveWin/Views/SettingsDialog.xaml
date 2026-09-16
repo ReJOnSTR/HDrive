@@ -31,7 +31,7 @@
             </Border>
             <StackPanel Grid.Column="1" VerticalAlignment="Center">
                 <TextBlock Text="HDrive Tercihleri" FontSize="16" FontWeight="SemiBold" />
-                <TextBlock Text="Cloudreve bağlantı, yerel eşitleme ve görünüm ayarlarını yönetin." 
+                <TextBlock Text="Cloudreve bağlantı ve görünüm ayarlarını yönetin." 
                            FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
             </StackPanel>
         </Grid>
@@ -42,7 +42,6 @@
                 BorderThickness="1" CornerRadius="8" Padding="3" Margin="0,0,0,16">
             <Grid>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="*" />
@@ -57,15 +56,7 @@
                     </StackPanel>
                 </Button>
 
-                <Button x:Name="TabBtnSync" Grid.Column="1" Click="TabBtn_Click" Tag="Sync"
-                        Style="{ThemeResource SubtleButtonStyle}" HorizontalAlignment="Stretch" Padding="6,8">
-                    <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
-                        <FontIcon Glyph="&#xE895;" FontSize="13" />
-                        <TextBlock Text="Eşitleme" FontSize="12" />
-                    </StackPanel>
-                </Button>
-
-                <Button x:Name="TabBtnView" Grid.Column="2" Click="TabBtn_Click" Tag="View"
+                <Button x:Name="TabBtnView" Grid.Column="1" Click="TabBtn_Click" Tag="View"
                         Style="{ThemeResource SubtleButtonStyle}" HorizontalAlignment="Stretch" Padding="6,8">
                     <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
                         <FontIcon Glyph="&#xE790;" FontSize="13" />
@@ -73,7 +64,7 @@
                     </StackPanel>
                 </Button>
 
-                <Button x:Name="TabBtnAbout" Grid.Column="3" Click="TabBtn_Click" Tag="About"
+                <Button x:Name="TabBtnAbout" Grid.Column="2" Click="TabBtn_Click" Tag="About"
                         Style="{ThemeResource SubtleButtonStyle}" HorizontalAlignment="Stretch" Padding="6,8">
                     <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
                         <FontIcon Glyph="&#xE946;" FontSize="13" />
@@ -146,72 +137,7 @@
                 </Border>
             </StackPanel>
 
-            <!-- 2. SEKME: YEREL EŞİTLEME (ONEDRIVE MODU) -->
-            <StackPanel x:Name="PanelSync" Spacing="12" Visibility="Collapsed">
-                <!-- Eşitleme Aç/Kapa Kartı -->
-                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                        BorderThickness="1" CornerRadius="8" Padding="14">
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
-                            <TextBlock Text="Yerel Klasör Eşitleme (OneDrive Modu)" FontWeight="SemiBold" FontSize="13" />
-                            <TextBlock Text="Dosyalarınızı Windows Gezgini'nde yerel bir klasörde tutar ve değişiklikleri anında buluta eşitler." 
-                                       FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
-                        </StackPanel>
-                        <ToggleSwitch x:Name="SyncToggle" Grid.Column="1" Toggled="SyncToggle_Toggled" OnContent="" OffContent="" VerticalAlignment="Center" Margin="12,0,0,0" />
-                    </Grid>
-                </Border>
 
-                <!-- Klasör Konumu ve Eylemler Kartı -->
-                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                        BorderThickness="1" CornerRadius="8" Padding="14">
-                    <StackPanel Spacing="12">
-                        <TextBlock Text="Eşitleme Klasör Konumu" FontWeight="SemiBold" FontSize="13" />
-                        
-                        <Border Background="{ThemeResource LayerFillColorDefaultBrush}"
-                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                                BorderThickness="1" CornerRadius="6" Padding="10,8">
-                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                <FontIcon Glyph="&#xED25;" FontSize="15" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" VerticalAlignment="Center" />
-                                <TextBlock x:Name="LocalFolderPathText" Text="%UserProfile%\HDrive - Cloudreve" 
-                                           FontSize="12" FontFamily="Consolas, Cascadia Code, monospace" 
-                                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                            </StackPanel>
-                        </Border>
-
-                        <Grid Margin="0,4,0,0">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-
-                            <TextBlock x:Name="SyncStatusText" Grid.Column="0" Text="Durum: Hazır" 
-                                       FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" 
-                                       VerticalAlignment="Center" />
-
-                            <Button Grid.Column="1" Click="OpenFolder_Click" Margin="0,0,8,0">
-                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <FontIcon Glyph="&#xE8B7;" FontSize="13" />
-                                    <TextBlock Text="Gezginde Aç" />
-                                </StackPanel>
-                            </Button>
-
-                            <Button Grid.Column="2" Click="SyncNow_Click">
-                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <FontIcon Glyph="&#xE895;" FontSize="13" />
-                                    <TextBlock Text="Şimdi Eşitle" />
-                                </StackPanel>
-                            </Button>
-                        </Grid>
-                    </StackPanel>
-                </Border>
-            </StackPanel>
 
             <!-- 3. SEKME: GÖRÜNÜM & GEZGİN -->
             <StackPanel x:Name="PanelView" Spacing="12" Visibility="Collapsed">

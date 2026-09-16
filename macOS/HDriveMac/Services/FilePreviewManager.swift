@@ -101,13 +101,7 @@ public final class FilePreviewManager: ObservableObject {
             }
         }
         
-        // 2. Senkronize Edilen Klasör
-        let syncFile = FolderSyncEngine.shared.localFolderURL.appendingPathComponent(rel)
-        if FileManager.default.fileExists(atPath: syncFile.path) {
-            return syncFile
-        }
-        
-        // 3. HDriveFiles Cache (FileOpener)
+        // 2. HDriveFiles Cache (FileOpener)
         if let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first {
             let openerCache = caches.appendingPathComponent("HDriveFiles", isDirectory: true).appendingPathComponent(file.name)
             if FileManager.default.fileExists(atPath: openerCache.path) {

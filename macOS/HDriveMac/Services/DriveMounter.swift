@@ -91,7 +91,7 @@ public final class DriveMounter: ObservableObject {
                             let rawMsg = errorInfo?[NSAppleScript.errorMessage] as? String ?? err ?? result
                             let friendlyMsg: String
                             if rawMsg.contains("-5014") || rawMsg.contains("22") {
-                                friendlyMsg = "macOS, şifrelenmemiş HTTP WebDAV ağ diski bağlantısını kısıtlıyor (-5014). Bunun yerine lütfen üstteki 'Yerel Klasör Eşitleme (OneDrive Modu)'nu kullanın."
+                                friendlyMsg = "macOS, şifrelenmemiş HTTP WebDAV ağ diski bağlantısını kısıtlıyor (-5014). HTTPS adresinizi kullanarak güvenli bağlantı kurun."
                             } else {
                                 friendlyMsg = rawMsg
                             }

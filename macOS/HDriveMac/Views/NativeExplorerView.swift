@@ -49,7 +49,6 @@ public struct NativeExplorerView: View {
     @ObservedObject var manager = CloudreveManager.shared
     @ObservedObject var mounter = DriveMounter.shared
     @ObservedObject var opener = FileOpener.shared
-    @ObservedObject var syncEngine = FolderSyncEngine.shared
     @ObservedObject var previewManager = FilePreviewManager.shared
     
     // Sekmeler (Tabs)
@@ -2167,13 +2166,10 @@ public struct NativeExplorerView: View {
                     try? FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
                     localURLs.append(folderURL)
                 } else {
-                    let syncCandidate = FolderSyncEngine.shared.localFolderURL.appendingPathComponent(item.name)
                     let cacheCandidate = cacheDir.appendingPathComponent(item.name)
                     let previewCandidate = FilePreviewManager.shared.previewCacheDir.appendingPathComponent(item.name)
                     
-                    if FileManager.default.fileExists(atPath: syncCandidate.path) {
-                        localURLs.append(syncCandidate)
-                    } else if FileManager.default.fileExists(atPath: cacheCandidate.path) {
+                    if FileManager.default.fileExists(atPath: cacheCandidate.path) {
                         localURLs.append(cacheCandidate)
                     } else if FileManager.default.fileExists(atPath: previewCandidate.path) {
                         localURLs.append(previewCandidate)
@@ -2280,24 +2276,19 @@ public struct NativeExplorerView: View {
             return NSItemProvider(object: payload as NSString)
         }
         
-        // 1. Yerel eşitleme klasöründe (HDrive - Cloudreve) var mı?
-        let syncDir = FolderSyncEngine.shared.localFolderURL
-        let relPath = file.href.hasPrefix("/") ? String(file.href.dropFirst()) : file.href
-        let syncFile = syncDir.appendingPathComponent(relPath)
-        
-        if FileManager.default.fileExists(atPath: syncFile.path) {
-            return NSItemProvider(item: syncFile as NSURL, typeIdentifier: UTType.fileURL.identifier)
-        }
-        
-        // 2. Cache klasöründe var mı?
+        // 1. Cache klasöründe var mı?
         let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("HDriveFiles", isDirectory: true)
         let cachedFile = cacheDir.appendingPathComponent(file.name)
         if FileManager.default.fileExists(atPath: cachedFile.path) {
             return NSItemProvider(item: cachedFile as NSURL, typeIdentifier: UTType.fileURL.identifier)
         }
         
-        // 3. Önceden indirilmemişse bile dosya URL'i dön
-        return NSItemProvider(item: syncFile as NSURL, typeIdentifier: UTType.fileURL.identifier)
+        let previewTarget = FilePreviewManager.shared.previewCacheDir.appendingPathComponent(file.name)
+        if FileManager.default.fileExists(atPath: previewTarget.path) {
+            return NSItemProvider(item: previewTarget as NSURL, typeIdentifier: UTType.fileURL.identifier)
+        }
+        
+        return NSItemProvider(item: cachedFile as NSURL, typeIdentifier: UTType.fileURL.identifier)
     }
     
     // MARK: - Favori Klasörleri Yönetme (Pinned Shortcuts)
@@ -2728,7 +2719,6 @@ public struct NativeExplorerView: View {
 // MARK: - Cloudreve Ayarlar Modalı (macOS Sonoma / Sequoia Sistem Ayarları Standardı)
 enum SettingsTab: String, CaseIterable, Identifiable {
     case account = "Hesap & Sunucu"
-    case sync = "Klasör Eşitleme"
     case appearance = "Görünüm & Gezgin"
     case about = "Hakkında"
     
@@ -2737,7 +2727,6 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .account: return "cloud.fill"
-        case .sync: return "arrow.triangle.2.circlepath"
         case .appearance: return "macwindow"
         case .about: return "info.circle.fill"
         }
@@ -2746,7 +2735,6 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     var colors: [Color] {
         switch self {
         case .account: return [.blue, .cyan]
-        case .sync: return [.green, .mint]
         case .appearance: return [.purple, .indigo]
         case .about: return [.gray, .secondary]
         }
@@ -2758,7 +2746,6 @@ struct CloudreveSettingsSheet: View {
     let onSave: () -> Void
     
     @ObservedObject var manager = CloudreveManager.shared
-    @ObservedObject var syncEngine = FolderSyncEngine.shared
     @ObservedObject var mounter = DriveMounter.shared
     
     @State private var currentTab: SettingsTab = .account
@@ -2875,8 +2862,6 @@ struct CloudreveSettingsSheet: View {
                     switch currentTab {
                     case .account:
                         accountSettingsSection
-                    case .sync:
-                        syncSettingsSection
                     case .appearance:
                         appearanceSettingsSection
                     case .about:
@@ -3064,77 +3049,36 @@ struct CloudreveSettingsSheet: View {
         }
     }
     
-    // MARK: - 2. SEKME: KLASÖR EŞİTLEME (ONEDRIVE MODU)
-    private var syncSettingsSection: some View {
+    // MARK: - 2. SEKME: GÖRÜNÜM & GEZGİN
+    private var appearanceSettingsSection: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 3) {
-                Text("Klasör Eşitleme (OneDrive Modu)")
+                Text("Görünüm & Davranış")
                     .font(.title2.bold())
-                Text("Dosyalarınızı yerel bir klasörde tutun ve Cloudreve ile çift yönlü otomatik eşitleyin.")
+                Text("Finder stili gezinme ve önizleme tercihlerini özelleştirin.")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
             }
             
-            // Eşitleme Aç/Kapa Kartı
-            VStack(spacing: 12) {
-                Toggle(isOn: $syncEngine.isSyncEnabled) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Yerel Klasör Eşitleme")
-                            .font(.system(size: 14, weight: .semibold))
-                        Text("Aktif olduğunda Mac'teki dosyalarınız arka planda Cloudreve bulutuyla eşitlenir.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-                .toggleStyle(.switch)
-            }
-            .padding(16)
-            .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(Color(NSColor.controlBackgroundColor))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-            )
-            
-            // Konum ve Eylemler Kartı
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Eşitleme Klasör Konumu")
-                    .font(.system(size: 13, weight: .semibold))
-                
-                HStack(spacing: 8) {
-                    Image(systemName: "folder.fill")
-                        .foregroundColor(.accentColor)
-                    Text(syncEngine.localFolderURL.path)
-                        .font(.system(.caption, design: .monospaced))
-                        .lineLimit(1)
-                    Spacer()
-                }
-                .padding(10)
-                .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(Color.primary.opacity(0.04))
-                )
-                
-                HStack {
-                    Text("Durum: \(syncEngine.syncStatus)")
+            VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("macOS Finder Standartları")
+                        .font(.system(size: 13, weight: .semibold))
+                    Text("• Çift tıklanan dosyalar varsayılan macOS uygulamasıyla (Önizleme, Not Defteri, Excel vb.) yerinde açılır.")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                    Spacer()
-                    
-                    Button("Finder'da Aç") {
-                        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: syncEngine.localFolderURL.path)
-                    }
-                    .buttonStyle(.bordered)
-                    
-                    Button(action: {
-                        syncEngine.syncNow()
-                    }) {
-                        Label(syncEngine.isSyncing ? "Eşitleniyor..." : "Şimdi Eşitle", systemImage: "arrow.triangle.2.circlepath")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(syncEngine.isSyncing)
+                    Text("• Cmd+S ile kaydedilen tüm değişiklikler arka planda anında buluta eşitlenir.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text("• Cmd+C / Cmd+V Finder ve Masaüstü arasında gerçek dosya kopyalamayı destekler.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text("• Arama alanının dışına veya boşluğa tıklandığında aramadan otomatik çıkılır.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text("• Sütun ayraçları sürüklenerek boyutlandırılabilir ve çift tıkla otomatik sığdırılabilir.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
             }
             .padding(16)
@@ -3165,50 +3109,6 @@ struct CloudreveSettingsSheet: View {
                         }
                     }
                     .buttonStyle(.bordered)
-                }
-            }
-            .padding(16)
-            .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(Color(NSColor.controlBackgroundColor))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-            )
-        }
-    }
-    
-    // MARK: - 3. SEKME: GÖRÜNÜM & GEZGİN
-    private var appearanceSettingsSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Görünüm & Davranış")
-                    .font(.title2.bold())
-                Text("Finder stili gezinme ve önizleme tercihlerini özelleştirin.")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-            }
-            
-            VStack(alignment: .leading, spacing: 14) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("macOS Finder Standartları")
-                        .font(.system(size: 13, weight: .semibold))
-                    Text("• Çift tıklanan dosyalar varsayılan macOS uygulamasıyla (Önizleme, Not Defteri, Excel vb.) yerinde açılır.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text("• Cmd+S ile kaydedilen tüm değişiklikler arka planda anında buluta eşitlenir.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text("• Cmd+C / Cmd+V Finder ve Masaüstü arasında gerçek dosya kopyalamayı destekler.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text("• Arama alanının dışına veya boşluğa tıklandığında aramadan otomatik çıkılır.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text("• Sütun ayraçları sürüklenerek boyutlandırılabilir ve çift tıkla otomatik sığdırılabilir.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
                 }
             }
             .padding(16)
@@ -3345,7 +3245,7 @@ struct CloudreveSettingsSheet: View {
 
 
 
-// MARK: - Eşitleme ve Sistem Tanılama Sayfası (Diagnostics Sheet)
+// MARK: - İşlem ve Sistem Tanılama Sayfası (Diagnostics Sheet)
 struct DiagnosticsSheetView: View {
     @Binding var isPresented: Bool
     @ObservedObject var logManager = SyncLogManager.shared
@@ -3353,7 +3253,7 @@ struct DiagnosticsSheetView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Label("Eşitleme ve Sistem Tanılama Günlüğü", systemImage: "stethoscope")
+                Label("İşlem ve Sistem Tanılama Günlüğü", systemImage: "stethoscope")
                     .font(.headline)
                 
                 Spacer()

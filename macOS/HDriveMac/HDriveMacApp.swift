@@ -10,7 +10,6 @@ import AppKit
 struct HDriveMacApp: App {
     @StateObject private var mounter = DriveMounter.shared
     @StateObject private var cloudreveManager = CloudreveManager.shared
-    @StateObject private var syncEngine = FolderSyncEngine.shared
     
     var body: some Scene {
         // 1. Ana Dosya Gezgini Penceresi (Finder / Explorer Görünümü)

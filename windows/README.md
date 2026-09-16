@@ -8,15 +8,14 @@ HDrive'ın Windows sürümü, Microsoft'un en modern masaüstü çatısı olan *
 
 - **Mica Arka Plan**: Windows 11'in yerel dinamik yarı saydam Mica efekti.
 - **Özel Başlık Çubuğu (TitleBar)**: Pencere içine gömülü arama çubuğu (`AutoSuggestBox`) ve modern ikonlar.
-- **Gezinti Menüsü (NavigationView)**: Windows 11 Dosya Gezgini sol menüsü gibi (`Cloudreve`, `Yerel Klasör`, `Ayarlar`).
+- **Gezinti Menüsü (NavigationView)**: Windows 11 Dosya Gezgini sol menüsü gibi (`Cloudreve`, `Sabitlenen Klasörler`, `Ayarlar`).
 - **Yol Çubuğu (BreadcrumbBar)**: Klasör derinliklerini tıklanabilir bağlantılar olarak gösterir (`Cloudreve > DOSYALAR > ...`).
 - **Komut Çubuğu (CommandBar)**:
   - Yeni Klasör Oluşturma
   - Dosya Yükleme (Windows FileOpenPicker)
   - Yenile
   - Görünüm Değiştirici (Büyük Simgeler / Ayrıntılı Liste)
-- **Çift Tıklamayla Açma**: Tıklanan dosyayı anlık olarak önbelleğe alıp varsayılan Windows uygulamasında (Word, Excel, Adobe Reader, Medya Oynatıcı vb.) açar.
-- **Yerel Eşitleme (OneDrive Modu)**: Dosyaları arka planda `%USERPROFILE%\HDrive - Cloudreve` klasörüne eşitler.
+- **Çift Tıklamayla Açma**: Tıklanan dosyayı anlık olarak önbelleğe alıp varsayılan Windows uygulamasında (Word, Excel, Adobe Reader, Medya Oynatıcı vb.) açar. Doğrudan düzenleme (in-place live edit) ile kaydedilen değişiklikleri otomatik buluta geri yükler.
 
 ---
 
