@@ -2723,14 +2723,14 @@ public struct NativeExplorerView: View {
         }
     }
     
-    // MARK: - Önizleme Bölmesi (Finder Inspector / Quick Look)
-    @ViewBuilder
     private var previewPaneSideView: some View {
-        if let selID = selectedFileID, let selected = files.first(where: { $0.id == selID }) {
-            previewPaneView(selected)
-                .id(selID)
-        } else {
-            emptyPreviewPaneView
+        Group {
+            if let selID = selectedFileID, let selected = files.first(where: { $0.id == selID }) {
+                previewPaneView(selected)
+                    .id(selID)
+            } else {
+                emptyPreviewPaneView
+            }
         }
     }
     
@@ -2744,173 +2744,102 @@ public struct NativeExplorerView: View {
         }
     }
 
+    // MARK: - macOS Finder Birebir Önizleme Bölmesi (Preview Pane)
     private func previewPaneView(_ file: RemoteFileItem) -> some View {
         ScrollView {
-            VStack(spacing: 16) {
-                // Üst Başlık ve Bölme Kapat Butonu (macOS Finder Stili)
-                HStack {
-                    Text("Önizleme")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(.primary)
-                    
-                    Spacer()
-                    
-                    Button(action: togglePreviewPane) {
-                        Image(systemName: "sidebar.right")
-                            .foregroundColor(.secondary)
-                            .font(.system(size: 13, weight: .medium))
-                            .frame(width: 26, height: 26)
-                            .background(Color.primary.opacity(0.05))
-                            .clipShape(Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .help("Önizleme Bölmesini Gizle (⇧⌘P)")
-                }
-                .padding(.horizontal, 2)
-                
-                // Yükseltilmiş Tuval / Kart (macOS Sonoma / Sequoia Tasarımı)
+            VStack(spacing: 14) {
+                // 1. Canlı Görsel / QuickLook / Büyük İkon (Finder Tarzı Doğrudan Tuval Üzerinde)
                 ZStack {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color(NSColor.controlBackgroundColor))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-                        )
-                        .shadow(color: Color.black.opacity(0.06), radius: 8, x: 0, y: 3)
-                    
                     if file.isDirectory {
-                        VStack(spacing: 10) {
-                            Image(nsImage: FileIconProvider.shared.icon(for: file.name, isDirectory: true, size: 128))
-                                .resizable()
-                                .scaledToFit()
-                                .frame(width: 96, height: 96)
-                                .shadow(color: Color.black.opacity(0.12), radius: 6, x: 0, y: 3)
-                            Text("Klasör")
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(.secondary)
-                        }
-                        .padding(20)
+                        Image(nsImage: FileIconProvider.shared.icon(for: file.name, isDirectory: true, size: 128))
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 108, height: 108)
+                            .shadow(color: Color.black.opacity(0.12), radius: 6, y: 3)
                     } else if file.isImage {
                         if let img = previewManager.cachedImages[file.id] {
                             Image(nsImage: img)
                                 .resizable()
                                 .scaledToFit()
-                                .frame(maxHeight: 200)
-                                .cornerRadius(8)
-                                .padding(8)
+                                .frame(maxHeight: 210)
+                                .cornerRadius(6)
+                                .shadow(color: Color.black.opacity(0.15), radius: 8, y: 4)
                         } else {
-                            VStack(spacing: 10) {
+                            VStack(spacing: 8) {
                                 ProgressView()
-                                    .scaleEffect(0.9)
+                                    .scaleEffect(0.85)
                                 Text("Görsel yükleniyor...")
                                     .font(.caption2)
                                     .foregroundColor(.secondary)
                             }
-                            .padding(24)
                         }
                     } else if let localURL = previewManager.resolvedLocalURL(for: file) {
-                        // Yerel dosya varsa yerleşik macOS QuickLook ile canlı gömülü render
                         QuickLookRepresentable(url: localURL)
-                            .frame(height: 204)
-                            .cornerRadius(8)
-                            .padding(6)
+                            .frame(height: 210)
+                            .cornerRadius(6)
+                            .shadow(color: Color.black.opacity(0.12), radius: 6, y: 3)
                     } else if previewManager.loadingPreviewIDs.contains(file.id) {
-                        VStack(spacing: 10) {
+                        VStack(spacing: 8) {
                             ProgressView()
-                                .scaleEffect(0.9)
+                                .scaleEffect(0.85)
                             Text("Önizleme hazırlanıyor...")
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
                         }
-                        .padding(24)
                     } else {
-                        VStack(spacing: 10) {
-                            Image(nsImage: FileIconProvider.shared.icon(for: file.name, isDirectory: false, size: 128))
-                                .resizable()
-                                .scaledToFit()
-                                .frame(width: 96, height: 96)
-                                .shadow(color: Color.black.opacity(0.12), radius: 6, x: 0, y: 3)
-                            Text(file.kindDescription)
-                                .font(.system(size: 11, weight: .regular))
-                                .foregroundColor(.secondary)
-                                .lineLimit(1)
-                        }
-                        .padding(20)
+                        Image(nsImage: FileIconProvider.shared.icon(for: file.name, isDirectory: false, size: 128))
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 108, height: 108)
+                            .shadow(color: Color.black.opacity(0.12), radius: 6, y: 3)
                     }
                 }
-                .frame(height: 220)
+                .frame(maxWidth: .infinity, minHeight: 180, maxHeight: 220)
+                .padding(.top, 16)
                 .onAppear {
                     loadPreviewIfNeeded(for: file)
                 }
                 
-                // Dosya Adı ve Tür Rozeti (Finder Standartları)
-                VStack(spacing: 4) {
+                // 2. Dosya Başlığı ve Alt Bilgi
+                VStack(spacing: 3) {
                     Text(file.name)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.system(size: 14, weight: .bold))
                         .multilineTextAlignment(.center)
                         .lineLimit(3)
                         .textSelection(.enabled)
-                        .padding(.horizontal, 4)
+                        .padding(.horizontal, 6)
                     
                     Text("\(file.kindDescription) • \(file.formattedSize)")
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
                 }
-                .padding(.top, 2)
                 
-                // Hızlı Eylem Butonları (macOS Finder Aksiyonları)
-                VStack(spacing: 8) {
+                // 3. Finder Hızlı Eylemleri (Quick Actions)
+                VStack(spacing: 6) {
+                    Button(action: { handleDoubleClick(file) }) {
+                        Label(file.isDirectory ? "Klasörü Aç" : "Uygulamayla Aç", systemImage: file.isDirectory ? "folder" : "arrow.up.forward.app")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.regular)
+                    
                     if !file.isDirectory {
                         Button(action: { triggerQuickLook(for: file) }) {
-                            HStack(spacing: 6) {
-                                Image(systemName: "eye.fill")
-                                    .font(.system(size: 12, weight: .medium))
-                                Text("Hızlı Bakış")
-                                    .font(.system(size: 12, weight: .medium))
-                            }
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 22)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.regular)
-                    }
-                    
-                    HStack(spacing: 8) {
-                        Button(action: { handleDoubleClick(file) }) {
-                            HStack(spacing: 5) {
-                                Image(systemName: file.isDirectory ? "folder" : "arrow.up.forward.app")
-                                    .font(.system(size: 11))
-                                Text(file.isDirectory ? "Aç" : "Uygulamayla Aç")
-                                    .font(.system(size: 12))
-                            }
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 22)
+                            Label("Hızlı Bakış (Boşluk)", systemImage: "eye")
+                                .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.regular)
-                        
-                        if !file.isDirectory {
-                            Button(action: { downloadFile(file) }) {
-                                HStack(spacing: 5) {
-                                    Image(systemName: "arrow.down.circle")
-                                        .font(.system(size: 11))
-                                    Text("İndir...")
-                                        .font(.system(size: 12))
-                                }
-                                .padding(.horizontal, 6)
-                                .frame(height: 22)
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.regular)
-                        }
                     }
                 }
-                .padding(.top, 4)
+                .padding(.horizontal, 4)
+                .padding(.top, 2)
                 
                 Divider()
+                    .padding(.vertical, 2)
                 
-                // Finder Tarzı Ayrıntılar Tablosu (BİLGİ)
-                VStack(alignment: .leading, spacing: 10) {
+                // 4. Finder Birebir Bilgi Tablosu (BİLGİ)
+                VStack(alignment: .leading, spacing: 8) {
                     Text("BİLGİ")
                         .font(.system(size: 11, weight: .bold))
                         .foregroundColor(.secondary)
@@ -2931,64 +2860,38 @@ public struct NativeExplorerView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 2)
+                .padding(.horizontal, 4)
             }
-            .padding(16)
+            .padding(14)
         }
     }
     
     // MARK: - Önizleme Boş Durumu (Öğe Seçilmediğinde - macOS Finder Birebir)
     private var emptyPreviewPaneView: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("Önizleme")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(.secondary)
-                Spacer()
-                Button(action: togglePreviewPane) {
-                    Image(systemName: "sidebar.right")
-                        .foregroundColor(.secondary)
-                        .font(.system(size: 13, weight: .medium))
-                        .frame(width: 26, height: 26)
-                        .background(Color.primary.opacity(0.05))
-                        .clipShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .help("Önizleme Bölmesini Kapat (⇧⌘P)")
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 14)
-            
+        VStack(spacing: 12) {
             Spacer()
             
-            VStack(spacing: 12) {
-                ZStack {
-                    Circle()
-                        .fill(Color.primary.opacity(0.04))
-                        .frame(width: 68, height: 68)
-                    
-                    Image(systemName: "sidebar.right")
-                        .font(.system(size: 28))
-                        .foregroundColor(.secondary.opacity(0.6))
-                }
-                
-                Text("Öğe Seçilmedi")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(.primary.opacity(0.85))
-                
-                Text("Ayrıntıları ve önizlemeyi görüntülemek için listeden bir dosya veya klasör seçin.")
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 24)
-            }
+            Image(systemName: "sidebar.right")
+                .font(.system(size: 36))
+                .foregroundColor(.secondary.opacity(0.4))
+            
+            Text("Seçili Öğe Yok")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(.secondary)
+            
+            Text("Ayrıntıları ve önizlemeyi görüntülemek için bir dosya seçin.")
+                .font(.system(size: 11))
+                .foregroundColor(.secondary.opacity(0.8))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
             
             Spacer()
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     
     private func inspectorRow(title: String, value: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .top, spacing: 8) {
             Text(title)
                 .font(.system(size: 11))
                 .foregroundColor(.secondary)
