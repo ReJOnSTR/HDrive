@@ -19,6 +19,14 @@ struct HDriveMacApp: App {
         .windowStyle(.titleBar)
         .windowToolbarStyle(.unified)
         .defaultSize(width: 920, height: 620)
+        .commands {
+            CommandGroup(replacing: .appSettings) {
+                Button("Ayarlar...") {
+                    SettingsWindowManager.shared.showSettings()
+                }
+                .keyboardShortcut(",", modifiers: .command)
+            }
+        }
         
         // 2. macOS Menü Çubuğu Simgesi (Menu Bar Extra)
         MenuBarExtra("HDrive", systemImage: "cloud.fill") {
@@ -28,6 +36,13 @@ struct HDriveMacApp: App {
             } else {
                 Text("HDrive Bulut Gezgini")
             }
+            
+            Divider()
+            
+            Button("Ayarlar...") {
+                SettingsWindowManager.shared.showSettings()
+            }
+            .keyboardShortcut(",", modifiers: .command)
             
             Divider()
             

@@ -226,11 +226,7 @@ public struct NativeExplorerView: View {
                 mouseMonitor = nil
             }
         }
-        .sheet(isPresented: $showingSettingsSheet) {
-            CloudreveSettingsSheet(isPresented: $showingSettingsSheet) {
-                loadDirectory(at: currentPath)
-            }
-        }
+
         .sheet(isPresented: $showingDiagnosticsSheet) {
             DiagnosticsSheetView(isPresented: $showingDiagnosticsSheet)
         }
@@ -327,10 +323,14 @@ public struct NativeExplorerView: View {
             }
             .help("Hızlı Kablosuz Paylaşım & QR Kod")
             
-            Button(action: { showingSettingsSheet = true }) {
+            Button(action: {
+                SettingsWindowManager.shared.showSettings {
+                    loadDirectory(at: currentPath)
+                }
+            }) {
                 Label("Ayarlar", systemImage: "gearshape")
             }
-            .help("Cloudreve Ayarları")
+            .help("HDrive Ayarları (⌘,)")
         }
     }
     
@@ -863,7 +863,22 @@ public struct NativeExplorerView: View {
             List {
                 // HESAPLAR
                 if !manager.servers.isEmpty {
-                    Section("Hesaplar") {
+                    Section(header: HStack {
+                        Text("Hesaplar")
+                        Spacer()
+                        Button(action: {
+                            SettingsWindowManager.shared.showSettings {
+                                loadPinnedFolders()
+                                navigateToRoot()
+                            }
+                        }) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Yeni Hesap Ekle / Yönet")
+                    }) {
                         ForEach(manager.servers) { server in
                             let isServerActive = (manager.activeServer?.id == server.id)
                             Button(action: {
@@ -1167,7 +1182,9 @@ public struct NativeExplorerView: View {
                         .frame(maxWidth: 420)
                     
                     Button(action: {
-                        showingSettingsSheet = true
+                        SettingsWindowManager.shared.showSettings {
+                            loadDirectory(at: currentPath)
+                        }
                     }) {
                         Label("Bulut Sürücüsü Ekle", systemImage: "plus.circle.fill")
                             .font(.system(size: 13, weight: .semibold))
@@ -3209,9 +3226,66 @@ public class GoogleOAuthHelper {
     }
 }
 
-struct CloudreveSettingsSheet: View {
+// MARK: - Standalone Settings Window Manager (macOS HIG Uyumlu Harici Pencere)
+public final class SettingsWindowManager: NSObject, NSWindowDelegate {
+    public static let shared = SettingsWindowManager()
+    
+    private var window: NSWindow?
+    private var onSaveCallback: (() -> Void)?
+    
+    public func showSettings(onSave: (() -> Void)? = nil) {
+        if let callback = onSave {
+            self.onSaveCallback = callback
+        }
+        
+        if let win = window {
+            win.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+        
+        let settingsView = HDriveSettingsView(onClose: { [weak self] in
+            self?.closeSettings()
+        }, onSave: { [weak self] in
+            self?.onSaveCallback?()
+        })
+        
+        let hostingController = NSHostingController(rootView: settingsView)
+        let win = NSWindow(contentViewController: hostingController)
+        win.title = "Ayarlar"
+        win.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+        win.titlebarAppearsTransparent = true
+        win.isReleasedWhenClosed = false
+        win.center()
+        win.minSize = NSSize(width: 740, height: 500)
+        win.setContentSize(NSSize(width: 780, height: 560))
+        win.setFrameAutosaveName("HDriveSettingsWindow")
+        win.delegate = self
+        
+        self.window = win
+        win.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+    
+    public func closeSettings() {
+        window?.close()
+    }
+    
+    public func windowWillClose(_ notification: Notification) {
+        window = nil
+    }
+}
+
+public struct HDriveSettingsView: View {
     @Binding var isPresented: Bool
-    let onSave: () -> Void
+    var onClose: (() -> Void)?
+    var onSave: (() -> Void)?
+    
+    public init(isPresented: Binding<Bool> = .constant(true), onClose: (() -> Void)? = nil, onSave: (() -> Void)? = nil) {
+        self._isPresented = isPresented
+        self.onClose = onClose
+        self.onSave = onSave
+    }
     
     @ObservedObject var manager = CloudreveManager.shared
     @ObservedObject var mounter = DriveMounter.shared
@@ -3235,28 +3309,29 @@ struct CloudreveSettingsSheet: View {
     @State private var isTesting: Bool = false
     @State private var testResult: String? = nil
     @State private var isTestSuccess: Bool = true
+    @State private var hoveredProvider: StorageProtocol? = nil
     
-    var body: some View {
+    public var body: some View {
         HStack(spacing: 0) {
             // SOL KENAR ÇUBUĞU (macOS Sistem Ayarları Tarzı)
             VStack(spacing: 0) {
-                // Üst Başlık
-                HStack(spacing: 8) {
+                // Üst Başlık (Pencere kontrol butonları için pay bırakıldı)
+                HStack(spacing: 9) {
                     ZStack {
                         RoundedRectangle(cornerRadius: 8)
                             .fill(LinearGradient(colors: [.indigo, .blue], startPoint: .topLeading, endPoint: .bottomTrailing))
                             .frame(width: 28, height: 28)
                         Image(systemName: "gearshape.fill")
-                            .font(.system(size: 14))
+                            .font(.system(size: 13, weight: .bold))
                             .foregroundColor(.white)
                     }
                     Text("Ayarlar")
-                        .font(.system(size: 15, weight: .bold))
+                        .font(.system(size: 16, weight: .bold))
                     Spacer()
                 }
                 .padding(.horizontal, 16)
-                .padding(.top, 18)
-                .padding(.bottom, 14)
+                .padding(.top, 38)
+                .padding(.bottom, 12)
                 
                 Divider()
                 
@@ -3295,51 +3370,42 @@ struct CloudreveSettingsSheet: View {
                         .buttonStyle(.plain)
                     }
                 }
-                .padding(10)
+                .padding(.horizontal, 10)
+                .padding(.top, 8)
                 
                 Spacer()
                 
                 Divider()
                 
-                // Alt Kısım: Aktif Hesap Bilgisi & Kapat
+                // Alt Kısım: Aktif Hesap Bilgisi
                 VStack(spacing: 8) {
                     if let active = manager.activeServer {
-                        HStack(spacing: 6) {
-                            Circle()
-                                .fill(Color.green)
-                                .frame(width: 7, height: 7)
-                            Text(active.name.isEmpty ? "HDrive" : active.name)
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundColor(.secondary)
-                                .lineLimit(1)
+                        HStack(spacing: 8) {
+                            ProviderLogoBadge(storageProtocol: active.storageProtocol, size: 22)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(active.name.isEmpty ? "HDrive" : active.name)
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundColor(.primary)
+                                    .lineLimit(1)
+                                HStack(spacing: 4) {
+                                    Circle()
+                                        .fill(Color.green)
+                                        .frame(width: 6, height: 6)
+                                    Text("Bağlı")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.secondary)
+                                }
+                            }
                             Spacer()
                         }
-                        .padding(.horizontal, 4)
-                    } else {
-                        HStack(spacing: 6) {
-                            Circle()
-                                .fill(Color.secondary.opacity(0.5))
-                                .frame(width: 7, height: 7)
-                            Text("Bağlı Sürücü Yok")
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundColor(.secondary)
-                                .lineLimit(1)
-                            Spacer()
-                        }
-                        .padding(.horizontal, 4)
+                        .padding(10)
+                        .background(Color(NSColor.controlBackgroundColor))
+                        .cornerRadius(8)
                     }
-                    
-                    Button("Kapat") {
-                        isPresented = false
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.regular)
-                    .frame(maxWidth: .infinity)
-                    .keyboardShortcut(.cancelAction)
                 }
                 .padding(12)
             }
-            .frame(width: 210)
+            .frame(width: 215)
             .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
             
             Divider()
@@ -3365,8 +3431,9 @@ struct CloudreveSettingsSheet: View {
                 }
                 .padding(24)
             }
+            .frame(minWidth: 520, maxWidth: .infinity, minHeight: 500, maxHeight: .infinity)
         }
-        .frame(width: 760, height: 560)
+        .frame(minWidth: 740, minHeight: 520)
         .onAppear {
             if let active = manager.activeServer {
                 selectServer(active)
@@ -3459,17 +3526,17 @@ struct CloudreveSettingsSheet: View {
                                 if isActive {
                                     Button("Bağlantıyı Kes") {
                                         manager.disconnectActiveServer()
-                                        onSave()
+                                        onSave?()
                                     }
                                     .buttonStyle(.bordered)
-                                    .controlSize(.small)
+                                    .controlSize(.regular)
                                 } else {
                                     Button("Bağlan") {
                                         manager.setActiveServer(server)
-                                        onSave()
+                                        onSave?()
                                     }
                                     .buttonStyle(.borderedProminent)
-                                    .controlSize(.small)
+                                    .controlSize(.regular)
                                 }
                                 
                                 Button(action: {
@@ -3480,7 +3547,7 @@ struct CloudreveSettingsSheet: View {
                                         .font(.system(size: 12))
                                 }
                                 .buttonStyle(.bordered)
-                                .controlSize(.small)
+                                .controlSize(.regular)
                                 .help("Bağlantıyı Düzenle")
                                 
                                 Button(action: {
@@ -3488,14 +3555,14 @@ struct CloudreveSettingsSheet: View {
                                     if manager.servers.isEmpty {
                                         connectionMode = .selectProvider
                                     }
-                                    onSave()
+                                    onSave?()
                                 }) {
                                     Image(systemName: "trash")
                                         .font(.system(size: 12))
                                         .foregroundColor(.red)
                                 }
                                 .buttonStyle(.bordered)
-                                .controlSize(.small)
+                                .controlSize(.regular)
                                 .help("Bağlantıyı Sil")
                             }
                         }
@@ -3522,7 +3589,7 @@ struct CloudreveSettingsSheet: View {
                     Label("Bağlantılarıma Dön", systemImage: "chevron.left")
                 }
                 .buttonStyle(.bordered)
-                .controlSize(.small)
+                .controlSize(.regular)
                 
                 Spacer()
             }
@@ -3562,14 +3629,17 @@ struct CloudreveSettingsSheet: View {
                         .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
                         .background(
                             RoundedRectangle(cornerRadius: 10)
-                                .fill(Color(NSColor.controlBackgroundColor))
+                                .fill(hoveredProvider == proto ? Color.accentColor.opacity(0.08) : Color(NSColor.controlBackgroundColor))
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: 10)
-                                .stroke(Color.primary.opacity(0.1), lineWidth: 1)
+                                .stroke(hoveredProvider == proto ? Color.accentColor.opacity(0.4) : Color.primary.opacity(0.1), lineWidth: 1)
                         )
                     }
                     .buttonStyle(.plain)
+                    .onHover { hovering in
+                        hoveredProvider = hovering ? proto : nil
+                    }
                 }
             }
         }
@@ -3585,7 +3655,7 @@ struct CloudreveSettingsSheet: View {
                     Label(isNew ? "Sağlayıcılar" : "Geri", systemImage: "chevron.left")
                 }
                 .buttonStyle(.bordered)
-                .controlSize(.small)
+                .controlSize(.regular)
                 
                 Spacer()
                 
@@ -3648,21 +3718,22 @@ struct CloudreveSettingsSheet: View {
                         Button(action: {
                             startOAuthLogin()
                         }) {
-                            HStack(spacing: 10) {
+                            HStack(spacing: 12) {
                                 if storageProtocol == .googleDrive {
-                                    GoogleDriveLogo(size: 20)
+                                    GoogleDriveLogo(size: 22)
                                     Text(password.isEmpty ? "Google ile Giriş Yap" : "Google Hesabını Yeniden Bağla")
                                 } else if storageProtocol == .oneDrive {
-                                    OneDriveLogo(size: 20)
+                                    OneDriveLogo(size: 22)
                                     Text(password.isEmpty ? "Microsoft ile Giriş Yap" : "Microsoft Hesabını Yeniden Bağla")
                                 } else {
-                                    DropboxLogo(size: 20)
+                                    DropboxLogo(size: 22)
                                     Text(password.isEmpty ? "Dropbox ile Giriş Yap" : "Dropbox Hesabını Yeniden Bağla")
                                 }
                             }
                             .font(.system(size: 14, weight: .semibold))
-                            .frame(maxWidth: 320)
-                            .padding(.vertical, 10)
+                            .frame(minWidth: 260)
+                            .padding(.vertical, 7)
+                            .padding(.horizontal, 14)
                         }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.large)
@@ -3807,12 +3878,16 @@ struct CloudreveSettingsSheet: View {
             HStack(spacing: 12) {
                 Button(action: testConnection) {
                     if isTesting {
-                        ProgressView().controlSize(.small)
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.small)
+                            Text("Test Ediliyor...")
+                        }
                     } else {
                         Label("Bağlantıyı Test Et", systemImage: "bolt.fill")
                     }
                 }
                 .buttonStyle(.bordered)
+                .controlSize(.regular)
                 .disabled(isTesting)
                 
                 Spacer()
@@ -3821,12 +3896,16 @@ struct CloudreveSettingsSheet: View {
                     connectionMode = .list
                 }
                 .buttonStyle(.bordered)
+                .controlSize(.regular)
                 
                 Button("Kaydet ve Bağlan") {
                     saveAndConnect()
                 }
                 .buttonStyle(.borderedProminent)
+                .controlSize(.regular)
+                .keyboardShortcut(.defaultAction)
             }
+            .padding(.top, 6)
         }
     }
     
@@ -4126,7 +4205,7 @@ struct CloudreveSettingsSheet: View {
         
         manager.saveServer(cfg)
         manager.setActiveServer(cfg)
-        onSave()
+        onSave?()
         connectionMode = .list
     }
     
@@ -4152,6 +4231,8 @@ struct CloudreveSettingsSheet: View {
         }
     }
 }
+
+public typealias CloudreveSettingsSheet = HDriveSettingsView
 
 
 
