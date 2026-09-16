@@ -5,66 +5,295 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
-    Title="Cloudreve Bağlantı ve Eşitleme Ayarları"
-    PrimaryButtonText="Kaydet ve Bağlan"
+    Title="Ayarlar"
+    PrimaryButtonText="Kaydet ve Uygula"
     CloseButtonText="Kapat"
     DefaultButton="Primary">
 
-    <StackPanel Spacing="16" Width="440" Margin="0,8,0,0">
-        <!-- Sunucu Bilgileri Kartı -->
-        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                BorderThickness="1"
-                CornerRadius="8"
-                Padding="16">
-            <StackPanel Spacing="12">
-                <TextBlock Text="WebDAV Sunucu Bilgileri" FontWeight="SemiBold" />
-                
-                <TextBox x:Name="ServerUrlBox" Header="Sunucu Adresi (WebDAV)" 
-                         PlaceholderText="http://sunucu:5212/dav" />
-                
-                <TextBox x:Name="UsernameBox" Header="Kullanıcı Adı / E-posta" 
-                         PlaceholderText="admin@example.com" />
-                
-                <PasswordBox x:Name="PasswordBox" Header="WebDAV Şifresi" 
-                             PlaceholderText="WebDAV şifreniz" />
+    <Grid Width="520" Margin="0,4,0,0">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
 
-                <Button x:Name="TestButton" Content="Bağlantıyı Test Et" Click="TestButton_Click" />
-                
-                <InfoBar x:Name="TestResultInfoBar" IsOpen="False" Severity="Informational" />
+        <!-- Üst Başlık & Açıklama -->
+        <Grid Grid.Row="0" Margin="0,0,0,12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Border Grid.Column="0" Width="40" Height="40" CornerRadius="8" 
+                    Background="{ThemeResource AccentFillColorDefaultBrush}" 
+                    VerticalAlignment="Center" Margin="0,0,12,0">
+                <FontIcon Glyph="&#xE713;" FontSize="20" Foreground="White" 
+                          HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Border>
+            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                <TextBlock Text="HDrive Tercihleri" FontSize="16" FontWeight="SemiBold" />
+                <TextBlock Text="Cloudreve bağlantı, yerel eşitleme ve görünüm ayarlarını yönetin." 
+                           FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
             </StackPanel>
-        </Border>
+        </Grid>
 
-        <!-- Yerel Eşitleme (OneDrive Modu) Kartı -->
-        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                BorderThickness="1"
-                CornerRadius="8"
-                Padding="16">
-            <StackPanel Spacing="10">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <StackPanel Grid.Column="0">
-                        <TextBlock Text="Yerel Klasör Eşitleme (OneDrive Modu)" FontWeight="SemiBold" />
-                        <TextBlock Text="Dosyalarınızı Windows Gezgini'nde 'HDrive - Cloudreve' klasöründe tutar."
-                                   Style="{ThemeResource CaptionTextBlockStyle}"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+        <!-- Segmented Sekmeler (Windows 11 Tarzı) -->
+        <Border Grid.Row="1" Background="{ThemeResource LayerFillColorDefaultBrush}" 
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" 
+                BorderThickness="1" CornerRadius="8" Padding="3" Margin="0,0,0,16">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <Button x:Name="TabBtnAccount" Grid.Column="0" Click="TabBtn_Click" Tag="Account"
+                        Style="{ThemeResource SubtleButtonStyle}" HorizontalAlignment="Stretch" Padding="6,8"
+                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                    <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
+                        <FontIcon Glyph="&#xE774;" FontSize="13" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                        <TextBlock Text="Hesap" FontSize="12" FontWeight="SemiBold" />
                     </StackPanel>
-                    <ToggleSwitch x:Name="SyncToggle" Grid.Column="1" Toggled="SyncToggle_Toggled" OnContent="" OffContent="" />
-                </Grid>
+                </Button>
 
-                <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
-                    <Button Content="📁 Dosya Gezgini'nde Aç" Click="OpenFolder_Click" />
-                    <Button Content="🔄 Şimdi Eşitle" Click="SyncNow_Click" />
-                </StackPanel>
+                <Button x:Name="TabBtnSync" Grid.Column="1" Click="TabBtn_Click" Tag="Sync"
+                        Style="{ThemeResource SubtleButtonStyle}" HorizontalAlignment="Stretch" Padding="6,8">
+                    <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
+                        <FontIcon Glyph="&#xE895;" FontSize="13" />
+                        <TextBlock Text="Eşitleme" FontSize="12" />
+                    </StackPanel>
+                </Button>
 
-                <TextBlock x:Name="SyncStatusText" Text="Durum: Hazır"
-                           Style="{ThemeResource CaptionTextBlockStyle}"
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-            </StackPanel>
+                <Button x:Name="TabBtnView" Grid.Column="2" Click="TabBtn_Click" Tag="View"
+                        Style="{ThemeResource SubtleButtonStyle}" HorizontalAlignment="Stretch" Padding="6,8">
+                    <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
+                        <FontIcon Glyph="&#xE790;" FontSize="13" />
+                        <TextBlock Text="Görünüm" FontSize="12" />
+                    </StackPanel>
+                </Button>
+
+                <Button x:Name="TabBtnAbout" Grid.Column="3" Click="TabBtn_Click" Tag="About"
+                        Style="{ThemeResource SubtleButtonStyle}" HorizontalAlignment="Stretch" Padding="6,8">
+                    <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
+                        <FontIcon Glyph="&#xE946;" FontSize="13" />
+                        <TextBlock Text="Hakkında" FontSize="12" />
+                    </StackPanel>
+                </Button>
+            </Grid>
         </Border>
-    </StackPanel>
+
+        <!-- Sekme İçerikleri -->
+        <Grid Grid.Row="2" MinHeight="340">
+
+            <!-- 1. SEKME: HESAP & WEBDAV SUNUCUSU -->
+            <StackPanel x:Name="PanelAccount" Spacing="12" Visibility="Visible">
+                <!-- Canlı Bağlantı Durumu Kartı -->
+                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1" CornerRadius="8" Padding="14">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Spacing="2">
+                            <TextBlock Text="Sunucu Durumu" FontWeight="SemiBold" FontSize="13" />
+                            <TextBlock x:Name="AccountStatusSubtext" Text="Cloudreve WebDAV uç noktası" 
+                                       FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        </StackPanel>
+                        <!-- Durum Rozeti -->
+                        <Border Grid.Column="1" x:Name="StatusBadgeBorder"
+                                Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                                CornerRadius="12" Padding="10,4" VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                <Ellipse x:Name="StatusDot" Width="8" Height="8" Fill="#107C41" />
+                                <TextBlock x:Name="StatusBadgeText" Text="Yapılandırıldı" FontSize="11" FontWeight="Medium" />
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+                </Border>
+
+                <!-- Sunucu ve Kimlik Girişleri Kartı -->
+                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1" CornerRadius="8" Padding="16">
+                    <StackPanel Spacing="14">
+                        <TextBox x:Name="ServerUrlBox" Header="WebDAV Sunucu Adresi" 
+                                 PlaceholderText="http://sunucu:5212/dav veya https://cloud.sirket.com/dav" />
+                        
+                        <TextBox x:Name="UsernameBox" Header="Kullanıcı Adı veya E-posta" 
+                                 PlaceholderText="admin@example.com" />
+                        
+                        <PasswordBox x:Name="PasswordBox" Header="WebDAV Şifresi" 
+                                     PasswordRevealMode="Peek"
+                                     PlaceholderText="Cloudreve hesap ayarlarından üretilen WebDAV şifresi" />
+
+                        <Grid Margin="0,4,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <InfoBar x:Name="TestResultInfoBar" IsOpen="False" Severity="Informational" Grid.Column="0" Margin="0,0,8,0" />
+                            <Button x:Name="TestButton" Grid.Column="1" Click="TestButton_Click" VerticalAlignment="Center">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <FontIcon Glyph="&#xE768;" FontSize="13" />
+                                    <TextBlock Text="Bağlantıyı Test Et" />
+                                </StackPanel>
+                            </Button>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+
+            <!-- 2. SEKME: YEREL EŞİTLEME (ONEDRIVE MODU) -->
+            <StackPanel x:Name="PanelSync" Spacing="12" Visibility="Collapsed">
+                <!-- Eşitleme Aç/Kapa Kartı -->
+                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1" CornerRadius="8" Padding="14">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                            <TextBlock Text="Yerel Klasör Eşitleme (OneDrive Modu)" FontWeight="SemiBold" FontSize="13" />
+                            <TextBlock Text="Dosyalarınızı Windows Gezgini'nde yerel bir klasörde tutar ve değişiklikleri anında buluta eşitler." 
+                                       FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                        </StackPanel>
+                        <ToggleSwitch x:Name="SyncToggle" Grid.Column="1" Toggled="SyncToggle_Toggled" OnContent="" OffContent="" VerticalAlignment="Center" Margin="12,0,0,0" />
+                    </Grid>
+                </Border>
+
+                <!-- Klasör Konumu ve Eylemler Kartı -->
+                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1" CornerRadius="8" Padding="14">
+                    <StackPanel Spacing="12">
+                        <TextBlock Text="Eşitleme Klasör Konumu" FontWeight="SemiBold" FontSize="13" />
+                        
+                        <Border Background="{ThemeResource LayerFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1" CornerRadius="6" Padding="10,8">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xED25;" FontSize="15" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" VerticalAlignment="Center" />
+                                <TextBlock x:Name="LocalFolderPathText" Text="%UserProfile%\HDrive - Cloudreve" 
+                                           FontSize="12" FontFamily="Consolas, Cascadia Code, monospace" 
+                                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                            </StackPanel>
+                        </Border>
+
+                        <Grid Margin="0,4,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock x:Name="SyncStatusText" Grid.Column="0" Text="Durum: Hazır" 
+                                       FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" 
+                                       VerticalAlignment="Center" />
+
+                            <Button Grid.Column="1" Click="OpenFolder_Click" Margin="0,0,8,0">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <FontIcon Glyph="&#xE8B7;" FontSize="13" />
+                                    <TextBlock Text="Gezginde Aç" />
+                                </StackPanel>
+                            </Button>
+
+                            <Button Grid.Column="2" Click="SyncNow_Click">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <FontIcon Glyph="&#xE895;" FontSize="13" />
+                                    <TextBlock Text="Şimdi Eşitle" />
+                                </StackPanel>
+                            </Button>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+
+            <!-- 3. SEKME: GÖRÜNÜM & GEZGİN -->
+            <StackPanel x:Name="PanelView" Spacing="12" Visibility="Collapsed">
+                <!-- Varsayılan Görünüm Kartı -->
+                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1" CornerRadius="8" Padding="14">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                            <TextBlock Text="Varsayılan Liste Düzeni" FontWeight="SemiBold" FontSize="13" />
+                            <TextBlock Text="Klasörlere girildiğinde uygulanacak varsayılan görünüm modu." 
+                                       FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        </StackPanel>
+                        <ComboBox x:Name="DefaultViewComboBox" Grid.Column="1" Width="160" VerticalAlignment="Center">
+                            <ComboBoxItem Content="Büyük Simgeler" Tag="Large" />
+                            <ComboBoxItem Content="Orta Simgeler" Tag="Medium" />
+                            <ComboBoxItem Content="Ayrıntılar" Tag="Details" />
+                        </ComboBox>
+                    </Grid>
+                </Border>
+
+                <!-- Önizleme Bölmesi Kartı -->
+                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1" CornerRadius="8" Padding="14">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                            <TextBlock Text="Sağ Önizleme Bölmesi" FontWeight="SemiBold" FontSize="13" />
+                            <TextBlock Text="Gezginin sağ tarafında dosya detaylarını ve canlı önizlemeyi göster." 
+                                       FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        </StackPanel>
+                        <ToggleSwitch x:Name="PreviewPaneToggleSwitch" Grid.Column="1" OnContent="" OffContent="" VerticalAlignment="Center" Margin="12,0,0,0" />
+                    </Grid>
+                </Border>
+
+                <!-- Yerinde Yeniden Adlandırma (Inline Rename) Bilgisi -->
+                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1" CornerRadius="8" Padding="14">
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Windows 11 Gezgin Davranışları" FontWeight="SemiBold" FontSize="13" />
+                        <TextBlock Text="• F2 veya gecikmeli tıklama ile doğrudan yerinde yeniden adlandırma aktiftir." FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <TextBlock Text="• Ctrl+C / Ctrl+V gerçek dosya kopyalama ve masaüstüne yapıştırmayı destekler." FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <TextBlock Text="• Boş alana fareyle tıklayıp sürükleyerek çoklu dosya seçebilirsiniz." FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+
+            <!-- 4. SEKME: HAKKINDA -->
+            <StackPanel x:Name="PanelAbout" Spacing="12" Visibility="Collapsed">
+                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1" CornerRadius="8" Padding="20">
+                    <StackPanel Spacing="12" HorizontalAlignment="Center">
+                        <Border Width="64" Height="64" CornerRadius="16" 
+                                Background="{ThemeResource AccentFillColorDefaultBrush}" 
+                                HorizontalAlignment="Center">
+                            <FontIcon Glyph="&#xED25;" FontSize="32" Foreground="White" 
+                                      HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <TextBlock Text="HDrive for Windows" FontSize="18" FontWeight="Bold" HorizontalAlignment="Center" />
+                        <Border Background="{ThemeResource SubtleFillColorSecondaryBrush}" CornerRadius="10" Padding="8,2" HorizontalAlignment="Center">
+                            <TextBlock Text="Sürüm 1.2.7 (WinUI 3 x64)" FontSize="11" FontWeight="SemiBold" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                        </Border>
+                        <TextBlock Text="Cloudreve Bulut Depolama için Yüksek Performanslı Masaüstü İstemcisi" 
+                                   FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" 
+                                   TextAlignment="Center" MaxWidth="380" />
+                        <TextBlock Text="Tüm hakları saklıdır © 2026 HDrive Team" 
+                                   FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}" 
+                                   HorizontalAlignment="Center" Margin="0,8,0,0" />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+
+        </Grid>
+    </Grid>
 </ContentDialog>

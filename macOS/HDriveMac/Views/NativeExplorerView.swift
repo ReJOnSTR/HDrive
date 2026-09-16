@@ -2725,13 +2725,43 @@ public struct NativeExplorerView: View {
     }
 }
 
-// MARK: - Cloudreve Ayarlar Modalı (Sheet)
+// MARK: - Cloudreve Ayarlar Modalı (macOS Sonoma / Sequoia Sistem Ayarları Standardı)
+enum SettingsTab: String, CaseIterable, Identifiable {
+    case account = "Hesap & Sunucu"
+    case sync = "Klasör Eşitleme"
+    case appearance = "Görünüm & Gezgin"
+    case about = "Hakkında"
+    
+    var id: String { rawValue }
+    
+    var icon: String {
+        switch self {
+        case .account: return "cloud.fill"
+        case .sync: return "arrow.triangle.2.circlepath"
+        case .appearance: return "macwindow"
+        case .about: return "info.circle.fill"
+        }
+    }
+    
+    var colors: [Color] {
+        switch self {
+        case .account: return [.blue, .cyan]
+        case .sync: return [.green, .mint]
+        case .appearance: return [.purple, .indigo]
+        case .about: return [.gray, .secondary]
+        }
+    }
+}
+
 struct CloudreveSettingsSheet: View {
     @Binding var isPresented: Bool
     let onSave: () -> Void
     
     @ObservedObject var manager = CloudreveManager.shared
     @ObservedObject var syncEngine = FolderSyncEngine.shared
+    @ObservedObject var mounter = DriveMounter.shared
+    
+    @State private var currentTab: SettingsTab = .account
     
     @State private var selectedServerID: UUID? = nil
     @State private var serverName: String = "Cloudreve"
@@ -2744,241 +2774,119 @@ struct CloudreveSettingsSheet: View {
     @State private var isTestSuccess: Bool = true
     
     var body: some View {
-        VStack(spacing: 0) {
-            // Üst Başlık Çubuğu
-            HStack {
-                Label("Hesaplar ve Eşitleme Ayarları", systemImage: "person.crop.circle.badge.checkmark")
-                    .font(.headline)
-                    .foregroundColor(.accentColor)
-                Spacer()
-                Button("Kapat") {
-                    saveCurrentAccount()
-                    isPresented = false
+        HStack(spacing: 0) {
+            // SOL KENAR ÇUBUĞU (macOS Sistem Ayarları Tarzı)
+            VStack(spacing: 0) {
+                // Üst Başlık
+                HStack(spacing: 8) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(LinearGradient(colors: [.indigo, .blue], startPoint: .topLeading, endPoint: .bottomTrailing))
+                            .frame(width: 28, height: 28)
+                        Image(systemName: "gearshape.fill")
+                            .font(.system(size: 14))
+                            .foregroundColor(.white)
+                    }
+                    Text("Ayarlar")
+                        .font(.system(size: 15, weight: .bold))
+                    Spacer()
                 }
-                .keyboardShortcut(.cancelAction)
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 16)
-            .padding(.bottom, 12)
-            
-            Divider()
-            
-            // 2 Sütunlu Ana Gövde
-            HStack(spacing: 0) {
-                // SOL SÜTUN: Kayıtlı Hesaplar Listesi
-                VStack(spacing: 0) {
-                    // Liste Başlığı
-                    HStack {
-                        Text("Kayıtlı Hesaplar")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(.secondary)
-                        Spacer()
-                        Text("\(manager.servers.count)")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundColor(.secondary)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Capsule().fill(Color.primary.opacity(0.08)))
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(Color(NSColor.controlBackgroundColor).opacity(0.6))
-                    
-                    Divider()
-                    
-                    // Hesap Öğeleri (ScrollView)
-                    ScrollView {
-                        VStack(spacing: 4) {
-                            ForEach(manager.servers) { server in
-                                let isSelected = (selectedServerID == server.id)
-                                let isActive = (manager.activeServer?.id == server.id)
-                                
-                                Button(action: {
-                                    selectServer(server)
-                                }) {
-                                    HStack(spacing: 10) {
-                                        Image(systemName: isActive ? "cloud.fill" : "cloud")
-                                            .font(.system(size: 16))
-                                            .foregroundColor(isSelected ? .white : (isActive ? .accentColor : .secondary))
-                                            .frame(width: 22)
-                                        
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            HStack(spacing: 4) {
-                                                Text(server.name.isEmpty ? "Yeni Hesap" : server.name)
-                                                    .font(.system(size: 12, weight: .medium))
-                                                    .foregroundColor(isSelected ? .white : .primary)
-                                                    .lineLimit(1)
-                                                
-                                                if isActive {
-                                                    Circle()
-                                                        .fill(isSelected ? Color.white : Color.green)
-                                                        .frame(width: 6, height: 6)
-                                                }
-                                            }
-                                            
-                                            Text(serverSubtitle(server))
-                                                .font(.system(size: 10))
-                                                .foregroundColor(isSelected ? Color.white.opacity(0.85) : .secondary)
-                                                .lineLimit(1)
-                                        }
-                                        
-                                        Spacer(minLength: 0)
-                                    }
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 7)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 6)
-                                            .fill(isSelected ? Color.accentColor : Color.clear)
-                                    )
-                                    .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                        .padding(8)
-                    }
-                    .background(Color(NSColor.controlBackgroundColor).opacity(0.35))
-                    
-                    Divider()
-                    
-                    // Alt Butonlar: [+] Ekle, [-] Sil
-                    HStack(spacing: 0) {
-                        Button(action: createNewAccount) {
-                            Image(systemName: "plus")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundColor(.primary)
-                                .frame(width: 32, height: 26)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .help("Yeni Hesap Ekle")
-                        
-                        Divider().frame(height: 14)
-                        
-                        Button(action: deleteSelectedAccount) {
-                            Image(systemName: "minus")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundColor(manager.servers.count > 1 ? .primary : .secondary.opacity(0.3))
-                                .frame(width: 32, height: 26)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(manager.servers.count <= 1)
-                        .help("Seçili Hesabı Sil")
-                        
-                        Spacer()
-                    }
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 3)
-                    .background(Color(NSColor.controlBackgroundColor).opacity(0.8))
-                }
-                .frame(width: 220)
+                .padding(.horizontal, 16)
+                .padding(.top, 18)
+                .padding(.bottom, 14)
                 
                 Divider()
                 
-                // SAĞ SÜTUN: Hesap Detayları ve Senkronizasyon
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
-                        // Üst Başlık ve Aktif Durumu
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(serverName.isEmpty ? "Hesap Detayları" : serverName)
-                                    .font(.title3.bold())
-                                Text(serverSubtitleFromFields())
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                            
-                            Spacer()
-                            
-                            if let curID = selectedServerID, manager.activeServer?.id == curID {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundColor(.green)
-                                    Text("Aktif Sürücü")
-                                        .font(.caption.bold())
-                                        .foregroundColor(.green)
+                // Kategori Butonları
+                VStack(spacing: 4) {
+                    ForEach(SettingsTab.allCases) { tab in
+                        let isSelected = (currentTab == tab)
+                        Button(action: {
+                            currentTab = tab
+                        }) {
+                            HStack(spacing: 10) {
+                                ZStack {
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .fill(LinearGradient(colors: tab.colors, startPoint: .topLeading, endPoint: .bottomTrailing))
+                                        .frame(width: 22, height: 22)
+                                    Image(systemName: tab.icon)
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundColor(.white)
                                 }
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(Color.green.opacity(0.12))
-                                .cornerRadius(6)
-                            } else {
-                                Button("Aktif Hesap Olarak Ayarla") {
-                                    makeCurrentActive()
-                                }
-                                .font(.caption)
-                                .buttonStyle(.bordered)
+                                
+                                Text(tab.rawValue)
+                                    .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
+                                    .foregroundColor(isSelected ? .white : .primary)
+                                
+                                Spacer()
                             }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 7)
+                            .background(
+                                RoundedRectangle(cornerRadius: 7)
+                                    .fill(isSelected ? Color.accentColor : Color.clear)
+                            )
+                            .contentShape(Rectangle())
                         }
-                        
-                        Divider()
-                        
-                        // Sunucu ve Kimlik Bilgileri
-                        VStack(alignment: .leading, spacing: 10) {
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text("Hesap Adı:")
-                                    .font(.caption.bold())
-                                TextField("Örn: Kişisel Drive, Şirket Bulutu", text: $serverName)
-                                    .textFieldStyle(.roundedBorder)
-                            }
-                            
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text("Cloudreve WebDAV Adresi:")
-                                    .font(.caption.bold())
-                                TextField("https://alanadi.com/dav", text: $serverURL)
-                                    .textFieldStyle(.roundedBorder)
-                                    .font(.system(.body, design: .monospaced))
-                            }
-                            
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text("Kullanıcı Adı / E-posta:")
-                                    .font(.caption.bold())
-                                TextField("admin@example.com", text: $username)
-                                    .textFieldStyle(.roundedBorder)
-                            }
-                            
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text("WebDAV Şifresi (Keychain Korumalı):")
-                                    .font(.caption.bold())
-                                SecureField("WebDAV şifreniz", text: $password)
-                                    .textFieldStyle(.roundedBorder)
-                            }
-                        }
-                        
-                        if let result = testResult {
-                            HStack(spacing: 6) {
-                                Image(systemName: isTestSuccess ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                                    .foregroundColor(isTestSuccess ? .green : .red)
-                                Text(result)
-                                    .font(.caption2)
-                            }
-                            .padding(8)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(isTestSuccess ? Color.green.opacity(0.1) : Color.red.opacity(0.1))
-                            .cornerRadius(6)
-                        }
-                        
-                        HStack(spacing: 12) {
-                            Button("Bağlantıyı Test Et") {
-                                testConnection()
-                            }
-                            .buttonStyle(.bordered)
-                            .disabled(isTesting || serverURL.isEmpty)
-                            
-                            Spacer()
-                            
-                            Button("Değişiklikleri Kaydet") {
-                                saveCurrentAccount()
-                            }
-                            .buttonStyle(.borderedProminent)
-                        }
+                        .buttonStyle(.plain)
                     }
-                    .padding(18)
                 }
+                .padding(10)
+                
+                Spacer()
+                
+                Divider()
+                
+                // Alt Kısım: Aktif Hesap Bilgisi & Kapat
+                VStack(spacing: 8) {
+                    if let active = manager.activeServer {
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(Color.green)
+                                .frame(width: 7, height: 7)
+                            Text(active.name.isEmpty ? "Cloudreve" : active.name)
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                            Spacer()
+                        }
+                        .padding(.horizontal, 4)
+                    }
+                    
+                    Button("Kapat") {
+                        saveCurrentAccount()
+                        isPresented = false
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.regular)
+                    .frame(maxWidth: .infinity)
+                    .keyboardShortcut(.cancelAction)
+                }
+                .padding(12)
+            }
+            .frame(width: 210)
+            .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+            
+            Divider()
+            
+            // SAĞ İÇERİK ALANI
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    switch currentTab {
+                    case .account:
+                        accountSettingsSection
+                    case .sync:
+                        syncSettingsSection
+                    case .appearance:
+                        appearanceSettingsSection
+                    case .about:
+                        aboutSection
+                    }
+                }
+                .padding(24)
             }
         }
-        .frame(width: 680, height: 500)
+        .frame(width: 740, height: 530)
         .onAppear {
             if let active = manager.activeServer {
                 selectServer(active)
@@ -2988,26 +2896,373 @@ struct CloudreveSettingsSheet: View {
         }
     }
     
-    private func serverSubtitle(_ server: CloudreveServerConfig) -> String {
-        if !server.username.isEmpty {
-            return server.username
+    // MARK: - 1. SEKME: HESAP & WEBDAV SUNUCUSU
+    private var accountSettingsSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            // Başlık
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Hesap & WebDAV Sunucusu")
+                    .font(.title2.bold())
+                Text("Cloudreve sunucusu bağlantı ve kimlik bilgilerinizi yapılandırın.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+            
+            // Kayıtlı Hesaplar Seçim Çubuğu
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Kayıtlı Hesaplar")
+                    .font(.caption.bold())
+                    .foregroundColor(.secondary)
+                
+                HStack(spacing: 8) {
+                    ForEach(manager.servers) { server in
+                        let isSelected = (selectedServerID == server.id)
+                        let isActive = (manager.activeServer?.id == server.id)
+                        
+                        Button(action: {
+                            selectServer(server)
+                        }) {
+                            HStack(spacing: 6) {
+                                Image(systemName: isActive ? "cloud.fill" : "cloud")
+                                    .foregroundColor(isActive ? .green : .secondary)
+                                Text(server.name.isEmpty ? "Hesap" : server.name)
+                                    .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .fill(isSelected ? Color.accentColor.opacity(0.15) : Color(NSColor.controlBackgroundColor))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .stroke(isSelected ? Color.accentColor : Color.primary.opacity(0.1), lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    
+                    Button(action: createNewAccount) {
+                        Label("Ekle", systemImage: "plus")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    
+                    if manager.servers.count > 1 {
+                        Button(action: deleteSelectedAccount) {
+                            Image(systemName: "trash")
+                                .font(.caption)
+                                .foregroundColor(.red)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .help("Seçili Hesabı Sil")
+                    }
+                }
+            }
+            
+            // Inset Grouped Kart: Sunucu ve Kimlik Bilgileri
+            VStack(spacing: 12) {
+                HStack {
+                    Text("Hesap Adı")
+                        .font(.system(size: 13, weight: .medium))
+                        .frame(width: 140, alignment: .leading)
+                    TextField("Örn: Kişisel Drive", text: $serverName)
+                        .textFieldStyle(.roundedBorder)
+                }
+                
+                HStack {
+                    Text("Sunucu Adresi")
+                        .font(.system(size: 13, weight: .medium))
+                        .frame(width: 140, alignment: .leading)
+                    TextField("https://bulut.alanadi.com/dav", text: $serverURL)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(.body, design: .monospaced))
+                }
+                
+                HStack {
+                    Text("Kullanıcı Adı / E-posta")
+                        .font(.system(size: 13, weight: .medium))
+                        .frame(width: 140, alignment: .leading)
+                    TextField("admin@example.com", text: $username)
+                        .textFieldStyle(.roundedBorder)
+                }
+                
+                HStack {
+                    Text("WebDAV Şifresi")
+                        .font(.system(size: 13, weight: .medium))
+                        .frame(width: 140, alignment: .leading)
+                    SecureField("WebDAV şifreniz", text: $password)
+                        .textFieldStyle(.roundedBorder)
+                }
+            }
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color(NSColor.controlBackgroundColor))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+            )
+            
+            // Test Sonucu Banner
+            if let result = testResult {
+                HStack(spacing: 8) {
+                    Image(systemName: isTestSuccess ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                        .foregroundColor(isTestSuccess ? .green : .red)
+                    Text(result)
+                        .font(.caption)
+                    Spacer()
+                }
+                .padding(10)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(isTestSuccess ? Color.green.opacity(0.12) : Color.red.opacity(0.12))
+                )
+            }
+            
+            // Eylem Butonları & Aktif Sürücü Rozeti
+            HStack(spacing: 12) {
+                if let curID = selectedServerID, manager.activeServer?.id == curID {
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                        Text("Aktif Sürücü Olarak Ayarlı")
+                            .font(.caption.bold())
+                            .foregroundColor(.green)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Color.green.opacity(0.12))
+                    .cornerRadius(6)
+                } else {
+                    Button("Aktif Hesap Olarak Ayarla") {
+                        makeCurrentActive()
+                    }
+                    .buttonStyle(.bordered)
+                }
+                
+                Spacer()
+                
+                Button(action: testConnection) {
+                    if isTesting {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Label("Bağlantıyı Test Et", systemImage: "bolt.fill")
+                    }
+                }
+                .buttonStyle(.bordered)
+                .disabled(isTesting || serverURL.isEmpty)
+                
+                Button("Değişiklikleri Kaydet") {
+                    saveCurrentAccount()
+                }
+                .buttonStyle(.borderedProminent)
+            }
         }
-        if let host = URL(string: server.serverURL)?.host, !host.isEmpty {
-            return host
-        }
-        return "Yapılandırılmamış"
     }
     
-    private func serverSubtitleFromFields() -> String {
-        if !username.isEmpty {
-            return username
+    // MARK: - 2. SEKME: KLASÖR EŞİTLEME (ONEDRIVE MODU)
+    private var syncSettingsSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Klasör Eşitleme (OneDrive Modu)")
+                    .font(.title2.bold())
+                Text("Dosyalarınızı yerel bir klasörde tutun ve Cloudreve ile çift yönlü otomatik eşitleyin.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+            
+            // Eşitleme Aç/Kapa Kartı
+            VStack(spacing: 12) {
+                Toggle(isOn: $syncEngine.isSyncEnabled) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Yerel Klasör Eşitleme")
+                            .font(.system(size: 14, weight: .semibold))
+                        Text("Aktif olduğunda Mac'teki dosyalarınız arka planda Cloudreve bulutuyla eşitlenir.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .toggleStyle(.switch)
+            }
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color(NSColor.controlBackgroundColor))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+            )
+            
+            // Konum ve Eylemler Kartı
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Eşitleme Klasör Konumu")
+                    .font(.system(size: 13, weight: .semibold))
+                
+                HStack(spacing: 8) {
+                    Image(systemName: "folder.fill")
+                        .foregroundColor(.accentColor)
+                    Text(syncEngine.localFolderURL.path)
+                        .font(.system(.caption, design: .monospaced))
+                        .lineLimit(1)
+                    Spacer()
+                }
+                .padding(10)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color.primary.opacity(0.04))
+                )
+                
+                HStack {
+                    Text("Durum: \(syncEngine.syncStatus)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    
+                    Button("Finder'da Aç") {
+                        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: syncEngine.localFolderURL.path)
+                    }
+                    .buttonStyle(.bordered)
+                    
+                    Button(action: {
+                        syncEngine.syncNow()
+                    }) {
+                        Label(syncEngine.isSyncing ? "Eşitleniyor..." : "Şimdi Eşitle", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(syncEngine.isSyncing)
+                }
+            }
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color(NSColor.controlBackgroundColor))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+            )
+            
+            // Finder Ağ Sürücüsü (DriveMounter) Kartı
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Finder Ağ Sürücüsü Olarak Bağla")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text("Cloudreve sunucunuzu Finder'da doğrudan bir ağ diski olarak bağlar.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
+                    
+                    Button("Finder'da Bağla") {
+                        if let active = manager.activeServer {
+                            mounter.connectAndOpenInFinder(config: active) { _, _ in }
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color(NSColor.controlBackgroundColor))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+            )
         }
-        if let host = URL(string: serverURL)?.host, !host.isEmpty {
-            return host
-        }
-        return serverURL.isEmpty ? "Sunucu adresi belirtilmemiş" : serverURL
     }
     
+    // MARK: - 3. SEKME: GÖRÜNÜM & GEZGİN
+    private var appearanceSettingsSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Görünüm & Davranış")
+                    .font(.title2.bold())
+                Text("Finder stili gezinme ve önizleme tercihlerini özelleştirin.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+            
+            VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("macOS Finder Standartları")
+                        .font(.system(size: 13, weight: .semibold))
+                    Text("• Çift tıklanan dosyalar varsayılan macOS uygulamasıyla (Önizleme, Not Defteri, Excel vb.) yerinde açılır.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text("• Cmd+S ile kaydedilen tüm değişiklikler arka planda anında buluta eşitlenir.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text("• Cmd+C / Cmd+V Finder ve Masaüstü arasında gerçek dosya kopyalamayı destekler.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text("• Arama alanının dışına veya boşluğa tıklandığında aramadan otomatik çıkılır.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text("• Sütun ayraçları sürüklenerek boyutlandırılabilir ve çift tıkla otomatik sığdırılabilir.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color(NSColor.controlBackgroundColor))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+            )
+        }
+    }
+    
+    // MARK: - 4. SEKME: HAKKINDA
+    private var aboutSection: some View {
+        VStack(spacing: 16) {
+            Spacer(minLength: 10)
+            
+            ZStack {
+                RoundedRectangle(cornerRadius: 18)
+                    .fill(LinearGradient(colors: [.indigo, .blue], startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .frame(width: 72, height: 72)
+                    .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
+                Image(systemName: "folder.fill.badge.gearshape")
+                    .font(.system(size: 34))
+                    .foregroundColor(.white)
+            }
+            
+            VStack(spacing: 4) {
+                Text("HDrive for Mac")
+                    .font(.title.bold())
+                Text("Sürüm 1.2.7 (Universal Binary)")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+            
+            Text("Cloudreve Bulut Depolama için Apple HIG ve macOS Sonoma/Sequoia Standartlarında Yüksek Performanslı Masaüstü İstemcisi.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 420)
+            
+            Text("© 2026 HDrive Team. Tüm hakları saklıdır.")
+                .font(.caption2)
+                .foregroundColor(.secondary.opacity(0.7))
+                .padding(.top, 8)
+            
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+    }
+    
+    // MARK: - Yardımcı Metotlar
     private func selectServer(_ server: CloudreveServerConfig) {
         if selectedServerID != nil {
             saveCurrentAccount()
