@@ -183,7 +183,6 @@ public struct NativeExplorerView: View {
             .quickLookPreview($quickLookURL)
             .background(keyboardShortcutsOverlay)
         }
-        .background(ToolbarCustomizer())
         .frame(minWidth: 800, minHeight: 560)
         .onAppear {
             loadPinnedFolders()
@@ -3044,52 +3043,7 @@ struct CloudreveSettingsSheet: View {
     }
 }
 
-// MARK: - Yerel Toolbar ve Sidebar Butonu Özelleştirici
-struct ToolbarCustomizer: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        DispatchQueue.main.async {
-            customize(view: view)
-        }
-        return view
-    }
-    
-    func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async {
-            customize(view: nsView)
-        }
-    }
-    
-    private func customize(view: NSView) {
-        guard let window = view.window else { return }
-        
-        if let contentView = window.contentView {
-            removeFocusRings(from: contentView)
-        }
-        
-        guard let toolbar = window.toolbar else { return }
-        for item in toolbar.items {
-            let id = item.itemIdentifier.rawValue.lowercased()
-            if id.contains("sidebar") {
-                if let btn = item.view as? NSButton {
-                    btn.showsBorderOnlyWhileMouseInside = true
-                }
-            }
-            if let itemView = item.view {
-                removeFocusRings(from: itemView)
-            }
-        }
-    }
-    
-    private func removeFocusRings(from view: NSView) {
-        if let control = view as? NSControl {
-            control.focusRingType = .none
-        }
-        for subview in view.subviews {
-            removeFocusRings(from: subview)
-        }
-    }
-}
+
 
 // MARK: - Eşitleme ve Sistem Tanılama Sayfası (Diagnostics Sheet)
 struct DiagnosticsSheetView: View {
