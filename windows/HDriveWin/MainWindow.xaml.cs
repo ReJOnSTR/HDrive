@@ -32,7 +32,7 @@ public sealed partial class MainWindow : Window
 
     private FileItem? _selectedItem;
 
-    private enum SortField
+    public enum SortField
     {
         Name,
         Date,
