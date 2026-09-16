@@ -40,4 +40,7 @@ _ReSharper*/
 *.log
 *.dmg
 *.zip
-*.exe
+# Secrets / Credentials
+*credentials*.json
+*secret*.json
+*.env

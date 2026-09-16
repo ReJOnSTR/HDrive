@@ -8,6 +8,7 @@ import AppKit
 import UniformTypeIdentifiers
 import QuickLook
 import QuickLookUI
+import Network
 
 
 public struct ExplorerTab: Identifiable, Equatable {
@@ -3010,6 +3011,112 @@ enum ConnectionViewMode {
     case edit(isNew: Bool)
 }
 
+public class GoogleOAuthHelper {
+    public static var defaultClientId: String {
+        let path = ("~/.config/HDrive/google_credentials.json" as NSString).expandingTildeInPath
+        if let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let val = json["client_id"] as? String, !val.isEmpty {
+            return val
+        }
+        return UserDefaults.standard.string(forKey: "GoogleOAuthClientId") ?? ""
+    }
+    
+    public static var defaultClientSecret: String {
+        let path = ("~/.config/HDrive/google_credentials.json" as NSString).expandingTildeInPath
+        if let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let val = json["client_secret"] as? String, !val.isEmpty {
+            return val
+        }
+        return UserDefaults.standard.string(forKey: "GoogleOAuthClientSecret") ?? ""
+    }
+    
+    public static let redirectUri = "http://127.0.0.1:8080/oauth/callback"
+    
+    public static let shared = GoogleOAuthHelper()
+    private var listener: NWListener?
+    
+    public func startListener(onCodeReceived: @escaping (String) -> Void) {
+        stopListener()
+        do {
+            let params = NWParameters.tcp
+            guard let port = NWEndpoint.Port(rawValue: 8080) else { return }
+            listener = try NWListener(using: params, on: port)
+            listener?.newConnectionHandler = { connection in
+                connection.start(queue: .main)
+                connection.receive(minimumIncompleteLength: 1, maximumLength: 4096) { data, _, _, _ in
+                    if let data = data, let req = String(data: data, encoding: .utf8) {
+                        if let range = req.range(of: "code=") {
+                            let sub = req[range.upperBound...]
+                            let code = sub.prefix { $0 != "&" && $0 != " " && $0 != "\r" && $0 != "\n" }
+                            let codeStr = String(code)
+                            
+                            let html = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nConnection: close\r\n\r\n<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>HDrive</title></head><body style=\"font-family:system-ui,-apple-system;text-align:center;padding:60px 20px;background:#f8fafc;\"><div style=\"max-width:440px;margin:auto;background:white;padding:40px;border-radius:16px;box-shadow:0 10px 25px rgba(0,0,0,0.06);\"><h2 style=\"color:#10b981;margin-bottom:8px;\">✅ Giriş Başarılı!</h2><p style=\"color:#64748b;font-size:15px;line-height:1.5;\">HDrive Google Drive oturumunuzu başarıyla doğruladı.<br>Bu sekmeyi kapatıp uygulamaya dönebilirsiniz.</p></div></body></html>"
+                            connection.send(content: html.data(using: .utf8), completion: .contentProcessed({ _ in
+                                connection.cancel()
+                            }))
+                            
+                            DispatchQueue.main.async {
+                                onCodeReceived(codeStr)
+                                self.stopListener()
+                            }
+                            return
+                        }
+                    }
+                    connection.cancel()
+                }
+            }
+            listener?.start(queue: .main)
+        } catch {
+            print("OAuth Listener başlatılamadı: \(error)")
+        }
+    }
+    
+    public func stopListener() {
+        listener?.cancel()
+        listener = nil
+    }
+    
+    public func exchangeCodeForToken(code: String, clientId: String, clientSecret: String, completion: @escaping (Result<String, Error>) -> Void) {
+        guard let url = URL(string: "https://oauth2.googleapis.com/token") else {
+            completion(.failure(NSError(domain: "HDrive", code: 400, userInfo: [NSLocalizedDescriptionKey: "Geçersiz token URL'si"])))
+            return
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        
+        let cId = clientId.isEmpty ? GoogleOAuthHelper.defaultClientId : clientId
+        let cSec = clientSecret.isEmpty ? GoogleOAuthHelper.defaultClientSecret : clientSecret
+        
+        let body = "code=\(code.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? code)&client_id=\(cId)&client_secret=\(cSec)&redirect_uri=http%3A%2F%2F127.0.0.1%3A8080%2Foauth%2Fcallback&grant_type=authorization_code"
+        req.httpBody = body.data(using: .utf8)
+        
+        URLSession.shared.dataTask(with: req) { data, response, error in
+            if let error = error {
+                DispatchQueue.main.async { completion(.failure(error)) }
+                return
+            }
+            guard let data = data,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                DispatchQueue.main.async {
+                    completion(.failure(NSError(domain: "HDrive", code: 500, userInfo: [NSLocalizedDescriptionKey: "Geçersiz token yanıtı"])))
+                }
+                return
+            }
+            if let token = json["access_token"] as? String {
+                DispatchQueue.main.async { completion(.success(token)) }
+            } else {
+                let err = (json["error_description"] as? String) ?? (json["error"] as? String) ?? "Token alınamadı"
+                DispatchQueue.main.async {
+                    completion(.failure(NSError(domain: "HDrive", code: 400, userInfo: [NSLocalizedDescriptionKey: err])))
+                }
+            }
+        }.resume()
+    }
+}
+
 struct CloudreveSettingsSheet: View {
     @Binding var isPresented: Bool
     let onSave: () -> Void
@@ -3031,6 +3138,7 @@ struct CloudreveSettingsSheet: View {
     @State private var smbShare: String = ""
     @State private var clientId: String = ""
     @State private var clientSecret: String = ""
+    @State private var manualCodeInput: String = ""
     
     @State private var isTesting: Bool = false
     @State private var testResult: String? = nil
@@ -3449,6 +3557,20 @@ struct CloudreveSettingsSheet: View {
                     .background(Color.primary.opacity(0.04))
                     .cornerRadius(8)
 
+                    if storageProtocol == .googleDrive {
+                        HStack(spacing: 8) {
+                            TextField("Veya tarayıcı adresindeki kodu/URL'yi yapıştırın", text: $manualCodeInput)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(size: 12))
+                            Button("Doğrula & Bağlan") {
+                                exchangeManualCode()
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .disabled(manualCodeInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        }
+                    }
+
                     HStack {
                         Text("OAuth Client ID")
                             .font(.system(size: 13, weight: .medium))
@@ -3815,6 +3937,8 @@ struct CloudreveSettingsSheet: View {
         switch proto {
         case .googleDrive:
             serverURL = "https://www.googleapis.com/drive/v3"
+            clientId = GoogleOAuthHelper.defaultClientId
+            clientSecret = GoogleOAuthHelper.defaultClientSecret
         case .oneDrive:
             serverURL = "https://graph.microsoft.com/v1.0/me/drive"
         case .dropbox:
@@ -3847,13 +3971,75 @@ struct CloudreveSettingsSheet: View {
         }
     }
 
+    private func exchangeManualCode() {
+        var raw = manualCodeInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let range = raw.range(of: "code=") {
+            let sub = raw[range.upperBound...]
+            let c = sub.prefix { $0 != "&" && $0 != " " && $0 != "\r" && $0 != "\n" }
+            raw = String(c)
+        }
+        guard !raw.isEmpty else { return }
+        
+        let cId = clientId.isEmpty ? GoogleOAuthHelper.defaultClientId : clientId
+        let cSec = clientSecret.isEmpty ? GoogleOAuthHelper.defaultClientSecret : clientSecret
+        
+        isTesting = true
+        testResult = "⏳ Yetki kodu doğrulanıyor ve token alınıyor..."
+        GoogleOAuthHelper.shared.exchangeCodeForToken(code: raw, clientId: cId, clientSecret: cSec) { result in
+            self.isTesting = false
+            switch result {
+            case .success(let token):
+                self.password = token
+                self.isTestSuccess = true
+                self.testResult = "✅ Google Drive oturumu başarıyla açıldı ve bağlandı!"
+                self.saveAndConnect()
+            case .failure(let error):
+                self.isTestSuccess = false
+                self.testResult = "❌ Doğrulama hatası: \(error.localizedDescription)"
+            }
+        }
+    }
+
     private func startOAuthLogin() {
         let trimmedClientId = clientId.trimmingCharacters(in: .whitespacesAndNewlines)
         let clientName = storageProtocol.providerName
         
+        if storageProtocol == .googleDrive {
+            let effClientId = trimmedClientId.isEmpty ? GoogleOAuthHelper.defaultClientId : trimmedClientId
+            let effClientSecret = clientSecret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? GoogleOAuthHelper.defaultClientSecret : clientSecret.trimmingCharacters(in: .whitespacesAndNewlines)
+            
+            clientId = effClientId
+            clientSecret = effClientSecret
+            isTesting = true
+            testResult = "⏳ Tarayıcıda Google giriş ekranı açıldı. İzni onayladığınızda HDrive otomatik olarak bağlanacaktır..."
+            
+            GoogleOAuthHelper.shared.startListener { code in
+                self.testResult = "⏳ Google yetkilendirme kodu alındı, erişim tokenı talep ediliyor..."
+                GoogleOAuthHelper.shared.exchangeCodeForToken(code: code, clientId: effClientId, clientSecret: effClientSecret) { result in
+                    self.isTesting = false
+                    switch result {
+                    case .success(let token):
+                        self.password = token
+                        self.isTestSuccess = true
+                        self.testResult = "✅ Google Drive oturumu başarıyla açıldı ve bağlandı!"
+                        self.saveAndConnect()
+                    case .failure(let error):
+                        self.isTestSuccess = false
+                        self.testResult = "❌ Google yetkilendirme hatası: \(error.localizedDescription)"
+                    }
+                }
+            }
+            
+            let authUrlStr = "https://accounts.google.com/o/oauth2/v2/auth?client_id=\(effClientId)&response_type=code&redirect_uri=http%3A%2F%2F127.0.0.1%3A8080%2Foauth%2Fcallback&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive&access_type=offline&prompt=consent"
+            if let url = URL(string: authUrlStr) {
+                NSWorkspace.shared.open(url)
+            }
+            return
+        }
+        
         guard !trimmedClientId.isEmpty else {
             isTestSuccess = false
-            testResult = "⚠️ '\(clientName)' resmi girişi için 'OAuth Client ID' zorunludur.\n\nOAuth 2.0 protokolü gereği Google ve Microsoft isteklerinde 'client_id' ve 'response_type' parametreleri şarttır. Lütfen yukarıdaki 'OAuth Client ID' kutucuğuna konsolunuzdan aldığınız kimliği yapıştırın (veya sağdaki simgeye tıklayarak konsol sayfasına gidin)."
+            testResult = "⚠️ '\(clientName)' resmi girişi için 'OAuth Client ID' zorunludur.\n\nLütfen yukarıdaki 'OAuth Client ID' kutucuğuna konsolunuzdan aldığınız kimliği yapıştırın."
             return
         }
         
@@ -3865,10 +4051,7 @@ struct CloudreveSettingsSheet: View {
         testResult = nil
         
         let authEndpoint: String
-        
         switch storageProtocol {
-        case .googleDrive:
-            authEndpoint = "https://accounts.google.com/o/oauth2/v2/auth?client_id=\(encodedClientId)&response_type=code&redirect_uri=http%3A%2F%2F127.0.0.1%3A8080%2Foauth%2Fcallback&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive&access_type=offline&prompt=consent"
         case .oneDrive:
             authEndpoint = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=\(encodedClientId)&response_type=code&redirect_uri=https%3A%2F%2Flogin.microsoftonline.com%2Fcommon%2Foauth2%2Fnativeclient&response_mode=query&scope=offline_access%20Files.ReadWrite%20User.Read"
         case .dropbox:

@@ -141,6 +141,12 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, XMLParserDelegate
     }
     
     private var authHeader: String? {
+        if config.storageProtocol == .googleDrive || config.storageProtocol == .oneDrive || config.storageProtocol == .dropbox {
+            if !config.password.isEmpty {
+                return config.password.hasPrefix("Bearer ") ? config.password : "Bearer \(config.password)"
+            }
+            return nil
+        }
         guard !config.username.isEmpty, !config.password.isEmpty else { return nil }
         let loginString = "\(config.username):\(config.password)"
         guard let loginData = loginString.data(using: .utf8) else { return nil }
@@ -207,7 +213,30 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, XMLParserDelegate
 
     /// Sunucu bağlantısını test eder
     public func testConnection(completion: @escaping (Bool, String) -> Void) {
-        if config.storageProtocol == .googleDrive || config.storageProtocol == .oneDrive || config.storageProtocol == .dropbox {
+        if config.storageProtocol == .googleDrive {
+            if config.password.isEmpty {
+                completion(false, "Google Drive ile henüz oturum açılmamış. Lütfen 'Google ile Giriş Yap' butonuna basın.")
+                return
+            }
+            guard let url = URL(string: "https://www.googleapis.com/drive/v3/about?fields=user") else { return }
+            var req = URLRequest(url: url)
+            req.setValue(authHeader, forHTTPHeaderField: "Authorization")
+            session.dataTask(with: req) { data, response, error in
+                if let error = error {
+                    DispatchQueue.main.async { completion(false, "Bağlantı hatası: \(error.localizedDescription)") }
+                    return
+                }
+                let status = (response as? HTTPURLResponse)?.statusCode ?? 500
+                if status == 200 {
+                    DispatchQueue.main.async { completion(true, "✅ Google Drive bağlantısı başarılı ve doğrulandı!") }
+                } else {
+                    DispatchQueue.main.async { completion(false, "Google Drive yetkilendirme geçersiz (HTTP \(status)).") }
+                }
+            }.resume()
+            return
+        }
+
+        if config.storageProtocol == .oneDrive || config.storageProtocol == .dropbox {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 if !self.config.username.isEmpty || !self.config.password.isEmpty || !self.config.serverURL.isEmpty {
                     completion(true, "\(self.config.storageProtocol.providerName) bağlantı ve kimlik doğrulama profili hazır.")
@@ -274,6 +303,10 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, XMLParserDelegate
     
     /// Belirtilen klasördeki dosyaları ve alt klasörleri listeler
     public func listFiles(at relativePath: String = "", completion: @escaping (Result<[RemoteFileItem], Error>) -> Void) {
+        if config.storageProtocol == .googleDrive {
+            listGoogleDriveFiles(at: relativePath, completion: completion)
+            return
+        }
         guard let targetURL = buildURL(for: relativePath) else {
             completion(.failure(NSError(domain: "HDrive", code: 400, userInfo: [NSLocalizedDescriptionKey: "Geçersiz URL: \(relativePath)"])))
             return
@@ -310,6 +343,62 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, XMLParserDelegate
         task.resume()
     }
     
+    private func listGoogleDriveFiles(at folderIdOrPath: String, completion: @escaping (Result<[RemoteFileItem], Error>) -> Void) {
+        let parentId = (folderIdOrPath.isEmpty || folderIdOrPath == "/") ? "root" : folderIdOrPath
+        let query = "'\(parentId)' in parents and trashed = false"
+        guard let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let url = URL(string: "https://www.googleapis.com/drive/v3/files?q=\(encodedQuery)&fields=files(id,name,mimeType,size,modifiedTime)&pageSize=1000") else {
+            completion(.failure(NSError(domain: "HDrive", code: 400, userInfo: [NSLocalizedDescriptionKey: "Geçersiz istek"])))
+            return
+        }
+        
+        var request = URLRequest(url: url)
+        request.setValue(authHeader, forHTTPHeaderField: "Authorization")
+        
+        session.dataTask(with: request) { data, response, error in
+            if let error = error {
+                DispatchQueue.main.async { completion(.failure(error)) }
+                return
+            }
+            guard let data = data,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let filesList = json["files"] as? [[String: Any]] else {
+                let msg = (try? JSONSerialization.jsonObject(with: data ?? Data()) as? [String: Any])?["error"] as? [String: Any]
+                let desc = msg?["message"] as? String ?? "Google Drive dosyaları alınamadı."
+                DispatchQueue.main.async {
+                    completion(.failure(NSError(domain: "HDrive", code: 500, userInfo: [NSLocalizedDescriptionKey: desc])))
+                }
+                return
+            }
+            
+            let dateFormatter = ISO8601DateFormatter()
+            let items: [RemoteFileItem] = filesList.compactMap { (dict: [String: Any]) -> RemoteFileItem? in
+                guard let id = dict["id"] as? String,
+                      let name = dict["name"] as? String else { return nil }
+                let mime = dict["mimeType"] as? String ?? ""
+                let isDir = (mime == "application/vnd.google-apps.folder")
+                let sizeStr = dict["size"] as? String ?? "0"
+                let size = Int64(sizeStr) ?? 0
+                let dateStr = dict["modifiedTime"] as? String ?? ""
+                let modified = dateFormatter.date(from: dateStr)
+                
+                return RemoteFileItem(
+                    id: id,
+                    name: name,
+                    href: id,
+                    isDirectory: isDir,
+                    size: size,
+                    modificationDate: modified,
+                    contentType: mime
+                )
+            }
+            
+            DispatchQueue.main.async {
+                completion(.success(items))
+            }
+        }.resume()
+    }
+    
     /// WebDAV indirme adresini güvenli ve doğru biçimde oluşturur
     public func downloadURL(for href: String) -> URL? {
         let trimmed = href.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -323,6 +412,39 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, XMLParserDelegate
     
     /// Dosya İndirir (HTTP durum kodu kontrolü ve güvenli taşıma)
     public func downloadFile(href: String, to localDestination: URL, progress: @escaping (Double) -> Void, completion: @escaping (Error?) -> Void) {
+        if config.storageProtocol == .googleDrive {
+            let fileId = href
+            guard let url = URL(string: "https://www.googleapis.com/drive/v3/files/\(fileId)?alt=media") else {
+                completion(NSError(domain: "HDrive", code: 400, userInfo: [NSLocalizedDescriptionKey: "Geçersiz dosya kimliği"]))
+                return
+            }
+            var request = URLRequest(url: url)
+            request.setValue(authHeader, forHTTPHeaderField: "Authorization")
+            
+            let downloadTask = session.downloadTask(with: request) { tempURL, response, error in
+                if let error = error {
+                    DispatchQueue.main.async { completion(error) }
+                    return
+                }
+                guard let tempURL = tempURL else {
+                    DispatchQueue.main.async { completion(NSError(domain: "HDrive", code: 500, userInfo: [NSLocalizedDescriptionKey: "İndirilen dosya bulunamadı"])) }
+                    return
+                }
+                do {
+                    let parentDir = localDestination.deletingLastPathComponent()
+                    try FileManager.default.createDirectory(at: parentDir, withIntermediateDirectories: true)
+                    if FileManager.default.fileExists(atPath: localDestination.path) {
+                        try FileManager.default.removeItem(at: localDestination)
+                    }
+                    try FileManager.default.moveItem(at: tempURL, to: localDestination)
+                    DispatchQueue.main.async { completion(nil) }
+                } catch {
+                    DispatchQueue.main.async { completion(error) }
+                }
+            }
+            downloadTask.resume()
+            return
+        }
         guard let url = downloadURL(for: href) else {
             completion(NSError(domain: "HDrive", code: 400, userInfo: [NSLocalizedDescriptionKey: "Geçersiz dosya adresi: \(href)"]))
             return
