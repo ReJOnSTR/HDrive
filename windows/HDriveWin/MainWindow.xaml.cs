@@ -4,6 +4,8 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Storage;
@@ -1135,17 +1137,17 @@ public sealed partial class MainWindow : Window
         catch { }
     }
 
-    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    [DllImport("user32.dll")]
     private static extern IntPtr LoadCursor(IntPtr hInstance, int lpCursorName);
 
-    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    [DllImport("user32.dll")]
     private static extern IntPtr SetCursor(IntPtr hCursor);
 
     private const int IDC_SIZEWE = 32644;
     private const int IDC_ARROW = 32512;
 
-    private static readonly System.Reflection.PropertyInfo? _protectedCursorProp =
-        typeof(UIElement).GetProperty("ProtectedCursor", System.Reflection.BindingFlags.Instance | System.Reflection.NonPublic | System.Reflection.Public);
+    private static readonly PropertyInfo? _protectedCursorProp =
+        typeof(UIElement).GetProperty("ProtectedCursor", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
 
     private void SetElementCursor(FrameworkElement fe, bool isResize)
     {
