@@ -1545,7 +1545,8 @@ public struct NativeExplorerView: View {
     private func handleDoubleClick(_ file: RemoteFileItem) {
         if file.isDirectory {
             // Klasör ise içine gir
-            let newPath = currentPath.isEmpty ? file.name : "\(currentPath)/\(file.name)"
+            let isGDrive = (manager.activeServer?.storageProtocol == .googleDrive)
+            let newPath = isGDrive ? file.id : (currentPath.isEmpty ? file.name : "\(currentPath)/\(file.name)")
             navigateTo(newPath)
         } else {
             // Dosya ise Mac'in varsayılan uygulamasıyla (Excel, Word, Preview, VLC vb.) doğrudan aç

@@ -344,7 +344,11 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, XMLParserDelegate
     }
     
     private func listGoogleDriveFiles(at folderIdOrPath: String, completion: @escaping (Result<[RemoteFileItem], Error>) -> Void) {
-        let parentId = (folderIdOrPath.isEmpty || folderIdOrPath == "/") ? "root" : folderIdOrPath
+        var clean = folderIdOrPath.trimmingCharacters(in: CharacterSet(charactersIn: "/. \t\n\r"))
+        if clean.isEmpty || clean == "." {
+            clean = "root"
+        }
+        let parentId = clean
         let query = "'\(parentId)' in parents and trashed = false"
         guard let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
               let url = URL(string: "https://www.googleapis.com/drive/v3/files?q=\(encodedQuery)&fields=files(id,name,mimeType,size,modifiedTime)&pageSize=1000") else {
@@ -421,11 +425,43 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, XMLParserDelegate
             var request = URLRequest(url: url)
             request.setValue(authHeader, forHTTPHeaderField: "Authorization")
             
-            let downloadTask = session.downloadTask(with: request) { tempURL, response, error in
+            let downloadTask = session.downloadTask(with: request) { [weak self] tempURL, response, error in
+                guard let self = self else { return }
                 if let error = error {
                     DispatchQueue.main.async { completion(error) }
                     return
                 }
+                
+                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 500
+                
+                // Google Docs, Sheets, Slides dosyaları doğrudan alt=media ile indirilemez; Export API gerekir
+                if statusCode == 403 {
+                    var isDocsEditor = false
+                    if let tempURL = tempURL, let data = try? Data(contentsOf: tempURL),
+                       let str = String(data: data, encoding: .utf8),
+                       str.contains("fileNotDownloadable") || str.contains("Docs Editors") {
+                        isDocsEditor = true
+                    }
+                    if isDocsEditor {
+                        self.exportGoogleDoc(fileId: fileId, to: localDestination, completion: completion)
+                        return
+                    }
+                }
+                
+                guard (200...299).contains(statusCode) else {
+                    var errorDesc = "Google Drive indirme hatası (HTTP \(statusCode))."
+                    if let tempURL = tempURL, let data = try? Data(contentsOf: tempURL),
+                       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let errObj = json["error"] as? [String: Any],
+                       let msg = errObj["message"] as? String {
+                        errorDesc = msg
+                    }
+                    DispatchQueue.main.async {
+                        completion(NSError(domain: "HDrive", code: statusCode, userInfo: [NSLocalizedDescriptionKey: errorDesc]))
+                    }
+                    return
+                }
+                
                 guard let tempURL = tempURL else {
                     DispatchQueue.main.async { completion(NSError(domain: "HDrive", code: 500, userInfo: [NSLocalizedDescriptionKey: "İndirilen dosya bulunamadı"])) }
                     return
@@ -483,6 +519,65 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, XMLParserDelegate
             }
         }
         downloadTask.resume()
+    }
+    
+    /// Google Docs, Sheets veya Slides belgelerini PDF veya uygun formata dönüştürerek indirir
+    public func exportGoogleDoc(fileId: String, to localDestination: URL, completion: @escaping (Error?) -> Void) {
+        let ext = localDestination.pathExtension.lowercased()
+        let exportMime: String
+        switch ext {
+        case "docx":
+            exportMime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        case "xlsx":
+            exportMime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        case "pptx":
+            exportMime = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        case "png":
+            exportMime = "image/png"
+        default:
+            exportMime = "application/pdf"
+        }
+        
+        guard let encodedMime = exportMime.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let exportURL = URL(string: "https://www.googleapis.com/drive/v3/files/\(fileId)/export?mimeType=\(encodedMime)") else {
+            completion(NSError(domain: "HDrive", code: 400, userInfo: [NSLocalizedDescriptionKey: "Geçersiz dışa aktarma adresi"]))
+            return
+        }
+        
+        var request = URLRequest(url: exportURL)
+        request.setValue(authHeader, forHTTPHeaderField: "Authorization")
+        
+        let task = session.downloadTask(with: request) { tempURL, response, error in
+            if let error = error {
+                DispatchQueue.main.async { completion(error) }
+                return
+            }
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 500
+            guard (200...299).contains(status), let tempURL = tempURL else {
+                DispatchQueue.main.async {
+                    completion(NSError(domain: "HDrive", code: status, userInfo: [NSLocalizedDescriptionKey: "Google dokümanı dışa aktarılamadı (HTTP \(status))."]))
+                }
+                return
+            }
+            do {
+                let parentDir = localDestination.deletingLastPathComponent()
+                try FileManager.default.createDirectory(at: parentDir, withIntermediateDirectories: true)
+                
+                var targetURL = localDestination
+                if exportMime == "application/pdf" && targetURL.pathExtension.isEmpty {
+                    targetURL = targetURL.appendingPathExtension("pdf")
+                }
+                
+                if FileManager.default.fileExists(atPath: targetURL.path) {
+                    try? FileManager.default.removeItem(at: targetURL)
+                }
+                try FileManager.default.moveItem(at: tempURL, to: targetURL)
+                DispatchQueue.main.async { completion(nil) }
+            } catch {
+                DispatchQueue.main.async { completion(error) }
+            }
+        }
+        task.resume()
     }
     
     /// Dosya Yükler (PUT)

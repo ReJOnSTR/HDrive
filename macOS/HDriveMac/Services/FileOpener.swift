@@ -21,8 +21,18 @@ public final class FileOpener: ObservableObject {
     
     private init() {}
     
-    /// Uzak Cloudreve dosyasını Mac'in varsayılan uygulamasıyla (Excel, Word, Preview, VLC, Figma vb.) açar
     public func openFileNatively(file: RemoteFileItem, client: WebDAVClient, completion: @escaping (Bool, String?) -> Void) {
+        // 0. Google Drive Docs/Sheets/Slides/Forms için doğrudan web tarayıcısını aç
+        if client.config.storageProtocol == .googleDrive {
+            let mime = file.contentType ?? ""
+            if mime.hasPrefix("application/vnd.google-apps.") && mime != "application/vnd.google-apps.folder" {
+                if let url = URL(string: "https://drive.google.com/open?id=\(file.id)") {
+                    NSWorkspace.shared.open(url)
+                    completion(true, nil)
+                    return
+                }
+            }
+        }
         // 1. Finder'da bağlı bir ağ diski var mı kontrol et
         if DriveMounter.shared.isMounted, let mountPoint = DriveMounter.shared.mountPoint {
             var subPath = file.href
