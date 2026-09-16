@@ -13,14 +13,16 @@ import Network
 
 public struct ExplorerTab: Identifiable, Equatable {
     public let id: UUID
+    public var serverId: UUID?
     public var title: String
     public var path: String
     public var history: [String]
     public var historyIndex: Int
     public var selectedFileID: String?
     
-    public init(id: UUID = UUID(), title: String = "Cloudreve", path: String = "", history: [String] = [""], historyIndex: Int = 0, selectedFileID: String? = nil) {
+    public init(id: UUID = UUID(), serverId: UUID? = nil, title: String = "Bulut Sürücüsü", path: String = "", history: [String] = [""], historyIndex: Int = 0, selectedFileID: String? = nil) {
         self.id = id
+        self.serverId = serverId
         self.title = title
         self.path = path
         self.history = history
@@ -54,7 +56,7 @@ public struct NativeExplorerView: View {
     @ObservedObject var transferManager = TransferManager.shared
     
     // Sekmeler (Tabs)
-    private static let initialTab = ExplorerTab(title: "Cloudreve", path: "")
+    private static let initialTab = ExplorerTab(title: "Bulut Sürücüsü", path: "")
     @State private var tabs: [ExplorerTab] = [initialTab]
     @State private var activeTabID: UUID = initialTab.id
     
@@ -444,8 +446,9 @@ public struct NativeExplorerView: View {
             HStack(spacing: 6) {
                 Spacer(minLength: 4)
                 
-                if tab.path.isEmpty, let active = manager.activeServer {
-                    ProviderLogoBadge(storageProtocol: active.storageProtocol, size: 16)
+                let tabServer = manager.servers.first(where: { $0.id == tab.serverId }) ?? manager.activeServer
+                if tab.path.isEmpty, let s = tabServer {
+                    ProviderLogoBadge(storageProtocol: s.storageProtocol, size: 16)
                 } else {
                     Image(systemName: tab.path.isEmpty ? "cloud.fill" : "folder.fill")
                         .font(.system(size: 12))
@@ -553,15 +556,32 @@ public struct NativeExplorerView: View {
             }
             .frame(maxWidth: .infinity)
             
-            // Yeni Sekme Ekle (+) Butonu (Finder tarzı sağa sabitlenmiş)
-            Button(action: { addNewTab() }) {
+            // Yeni Sekme Ekle (+) Menüsü / Butonu (Farklı hesaplar doğrudan açılabilir)
+            Menu {
+                if manager.servers.count > 1 {
+                    Section("Farklı Hesapla Sekme Aç") {
+                        ForEach(manager.servers) { s in
+                            Button(action: { addNewTab(server: s) }) {
+                                Label(s.name, systemImage: "cloud")
+                            }
+                        }
+                    }
+                    Divider()
+                }
+                Button("Mevcut Hesapla Yeni Sekme Aç (⌘T)") {
+                    addNewTab()
+                }
+            } label: {
                 Image(systemName: "plus")
                     .font(.system(size: 11, weight: .regular))
                     .foregroundColor(isPlusHovered ? .primary : .secondary)
                     .frame(width: 28, height: 28)
                     .contentShape(Rectangle())
+            } primaryAction: {
+                addNewTab()
             }
-            .buttonStyle(.plain)
+            .menuStyle(.borderlessButton)
+            .frame(width: 28, height: 28)
             .help("Yeni Sekme Aç (⌘T)")
             .background(isPlusHovered ? Color.primary.opacity(0.05) : Color.clear)
             .overlay(
@@ -845,59 +865,39 @@ public struct NativeExplorerView: View {
                 if !manager.servers.isEmpty {
                     Section("Hesaplar") {
                         ForEach(manager.servers) { server in
-                            let isActive = manager.activeServer?.id == server.id
+                            let isServerActive = (manager.activeServer?.id == server.id)
                             Button(action: {
-                                if manager.activeServer?.id != server.id {
-                                    manager.setActiveServer(server)
-                                    loadPinnedFolders()
-                                    navigateToRoot()
-                                }
+                                openServerInTab(server)
                             }) {
                                 HStack(spacing: 8) {
                                     ProviderLogoBadge(storageProtocol: server.storageProtocol, size: 20)
                                     Text(server.name)
-                                        .font(.system(size: 13, weight: isActive ? .medium : .regular))
-                                        .foregroundColor(isActive ? .primary : .secondary)
+                                        .font(.system(size: 13, weight: isServerActive ? .semibold : .regular))
+                                        .foregroundColor(isServerActive ? .primary : .secondary)
                                         .lineLimit(1)
                                     
                                     Spacer()
                                     
-                                    if isActive {
+                                    if isServerActive {
                                         Image(systemName: "checkmark.circle.fill")
                                             .font(.system(size: 11))
                                             .foregroundColor(.indigo)
                                     }
                                 }
-                                .padding(.vertical, 2)
+                                .padding(.vertical, 3)
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
-                        }
-                    }
-                }
-                
-                // KONUMLAR
-                Section("Konumlar") {
-                    let isRoot = currentPath.isEmpty
-                    Button(action: { navigateToRoot() }) {
-                        HStack(spacing: 8) {
-                            if let active = manager.activeServer {
-                                ProviderLogoBadge(storageProtocol: active.storageProtocol, size: 20)
-                            } else {
-                                Image(systemName: isRoot ? "tray.full.fill" : "tray.full")
-                                    .foregroundColor(isRoot ? .accentColor : .secondary)
-                                    .font(.system(size: 13))
+                            .contextMenu {
+                                Button(action: { addNewTab(server: server) }) {
+                                    Label("Yeni Sekmede Aç", systemImage: "plus.rectangle.on.rectangle")
+                                }
+                                Button(action: { openServerInTab(server, forceThisTab: true) }) {
+                                    Label("Bu Sekmede Aç", systemImage: "arrow.right.circle")
+                                }
                             }
-                            Text(manager.servers.count > 1 ? (manager.activeServer?.name ?? "Bulut Sürücüsü") : (manager.activeServer?.name ?? "Bulut Sürücüsü"))
-                                .font(.system(size: 13, weight: isRoot ? .semibold : .regular))
-                                .foregroundColor(isRoot ? .primary : .primary.opacity(0.85))
-                                .lineLimit(1)
-                            Spacer()
                         }
-                        .padding(.vertical, 2)
-                        .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
                 }
                 
                 // FAVORİLER (Sabitlenen Kısayol Klasörler)
@@ -1767,7 +1767,9 @@ public struct NativeExplorerView: View {
     // MARK: - Sekme Yönetimi
     private func saveCurrentTabState() {
         if let idx = tabs.firstIndex(where: { $0.id == activeTabID }) {
-            let tabTitle = currentPath.isEmpty ? (manager.activeServer?.name ?? "Cloudreve") : (currentPath as NSString).lastPathComponent
+            let active = manager.activeServer
+            let tabTitle = currentPath.isEmpty ? (active?.name ?? "Bulut Sürücüsü") : (currentPath as NSString).lastPathComponent
+            tabs[idx].serverId = active?.id
             tabs[idx].title = tabTitle
             tabs[idx].path = currentPath
             tabs[idx].history = pathHistory
@@ -1776,10 +1778,16 @@ public struct NativeExplorerView: View {
         }
     }
     
-    private func addNewTab(path: String = "") {
+    private func addNewTab(server: CloudreveServerConfig? = nil, path: String = "") {
         saveCurrentTabState()
-        let tabTitle = path.isEmpty ? (manager.activeServer?.name ?? "Cloudreve") : (path as NSString).lastPathComponent
+        let targetServer = server ?? manager.activeServer
+        if let ts = targetServer, manager.activeServer?.id != ts.id {
+            manager.setActiveServer(ts)
+            loadPinnedFolders()
+        }
+        let tabTitle = path.isEmpty ? (targetServer?.name ?? "Bulut Sürücüsü") : (path as NSString).lastPathComponent
         let newTab = ExplorerTab(
+            serverId: targetServer?.id,
             title: tabTitle,
             path: path,
             history: [path],
@@ -1794,6 +1802,34 @@ public struct NativeExplorerView: View {
         historyIndex = 0
         selectedFileID = nil
         loadDirectory(at: path)
+    }
+    
+    private func openServerInTab(_ server: CloudreveServerConfig, forceThisTab: Bool = false) {
+        if !forceThisTab, let existingTab = tabs.first(where: { $0.serverId == server.id }) {
+            switchToTab(existingTab.id)
+            return
+        }
+        
+        saveCurrentTabState()
+        if manager.activeServer?.id != server.id {
+            manager.setActiveServer(server)
+            loadPinnedFolders()
+        }
+        
+        if let idx = tabs.firstIndex(where: { $0.id == activeTabID }) {
+            tabs[idx].serverId = server.id
+            tabs[idx].title = server.name
+            tabs[idx].path = ""
+            tabs[idx].history = [""]
+            tabs[idx].historyIndex = 0
+            tabs[idx].selectedFileID = nil
+        }
+        
+        currentPath = ""
+        pathHistory = [""]
+        historyIndex = 0
+        selectedFileID = nil
+        loadDirectory(at: "")
     }
     
     private func closeTab(_ id: UUID) {
@@ -1823,6 +1859,15 @@ public struct NativeExplorerView: View {
         saveCurrentTabState()
         
         activeTabID = targetTab.id
+        
+        // Bu sekmeye ait farklı bir hesap varsa aktif hesabı o yap
+        if let sId = targetTab.serverId, let tabServer = manager.servers.first(where: { $0.id == sId }) {
+            if manager.activeServer?.id != tabServer.id {
+                manager.setActiveServer(tabServer)
+                loadPinnedFolders()
+            }
+        }
+        
         currentPath = targetTab.path
         pathHistory = targetTab.history
         historyIndex = targetTab.historyIndex
