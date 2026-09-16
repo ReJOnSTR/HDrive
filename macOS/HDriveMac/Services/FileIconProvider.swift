@@ -17,8 +17,15 @@ public final class FileIconProvider {
     }
     
     /// Dosya veya klasör için resmi işletim sistemi ve marka ikonunu döner
-    public func icon(for fileName: String, isDirectory: Bool, size: CGFloat = 64) -> NSImage {
-        let ext = (fileName as NSString).pathExtension.lowercased()
+    public func icon(for fileName: String, isDirectory: Bool, size: CGFloat = 64, contentType: String? = nil) -> NSImage {
+        var ext = (fileName as NSString).pathExtension.lowercased()
+        if ext.isEmpty, let mime = contentType {
+            if mime == "application/vnd.google-apps.document" { ext = "docx" }
+            else if mime == "application/vnd.google-apps.spreadsheet" { ext = "xlsx" }
+            else if mime == "application/vnd.google-apps.presentation" { ext = "pptx" }
+            else if mime == "application/vnd.google-apps.drawing" { ext = "png" }
+            else if mime.hasPrefix("application/vnd.google-apps.") { ext = "pdf" }
+        }
         let cacheKey = "\(isDirectory ? "dir" : ext)_\(Int(size))" as NSString
         
         if let cached = cache.object(forKey: cacheKey) {

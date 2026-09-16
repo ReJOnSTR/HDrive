@@ -444,9 +444,13 @@ public struct NativeExplorerView: View {
             HStack(spacing: 6) {
                 Spacer(minLength: 4)
                 
-                Image(systemName: tab.path.isEmpty ? "cloud.fill" : "folder.fill")
-                    .font(.system(size: 12))
-                    .foregroundColor(isActive ? Color(nsColor: .systemBlue) : .secondary.opacity(0.75))
+                if tab.path.isEmpty, let active = manager.activeServer {
+                    ProviderLogoBadge(storageProtocol: active.storageProtocol, size: 16)
+                } else {
+                    Image(systemName: tab.path.isEmpty ? "cloud.fill" : "folder.fill")
+                        .font(.system(size: 12))
+                        .foregroundColor(isActive ? Color(nsColor: .systemBlue) : .secondary.opacity(0.75))
+                }
                 
                 Text(tab.title)
                     .font(.system(size: 11.5, weight: isActive ? .medium : .regular))
@@ -850,10 +854,9 @@ public struct NativeExplorerView: View {
                                 }
                             }) {
                                 HStack(spacing: 8) {
-                                    Image(systemName: isActive ? "cloud.fill" : "cloud")
-                                        .foregroundColor(isActive ? .indigo : .secondary)
+                                    ProviderLogoBadge(storageProtocol: server.storageProtocol, size: 20)
                                     Text(server.name)
-                                        .font(.system(size: 13))
+                                        .font(.system(size: 13, weight: isActive ? .medium : .regular))
                                         .foregroundColor(isActive ? .primary : .secondary)
                                         .lineLimit(1)
                                     
@@ -878,11 +881,15 @@ public struct NativeExplorerView: View {
                     let isRoot = currentPath.isEmpty
                     Button(action: { navigateToRoot() }) {
                         HStack(spacing: 8) {
-                            Image(systemName: isRoot ? "tray.full.fill" : "tray.full")
-                                .foregroundColor(isRoot ? .accentColor : .secondary)
-                                .font(.system(size: 13))
-                            Text(manager.servers.count > 1 ? "Tüm Dosyalar" : (manager.activeServer?.name ?? "Bulut Sürücüsü"))
-                                .font(.system(size: 13))
+                            if let active = manager.activeServer {
+                                ProviderLogoBadge(storageProtocol: active.storageProtocol, size: 20)
+                            } else {
+                                Image(systemName: isRoot ? "tray.full.fill" : "tray.full")
+                                    .foregroundColor(isRoot ? .accentColor : .secondary)
+                                    .font(.system(size: 13))
+                            }
+                            Text(manager.servers.count > 1 ? (manager.activeServer?.name ?? "Bulut Sürücüsü") : (manager.activeServer?.name ?? "Bulut Sürücüsü"))
+                                .font(.system(size: 13, weight: isRoot ? .semibold : .regular))
                                 .foregroundColor(isRoot ? .primary : .primary.opacity(0.85))
                                 .lineLimit(1)
                             Spacer()
@@ -1243,7 +1250,7 @@ public struct NativeExplorerView: View {
                         .cornerRadius(4)
                         .shadow(color: .black.opacity(0.12), radius: 2, y: 1)
                 } else {
-                    Image(nsImage: FileIconProvider.shared.icon(for: file.name, isDirectory: file.isDirectory, size: 64))
+                    Image(nsImage: FileIconProvider.shared.icon(for: file.name, isDirectory: file.isDirectory, size: 64, contentType: file.contentType))
                         .resizable()
                         .scaledToFit()
                         .frame(width: 58, height: 50)
@@ -1325,7 +1332,7 @@ public struct NativeExplorerView: View {
                         .frame(width: 20, height: 20)
                         .cornerRadius(3)
                 } else {
-                    Image(nsImage: FileIconProvider.shared.icon(for: file.name, isDirectory: file.isDirectory, size: 20))
+                    Image(nsImage: FileIconProvider.shared.icon(for: file.name, isDirectory: file.isDirectory, size: 20, contentType: file.contentType))
                         .resizable()
                         .scaledToFit()
                         .frame(width: 20, height: 20)
@@ -1419,7 +1426,17 @@ public struct NativeExplorerView: View {
     private func fileContextMenu(_ file: RemoteFileItem) -> some View {
         if !file.isDirectory {
             Button(action: { openFileDirectly(file) }) {
-                Label("Aç", systemImage: "arrow.up.forward.app")
+                Label("Mac Uygulamasıyla Aç", systemImage: "arrow.up.forward.app")
+            }
+            if manager.activeServer?.storageProtocol == .googleDrive,
+               let mime = file.contentType, mime.hasPrefix("application/vnd.google-apps.") {
+                Button(action: {
+                    if let url = URL(string: "https://drive.google.com/open?id=\(file.id)") {
+                        NSWorkspace.shared.open(url)
+                    }
+                }) {
+                    Label("Google Web Editöründe Aç", systemImage: "globe")
+                }
             }
             Button(action: { triggerQuickLook(for: file) }) {
                 Label("Görüntüle (Hızlı Bakış)", systemImage: "eye")

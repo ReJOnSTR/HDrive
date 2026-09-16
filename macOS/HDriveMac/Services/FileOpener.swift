@@ -21,18 +21,31 @@ public final class FileOpener: ObservableObject {
     
     private init() {}
     
-    public func openFileNatively(file: RemoteFileItem, client: WebDAVClient, completion: @escaping (Bool, String?) -> Void) {
-        // 0. Google Drive Docs/Sheets/Slides/Forms için doğrudan web tarayıcısını aç
-        if client.config.storageProtocol == .googleDrive {
+    /// Google Docs, Sheets vb. için uygun yerel dosya adını (Word, Excel, PowerPoint) belirler
+    public func resolveLocalFileName(for file: RemoteFileItem, client: WebDAVClient) -> String {
+        var baseName = file.name
+        let ext = (baseName as NSString).pathExtension.lowercased()
+        
+        if client.config.storageProtocol == .googleDrive && ext.isEmpty {
             let mime = file.contentType ?? ""
-            if mime.hasPrefix("application/vnd.google-apps.") && mime != "application/vnd.google-apps.folder" {
-                if let url = URL(string: "https://drive.google.com/open?id=\(file.id)") {
-                    NSWorkspace.shared.open(url)
-                    completion(true, nil)
-                    return
-                }
+            if mime == "application/vnd.google-apps.document" {
+                baseName += ".docx"
+            } else if mime == "application/vnd.google-apps.spreadsheet" {
+                baseName += ".xlsx"
+            } else if mime == "application/vnd.google-apps.presentation" {
+                baseName += ".pptx"
+            } else if mime == "application/vnd.google-apps.drawing" {
+                baseName += ".png"
+            } else if mime.hasPrefix("application/vnd.google-apps.") {
+                baseName += ".pdf"
             }
         }
+        return baseName
+    }
+    
+    public func openFileNatively(file: RemoteFileItem, client: WebDAVClient, completion: @escaping (Bool, String?) -> Void) {
+        let localFileName = resolveLocalFileName(for: file, client: client)
+        
         // 1. Finder'da bağlı bir ağ diski var mı kontrol et
         if DriveMounter.shared.isMounted, let mountPoint = DriveMounter.shared.mountPoint {
             var subPath = file.href
@@ -50,7 +63,7 @@ public final class FileOpener: ObservableObject {
         }
         
         // 2. Önizleme önbelleğinde zaten mevcut ve boyutu geçerli mi?
-        let previewCandidate = FilePreviewManager.shared.previewCacheDir.appendingPathComponent(file.name)
+        let previewCandidate = FilePreviewManager.shared.previewCacheDir.appendingPathComponent(localFileName)
         if let attrs = try? FileManager.default.attributesOfItem(atPath: previewCandidate.path),
            let size = attrs[.size] as? Int64, size > 0 {
             if NSWorkspace.shared.open(previewCandidate) {
@@ -59,8 +72,8 @@ public final class FileOpener: ObservableObject {
             }
         }
         
-        // 4. HDriveFiles önbelleğinde zaten mevcut ve boyutu geçerli mi?
-        let localFile = cacheDir.appendingPathComponent(file.name)
+        // 3. HDriveFiles önbelleğinde zaten mevcut ve boyutu geçerli mi?
+        let localFile = cacheDir.appendingPathComponent(localFileName)
         if let attrs = try? FileManager.default.attributesOfItem(atPath: localFile.path),
            let size = attrs[.size] as? Int64, size > 0 {
             if NSWorkspace.shared.open(localFile) {
