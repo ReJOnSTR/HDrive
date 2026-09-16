@@ -85,7 +85,6 @@ public static class WindowsClipboardHelper
             {
                 dp.SetStorageItems(storageItems);
             }
-            dp.SetText(string.Join(Environment.NewLine, localPaths));
             Clipboard.SetContent(dp);
         }
         catch { }

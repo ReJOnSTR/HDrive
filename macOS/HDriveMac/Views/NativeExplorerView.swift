@@ -1467,9 +1467,11 @@ public struct NativeExplorerView: View {
             },
             perform: {}
         )
-        .onDrag {
+        .onDrag({
             exportFileForDrag(file)
-        }
+        }, preview: {
+            dragPreview(for: file)
+        })
         .contextMenu {
             fileContextMenu(file)
         }
@@ -1517,9 +1519,11 @@ public struct NativeExplorerView: View {
             },
             perform: {}
         )
-        .onDrag {
+        .onDrag({
             exportFileForDrag(file)
-        }
+        }, preview: {
+            dragPreview(for: file)
+        })
         .contextMenu {
             fileContextMenu(file)
         }
@@ -1529,6 +1533,32 @@ public struct NativeExplorerView: View {
                 previewManager.loadThumbnail(for: file, client: client)
             }
         }
+    }
+    
+    // MARK: - Sürükleme Önizleme Rozeti (Finder Standart Rozet)
+    private func dragPreview(for file: RemoteFileItem) -> some View {
+        HStack(spacing: 8) {
+            Image(nsImage: FileIconProvider.shared.icon(for: file.name, isDirectory: file.isDirectory, size: 28, contentType: file.contentType))
+                .resizable()
+                .scaledToFit()
+                .frame(width: 26, height: 26)
+            
+            Text(file.name)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(.primary)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color(NSColor.windowBackgroundColor).opacity(0.95))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.primary.opacity(0.12), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.2), radius: 6, x: 0, y: 3)
     }
     
     @ViewBuilder
@@ -2486,8 +2516,6 @@ public struct NativeExplorerView: View {
                     let pasteboard = NSPasteboard.general
                     pasteboard.clearContents()
                     pasteboard.writeObjects(localURLs as [NSURL])
-                    let pathsStr = localURLs.map { $0.path }.joined(separator: "\n")
-                    pasteboard.setString(pathsStr, forType: .string)
                     
                     SyncLogManager.shared.log("\(localURLs.count) dosya panoya kopyalandı. Finder veya Masaüstüne yapıştırabilirsiniz.")
                 }
@@ -2556,14 +2584,13 @@ public struct NativeExplorerView: View {
     
     // MARK: - Sürükle ve Bırak (Drag & Drop) Desteği
     private func exportFileForDrag(_ file: RemoteFileItem) -> NSItemProvider {
+        let cacheDir = FileOpener.shared.cacheDir
         if file.isDirectory {
-            let folderPath = currentPath.isEmpty ? file.name : "\(currentPath)/\(file.name)"
-            let payload = "hdrv-folder:\(file.name)|\(folderPath)"
-            return NSItemProvider(object: payload as NSString)
+            let folderURL = cacheDir.appendingPathComponent(file.name, isDirectory: true)
+            try? FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
+            return NSItemProvider(item: folderURL as NSURL, typeIdentifier: UTType.fileURL.identifier)
         }
         
-        // 1. Cache klasöründe var mı?
-        let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("HDriveFiles", isDirectory: true)
         let cachedFile = cacheDir.appendingPathComponent(file.name)
         if FileManager.default.fileExists(atPath: cachedFile.path) {
             return NSItemProvider(item: cachedFile as NSURL, typeIdentifier: UTType.fileURL.identifier)
@@ -2572,6 +2599,13 @@ public struct NativeExplorerView: View {
         let previewTarget = FilePreviewManager.shared.previewCacheDir.appendingPathComponent(file.name)
         if FileManager.default.fileExists(atPath: previewTarget.path) {
             return NSItemProvider(item: previewTarget as NSURL, typeIdentifier: UTType.fileURL.identifier)
+        }
+        
+        // Arka planda indirmeyi tetikle
+        if let server = manager.activeServer {
+            let client = WebDAVClient(config: server)
+            let relPath = currentPath.isEmpty ? file.name : "\(currentPath)/\(file.name)"
+            client.downloadFile(href: relPath, to: cachedFile, progress: { _ in }) { _ in }
         }
         
         return NSItemProvider(item: cachedFile as NSURL, typeIdentifier: UTType.fileURL.identifier)
