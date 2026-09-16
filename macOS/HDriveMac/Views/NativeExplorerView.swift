@@ -3510,36 +3510,6 @@ public struct HDriveSettingsView: View {
                 .padding(.top, 8)
                 
                 Spacer()
-                
-                Divider()
-                
-                // Alt Kısım: Aktif Hesap Bilgisi
-                VStack(spacing: 8) {
-                    if let active = manager.activeServer {
-                        HStack(spacing: 8) {
-                            ProviderLogoBadge(storageProtocol: active.storageProtocol, size: 22)
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(active.name.isEmpty ? "HDrive" : active.name)
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundColor(.primary)
-                                    .lineLimit(1)
-                                HStack(spacing: 4) {
-                                    Circle()
-                                        .fill(Color.green)
-                                        .frame(width: 6, height: 6)
-                                    Text("Bağlı")
-                                        .font(.system(size: 10))
-                                        .foregroundColor(.secondary)
-                                }
-                            }
-                            Spacer()
-                        }
-                        .padding(10)
-                        .background(Color(NSColor.controlBackgroundColor))
-                        .cornerRadius(8)
-                    }
-                }
-                .padding(12)
             }
             .frame(width: 215)
             .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
