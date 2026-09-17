@@ -3237,7 +3237,7 @@ public class GoogleOAuthHelper {
                             let code = sub.prefix { $0 != "&" && $0 != " " && $0 != "\r" && $0 != "\n" }
                             let codeStr = String(code)
                             
-                            let html = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nConnection: close\r\n\r\n<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>HDrive</title></head><body style=\"font-family:system-ui,-apple-system;text-align:center;padding:60px 20px;background:#f8fafc;\"><div style=\"max-width:440px;margin:auto;background:white;padding:40px;border-radius:16px;box-shadow:0 10px 25px rgba(0,0,0,0.06);\"><h2 style=\"color:#10b981;margin-bottom:8px;\">✅ Giriş Başarılı!</h2><p style=\"color:#64748b;font-size:15px;line-height:1.5;\">HDrive Google Drive oturumunuzu başarıyla doğruladı.<br>Bu sekmeyi kapatıp uygulamaya dönebilirsiniz.</p></div></body></html>"
+                            let html = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nConnection: close\r\n\r\n<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>HDrive</title></head><body style=\"font-family:system-ui,-apple-system;text-align:center;padding:60px 20px;background:#f8fafc;\"><div style=\"max-width:440px;margin:auto;background:white;padding:40px;border-radius:16px;box-shadow:0 10px 25px rgba(0,0,0,0.06);\"><h2 style=\"color:#10b981;margin-bottom:8px;\">✅ Giriş Başarılı!</h2><p style=\"color:#64748b;font-size:15px;line-height:1.5;\">HDrive bulut oturumunuzu başarıyla doğruladı.<br>Bu sekmeyi kapatıp uygulamaya dönebilirsiniz.</p></div></body></html>"
                             connection.send(content: html.data(using: .utf8), completion: .contentProcessed({ _ in
                                 connection.cancel()
                             }))
@@ -3785,53 +3785,6 @@ public struct HDriveSettingsView: View {
                         }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.large)
-                        
-                        if storageProtocol == .oneDrive {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("Giriş Onayı Sonrası Adres Çubuğu Linki / Yetki Kodu:")
-                                    .font(.system(size: 11, weight: .semibold))
-                                    .foregroundColor(.secondary)
-                                HStack(spacing: 8) {
-                                    TextField("https://login.microsoftonline.com/... veya code=...", text: $password)
-                                        .textFieldStyle(.roundedBorder)
-                                        .font(.system(size: 12))
-                                    
-                                    Button("Doğrula ve Bağlan") {
-                                        saveAndConnect()
-                                    }
-                                    .buttonStyle(.borderedProminent)
-                                    .disabled(password.isEmpty)
-                                }
-                            }
-                            .padding(.top, 4)
-                        }
-                        
-                        DisclosureGroup("Gelişmiş / Özel API Kimlikleri (İsteğe Bağlı)", isExpanded: $showAdvancedApiSettings) {
-                            VStack(spacing: 8) {
-                                HStack {
-                                    Text("OAuth Client ID")
-                                        .font(.system(size: 11))
-                                        .frame(width: 120, alignment: .leading)
-                                    TextField("Client ID / App Key", text: $clientId)
-                                        .textFieldStyle(.roundedBorder)
-                                        .font(.system(size: 11))
-                                }
-                                if storageProtocol == .dropbox || storageProtocol == .googleDrive {
-                                    HStack {
-                                        Text("OAuth Secret")
-                                            .font(.system(size: 11))
-                                            .frame(width: 120, alignment: .leading)
-                                        SecureField("Client Secret / App Secret", text: $clientSecret)
-                                            .textFieldStyle(.roundedBorder)
-                                            .font(.system(size: 11))
-                                    }
-                                }
-                            }
-                            .padding(.top, 6)
-                        }
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                        .padding(.top, 4)
                     }
                     .frame(maxWidth: .infinity)
                     .padding(24)
@@ -4318,9 +4271,26 @@ public struct HDriveSettingsView: View {
         }
         
         if storageProtocol == .oneDrive {
-            testResult = "🌐 Tarayıcınızda Microsoft OneDrive yetkilendirme sayfası açıldı.\n\nOnay verdikten sonra açılan boş sayfanın adres çubuğundaki bağlantıyı kopyalayıp yukarıdaki kutucuğa yapıştırın ve 'Doğrula ve Bağlan' butonuna basın."
+            testResult = "⏳ Tarayıcıda Microsoft giriş ekranı açıldı. İzni onayladığınızda HDrive otomatik olarak bağlanacaktır..."
             
-            let authEndpoint = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=\(encodedClientId)&response_type=code&redirect_uri=https%3A%2F%2Flogin.microsoftonline.com%2Fcommon%2Foauth2%2Fnativeclient&response_mode=query&scope=offline_access%20Files.ReadWrite%20User.Read"
+            GoogleOAuthHelper.shared.startListener { code in
+                self.testResult = "⏳ Microsoft yetkilendirme kodu alındı, erişim tokenı talep ediliyor..."
+                self.exchangeOneDriveCode(raw: code) { result in
+                    self.isTesting = false
+                    switch result {
+                    case .success(let token):
+                        self.password = token
+                        self.isTestSuccess = true
+                        self.testResult = "✅ Microsoft OneDrive oturumu başarıyla açıldı ve bağlandı!"
+                        self.saveAndConnect()
+                    case .failure(let error):
+                        self.isTestSuccess = false
+                        self.testResult = "❌ Microsoft yetkilendirme hatası: \(error.localizedDescription)"
+                    }
+                }
+            }
+            
+            let authEndpoint = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=\(encodedClientId)&response_type=code&redirect_uri=http%3A%2F%2Flocalhost%3A8080%2Foauth%2Fcallback&scope=offline_access%20Files.ReadWrite%20User.Read"
             if let url = URL(string: authEndpoint) {
                 NSWorkspace.shared.open(url)
             }
@@ -4385,7 +4355,7 @@ public struct HDriveSettingsView: View {
         req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         
         let cId = clientId.trimmingCharacters(in: .whitespacesAndNewlines)
-        let body = "client_id=\(cId)&grant_type=authorization_code&code=\(code)&redirect_uri=https%3A%2F%2Flogin.microsoftonline.com%2Fcommon%2Foauth2%2Fnativeclient"
+        let body = "client_id=\(cId)&grant_type=authorization_code&code=\(code)&redirect_uri=http%3A%2F%2Flocalhost%3A8080%2Foauth%2Fcallback"
         req.httpBody = body.data(using: .utf8)
         
         URLSession.shared.dataTask(with: req) { data, response, error in
