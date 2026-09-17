@@ -25,24 +25,26 @@ public final class CloudreveManager: ObservableObject {
         loadServers()
         if let activeIDStr = UserDefaults.standard.string(forKey: "HDrive_ActiveServerID"),
            let uuid = UUID(uuidString: activeIDStr),
-           let found = servers.first(where: { $0.id == uuid }) {
+           let found = servers.first(where: { $0.id == uuid && $0.isConnected }) {
             activeServer = found
         } else {
-            activeServer = servers.first
+            activeServer = servers.first(where: { $0.isConnected })
         }
     }
     
     public func saveServer(_ server: CloudreveServerConfig) {
-        if !server.password.isEmpty {
-            KeychainHelper.shared.save(password: server.password, for: server.id.uuidString)
+        var s = server
+        s.isConnected = true
+        if !s.password.isEmpty {
+            KeychainHelper.shared.save(password: s.password, for: s.id.uuidString)
         }
         
-        if let index = servers.firstIndex(where: { $0.id == server.id }) {
-            servers[index] = server
+        if let index = servers.firstIndex(where: { $0.id == s.id }) {
+            servers[index] = s
         } else {
-            servers.append(server)
+            servers.append(s)
         }
-        activeServer = server
+        activeServer = s
         persist()
     }
     
@@ -50,17 +52,41 @@ public final class CloudreveManager: ObservableObject {
         KeychainHelper.shared.delete(account: server.id.uuidString)
         servers.removeAll { $0.id == server.id }
         if activeServer?.id == server.id {
-            activeServer = servers.first
+            activeServer = servers.first(where: { $0.isConnected })
         }
         persist()
     }
     
     public func setActiveServer(_ server: CloudreveServerConfig) {
-        activeServer = server
+        if let index = servers.firstIndex(where: { $0.id == server.id }) {
+            servers[index].isConnected = true
+            activeServer = servers[index]
+            persist()
+        } else {
+            activeServer = server
+        }
+    }
+    
+    public func connectServer(_ server: CloudreveServerConfig) {
+        setActiveServer(server)
+    }
+    
+    public func disconnectServer(_ server: CloudreveServerConfig) {
+        if let index = servers.firstIndex(where: { $0.id == server.id }) {
+            servers[index].isConnected = false
+            if activeServer?.id == server.id {
+                activeServer = servers.first(where: { $0.isConnected && $0.id != server.id })
+            }
+            persist()
+        }
     }
     
     public func disconnectActiveServer() {
-        activeServer = nil
+        if let act = activeServer {
+            disconnectServer(act)
+        } else {
+            activeServer = nil
+        }
     }
     
     private func persist() {

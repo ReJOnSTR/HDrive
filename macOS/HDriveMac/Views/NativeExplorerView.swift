@@ -987,10 +987,11 @@ public struct NativeExplorerView: View {
     private var sidebarView: some View {
         VStack(spacing: 0) {
             List {
-                // HESAPLAR
-                if !manager.servers.isEmpty {
+                // HESAPLAR (Sadece Bağlantısı Açık Olanlar Yan Menüde Görünür)
+                let connectedServers = manager.servers.filter { $0.isConnected }
+                if !connectedServers.isEmpty {
                     Section(header: Text("Hesaplar")) {
-                        ForEach(manager.servers) { server in
+                        ForEach(connectedServers) { server in
                             let isServerActive = (manager.activeServer?.id == server.id)
                             Button(action: {
                                 if NSEvent.modifierFlags.contains(.command) {
@@ -3575,7 +3576,7 @@ public struct HDriveSettingsView: View {
             } else {
                 VStack(spacing: 10) {
                     ForEach(manager.servers) { server in
-                        let isActive = (manager.activeServer?.id == server.id)
+                        let isConnected = server.isConnected
                         
                         HStack(spacing: 14) {
                             ProviderLogoBadge(storageProtocol: server.storageProtocol, size: 42)
@@ -3585,18 +3586,31 @@ public struct HDriveSettingsView: View {
                                     Text(server.name.isEmpty ? server.storageProtocol.providerName : server.name)
                                         .font(.system(size: 14, weight: .semibold))
                                     
-                                    if isActive {
+                                    if isConnected {
                                         HStack(spacing: 4) {
                                             Circle()
                                                 .fill(Color.green)
                                                 .frame(width: 6, height: 6)
-                                            Text("Aktif")
+                                            Text("Bağlı")
                                                 .font(.system(size: 11, weight: .bold))
                                                 .foregroundColor(.green)
                                         }
                                         .padding(.horizontal, 7)
                                         .padding(.vertical, 2.5)
                                         .background(Color.green.opacity(0.12))
+                                        .cornerRadius(6)
+                                    } else {
+                                        HStack(spacing: 4) {
+                                            Circle()
+                                                .fill(Color.secondary.opacity(0.6))
+                                                .frame(width: 6, height: 6)
+                                            Text("Bağlı Değil")
+                                                .font(.system(size: 11, weight: .medium))
+                                                .foregroundColor(.secondary)
+                                        }
+                                        .padding(.horizontal, 7)
+                                        .padding(.vertical, 2.5)
+                                        .background(Color.secondary.opacity(0.08))
                                         .cornerRadius(6)
                                     }
                                 }
@@ -3610,16 +3624,16 @@ public struct HDriveSettingsView: View {
                             Spacer()
                             
                             HStack(spacing: 8) {
-                                if isActive {
+                                if isConnected {
                                     Button("Bağlantıyı Kes") {
-                                        manager.disconnectActiveServer()
+                                        manager.disconnectServer(server)
                                         onSave?()
                                     }
                                     .buttonStyle(.bordered)
                                     .controlSize(.regular)
                                 } else {
                                     Button("Bağlan") {
-                                        manager.setActiveServer(server)
+                                        manager.connectServer(server)
                                         onSave?()
                                     }
                                     .buttonStyle(.borderedProminent)
@@ -3660,7 +3674,7 @@ public struct HDriveSettingsView: View {
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: 10)
-                                .stroke(isActive ? Color.accentColor.opacity(0.4) : Color.primary.opacity(0.08), lineWidth: isActive ? 1.5 : 1)
+                                .stroke(isConnected ? Color.accentColor.opacity(0.35) : Color.primary.opacity(0.08), lineWidth: isConnected ? 1.5 : 1)
                         )
                     }
                 }

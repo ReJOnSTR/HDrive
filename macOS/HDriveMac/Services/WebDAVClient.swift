@@ -116,6 +116,11 @@ public struct CloudreveServerConfig: Identifiable, Codable, Hashable {
     public var smbShare: String = ""
     public var clientId: String = ""
     public var clientSecret: String = ""
+    public var isConnected: Bool = true
+    
+    enum CodingKeys: String, CodingKey {
+        case id, name, serverURL, username, password, autoMountOnStart, storageProtocol, bucketName, region, smbShare, clientId, clientSecret, isConnected
+    }
     
     public init(
         name: String = "Bulut Sunucum",
@@ -127,7 +132,8 @@ public struct CloudreveServerConfig: Identifiable, Codable, Hashable {
         region: String = "us-east-1",
         smbShare: String = "",
         clientId: String = "",
-        clientSecret: String = ""
+        clientSecret: String = "",
+        isConnected: Bool = true
     ) {
         self.name = name
         self.serverURL = serverURL
@@ -139,6 +145,41 @@ public struct CloudreveServerConfig: Identifiable, Codable, Hashable {
         self.smbShare = smbShare
         self.clientId = clientId
         self.clientSecret = clientSecret
+        self.isConnected = isConnected
+    }
+    
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? "Bulut Sunucum"
+        serverURL = try c.decodeIfPresent(String.self, forKey: .serverURL) ?? ""
+        username = try c.decodeIfPresent(String.self, forKey: .username) ?? ""
+        password = try c.decodeIfPresent(String.self, forKey: .password) ?? ""
+        autoMountOnStart = try c.decodeIfPresent(Bool.self, forKey: .autoMountOnStart) ?? false
+        storageProtocol = try c.decodeIfPresent(StorageProtocol.self, forKey: .storageProtocol) ?? .webdav
+        bucketName = try c.decodeIfPresent(String.self, forKey: .bucketName) ?? ""
+        region = try c.decodeIfPresent(String.self, forKey: .region) ?? "us-east-1"
+        smbShare = try c.decodeIfPresent(String.self, forKey: .smbShare) ?? ""
+        clientId = try c.decodeIfPresent(String.self, forKey: .clientId) ?? ""
+        clientSecret = try c.decodeIfPresent(String.self, forKey: .clientSecret) ?? ""
+        isConnected = try c.decodeIfPresent(Bool.self, forKey: .isConnected) ?? true
+    }
+    
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(name, forKey: .name)
+        try c.encode(serverURL, forKey: .serverURL)
+        try c.encode(username, forKey: .username)
+        try c.encode(password, forKey: .password)
+        try c.encode(autoMountOnStart, forKey: .autoMountOnStart)
+        try c.encode(storageProtocol, forKey: .storageProtocol)
+        try c.encode(bucketName, forKey: .bucketName)
+        try c.encode(region, forKey: .region)
+        try c.encode(smbShare, forKey: .smbShare)
+        try c.encode(clientId, forKey: .clientId)
+        try c.encode(clientSecret, forKey: .clientSecret)
+        try c.encode(isConnected, forKey: .isConnected)
     }
 }
 
