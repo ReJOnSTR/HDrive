@@ -3773,36 +3773,6 @@ public struct HDriveSettingsView: View {
                         }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.large)
-                        
-                        if storageProtocol == .oneDrive {
-                            VStack(alignment: .leading, spacing: 8) {
-                                HStack(spacing: 6) {
-                                    Image(systemName: "info.circle.fill")
-                                        .foregroundColor(.accentColor)
-                                    Text("Onayladıktan sonra adres çubuğundaki bağlantıyı yapıştırın:")
-                                        .font(.system(size: 11, weight: .medium))
-                                        .foregroundColor(.secondary)
-                                }
-                                
-                                HStack(spacing: 8) {
-                                    TextField("https://login.microsoftonline.com/...code=...", text: $manualCodeInput)
-                                        .textFieldStyle(.roundedBorder)
-                                        .font(.system(size: 11, design: .monospaced))
-                                    
-                                    Button(action: {
-                                        pasteAndConnectOneDrive()
-                                    }) {
-                                        Label("Panodan Yapıştır & Bağlan", systemImage: "doc.on.clipboard")
-                                    }
-                                    .buttonStyle(.borderedProminent)
-                                    .controlSize(.regular)
-                                }
-                            }
-                            .padding(12)
-                            .background(Color.primary.opacity(0.04))
-                            .cornerRadius(8)
-                            .frame(maxWidth: 480)
-                        }
                     }
                     .frame(maxWidth: .infinity)
                     .padding(24)
@@ -4250,11 +4220,30 @@ public struct HDriveSettingsView: View {
         }
         
         if storageProtocol == .oneDrive {
-            testResult = "🌐 Tarayıcınızda Microsoft OneDrive giriş sayfası açıldı.\n\nLütfen giriş yapıp izin verin, ardından tarayıcınızın adres çubuğundaki bağlantıyı kopyalayın (Cmd+C). HDrive penceresine döndüğünüzde otomatik algılanacaktır veya 'Panodan Yapıştır & Bağlan' butonuna basabilirsiniz."
+            testResult = "⏳ Tarayıcıda Microsoft giriş ekranı açıldı. Hesabınızı onayladığınızda HDrive otomatik olarak bağlanacaktır..."
+            isTesting = true
             isTestSuccess = true
-            isTesting = false
             
-            let authEndpoint = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=\(encodedClientId)&response_type=code&redirect_uri=https%3A%2F%2Flogin.microsoftonline.com%2Fcommon%2Foauth2%2Fnativeclient&response_mode=query&scope=offline_access%20Files.ReadWrite%20User.Read"
+            GoogleOAuthHelper.shared.startListener { code in
+                DispatchQueue.main.async {
+                    self.testResult = "⏳ Microsoft yetkilendirme kodu alındı, erişim tokenı talep ediliyor..."
+                    self.exchangeOneDriveCode(raw: code) { result in
+                        self.isTesting = false
+                        switch result {
+                        case .success(let token):
+                            self.password = token
+                            self.isTestSuccess = true
+                            self.testResult = "✅ Microsoft OneDrive oturumu başarıyla açıldı ve bağlandı!"
+                            self.saveAndConnect()
+                        case .failure(let error):
+                            self.isTestSuccess = false
+                            self.testResult = "❌ Microsoft yetkilendirme hatası: \(error.localizedDescription)"
+                        }
+                    }
+                }
+            }
+            
+            let authEndpoint = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=\(encodedClientId)&response_type=code&redirect_uri=http%3A%2F%2Flocalhost%3A8080&scope=offline_access%20Files.ReadWrite%20User.Read"
             if let url = URL(string: authEndpoint) {
                 NSWorkspace.shared.open(url)
             }
@@ -4302,6 +4291,7 @@ public struct HDriveSettingsView: View {
     
     private func exchangeOneDriveCode(raw: String, completion: @escaping (Result<String, Error>) -> Void) {
         var code = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let isNativeClient = code.contains("nativeclient")
         if let range = code.range(of: "code=") {
             let sub = code[range.upperBound...]
             code = String(sub.prefix { $0 != "&" && $0 != " " && $0 != "\r" && $0 != "\n" })
@@ -4316,7 +4306,8 @@ public struct HDriveSettingsView: View {
         
         let cId = clientId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? HDriveSettingsView.defaultOneDriveClientId : clientId.trimmingCharacters(in: .whitespacesAndNewlines)
         let encCode = code.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? code
-        let body = "client_id=\(cId)&grant_type=authorization_code&code=\(encCode)&redirect_uri=https%3A%2F%2Flogin.microsoftonline.com%2Fcommon%2Foauth2%2Fnativeclient"
+        let redirectUri = isNativeClient ? "https%3A%2F%2Flogin.microsoftonline.com%2Fcommon%2Foauth2%2Fnativeclient" : "http%3A%2F%2Flocalhost%3A8080"
+        let body = "client_id=\(cId)&grant_type=authorization_code&code=\(encCode)&redirect_uri=\(redirectUri)"
         req.httpBody = body.data(using: .utf8)
         
         URLSession.shared.dataTask(with: req) { data, response, error in
