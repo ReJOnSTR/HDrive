@@ -1319,20 +1319,45 @@ public struct NativeExplorerView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if filteredFiles.isEmpty {
-                VStack(spacing: 12) {
-                    Spacer()
-                    Image(systemName: "folder")
-                        .font(.system(size: 54))
-                        .foregroundColor(.secondary.opacity(0.5))
-                    Text("Bu Klasör Boş")
-                        .font(.headline)
-                        .foregroundColor(.secondary)
-                    Text("Yukarıdaki 'Yükle' butonuna basarak dosya ekleyebilirsiniz.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Spacer()
+                if let s = manager.activeServer, (s.storageProtocol == .googleDrive || s.storageProtocol == .oneDrive || s.storageProtocol == .dropbox) && s.password.isEmpty {
+                    VStack(spacing: 14) {
+                        Spacer()
+                        ProviderLogoBadge(storageProtocol: s.storageProtocol, size: 56)
+                        Text("\(s.storageProtocol.providerName) Oturumu Açılmamış")
+                            .font(.headline)
+                        Text("Bu sürücüdeki dosyalarınıza erişmek için Ayarlar ekranından hesabınıza giriş yapmanız gerekmektedir.")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: 380)
+                        Button(action: {
+                            SettingsWindowManager.shared.showSettings()
+                        }) {
+                            Text("\(s.storageProtocol.providerName) Hesabına Giriş Yap")
+                                .font(.system(size: 13, weight: .semibold))
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.regular)
+                        .padding(.top, 4)
+                        Spacer()
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    VStack(spacing: 12) {
+                        Spacer()
+                        Image(systemName: "folder")
+                            .font(.system(size: 54))
+                            .foregroundColor(.secondary.opacity(0.5))
+                        Text("Bu Klasör Boş")
+                            .font(.headline)
+                            .foregroundColor(.secondary)
+                        Text("Yukarıdaki 'Yükle' butonuna basarak dosya ekleyebilirsiniz.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if isGridView {
                 // IZGARA GÖRÜNÜMÜ (Finder Icon View Gibi)
                 ScrollView {
@@ -1899,11 +1924,21 @@ public struct NativeExplorerView: View {
     }
     
     private func loadDirectory(at path: String) {
+        self.files = []
+        self.selectedFileID = nil
+        self.selectedFileIDs = []
+        
         guard let server = manager.activeServer, !server.serverURL.isEmpty else {
-            self.files = []
             self.isLoading = false
             return
         }
+        
+        // Eğer OAuth bulut sürücüsünün oturumu açılmamışsa listelemeyi başlatma
+        if (server.storageProtocol == .googleDrive || server.storageProtocol == .oneDrive || server.storageProtocol == .dropbox) && server.password.isEmpty {
+            self.isLoading = false
+            return
+        }
+        
         isLoading = true
         let client = WebDAVClient(config: server)
         loadStorageQuota(for: server)
@@ -1928,6 +1963,7 @@ public struct NativeExplorerView: View {
                     }
                 }
             case .failure(let error):
+                self.files = []
                 print("Listeleme hatası: \(error)")
             }
         }
@@ -4410,6 +4446,11 @@ public struct HDriveSettingsView: View {
                     self.testResult = "❌ Dropbox yetkilendirme kodu doğrulanamadı: \(err.localizedDescription)"
                 }
             }
+            return
+        }
+        if (storageProtocol == .googleDrive || storageProtocol == .oneDrive || storageProtocol == .dropbox) && password.isEmpty {
+            isTestSuccess = false
+            testResult = "⚠️ Lütfen önce yukarıdaki '\(storageProtocol.providerName) ile Giriş Yap' butonuna basarak hesabınızı yetkilendirin."
             return
         }
         performSaveAndConnect()
