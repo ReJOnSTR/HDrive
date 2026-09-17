@@ -4348,9 +4348,10 @@ public struct HDriveSettingsView: View {
         req.httpMethod = "POST"
         req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         
-        let cId = clientId.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cSec = clientSecret.trimmingCharacters(in: .whitespacesAndNewlines)
-        let body = "code=\(code)&grant_type=authorization_code&client_id=\(cId)&client_secret=\(cSec)&redirect_uri=http%3A%2F%2Flocalhost%3A8080%2Foauth%2Fcallback"
+        let cId = clientId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? HDriveSettingsView.defaultDropboxClientId : clientId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cSec = clientSecret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? HDriveSettingsView.defaultDropboxClientSecret : clientSecret.trimmingCharacters(in: .whitespacesAndNewlines)
+        let encCode = code.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? code
+        let body = "code=\(encCode)&grant_type=authorization_code&client_id=\(cId)&client_secret=\(cSec)&redirect_uri=http%3A%2F%2Flocalhost%3A8080%2Foauth%2Fcallback"
         req.httpBody = body.data(using: .utf8)
         
         URLSession.shared.dataTask(with: req) { data, response, error in
@@ -4390,8 +4391,9 @@ public struct HDriveSettingsView: View {
         req.httpMethod = "POST"
         req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         
-        let cId = clientId.trimmingCharacters(in: .whitespacesAndNewlines)
-        let body = "client_id=\(cId)&grant_type=authorization_code&code=\(code)&redirect_uri=http%3A%2F%2Flocalhost%3A8080%2Foauth%2Fcallback"
+        let cId = clientId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? HDriveSettingsView.defaultOneDriveClientId : clientId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let encCode = code.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? code
+        let body = "client_id=\(cId)&grant_type=authorization_code&code=\(encCode)&redirect_uri=http%3A%2F%2Flocalhost%3A8080%2Foauth%2Fcallback"
         req.httpBody = body.data(using: .utf8)
         
         URLSession.shared.dataTask(with: req) { data, response, error in
