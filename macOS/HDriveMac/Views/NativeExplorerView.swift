@@ -3381,6 +3381,11 @@ public struct HDriveSettingsView: View {
     @State private var clientId: String = ""
     @State private var clientSecret: String = ""
     @State private var manualCodeInput: String = ""
+    @State private var showAdvancedApiSettings: Bool = false
+    
+    public static let defaultOneDriveClientId = "232843cb-b028-4bbf-97d4-039b8a611dbd"
+    public static let defaultDropboxClientId = "x5e5zxwv8dsqcpo"
+    public static let defaultDropboxClientSecret = "3tod3bzheyb7gas"
     
     @State private var isTesting: Bool = false
     @State private var testResult: String? = nil
@@ -3780,6 +3785,53 @@ public struct HDriveSettingsView: View {
                         }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.large)
+                        
+                        if storageProtocol == .oneDrive {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Giriş Onayı Sonrası Adres Çubuğu Linki / Yetki Kodu:")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundColor(.secondary)
+                                HStack(spacing: 8) {
+                                    TextField("https://login.microsoftonline.com/... veya code=...", text: $password)
+                                        .textFieldStyle(.roundedBorder)
+                                        .font(.system(size: 12))
+                                    
+                                    Button("Doğrula ve Bağlan") {
+                                        saveAndConnect()
+                                    }
+                                    .buttonStyle(.borderedProminent)
+                                    .disabled(password.isEmpty)
+                                }
+                            }
+                            .padding(.top, 4)
+                        }
+                        
+                        DisclosureGroup("Gelişmiş / Özel API Kimlikleri (İsteğe Bağlı)", isExpanded: $showAdvancedApiSettings) {
+                            VStack(spacing: 8) {
+                                HStack {
+                                    Text("OAuth Client ID")
+                                        .font(.system(size: 11))
+                                        .frame(width: 120, alignment: .leading)
+                                    TextField("Client ID / App Key", text: $clientId)
+                                        .textFieldStyle(.roundedBorder)
+                                        .font(.system(size: 11))
+                                }
+                                if storageProtocol == .dropbox || storageProtocol == .googleDrive {
+                                    HStack {
+                                        Text("OAuth Secret")
+                                            .font(.system(size: 11))
+                                            .frame(width: 120, alignment: .leading)
+                                        SecureField("Client Secret / App Secret", text: $clientSecret)
+                                            .textFieldStyle(.roundedBorder)
+                                            .font(.system(size: 11))
+                                    }
+                                }
+                            }
+                            .padding(.top, 6)
+                        }
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .padding(.top, 4)
                     }
                     .frame(maxWidth: .infinity)
                     .padding(24)
@@ -4078,6 +4130,16 @@ public struct HDriveSettingsView: View {
         smbShare = server.smbShare
         clientId = server.clientId
         clientSecret = server.clientSecret
+        
+        if storageProtocol == .googleDrive && clientId.isEmpty {
+            clientId = GoogleOAuthHelper.defaultClientId
+            clientSecret = GoogleOAuthHelper.defaultClientSecret
+        } else if storageProtocol == .oneDrive && clientId.isEmpty {
+            clientId = HDriveSettingsView.defaultOneDriveClientId
+        } else if storageProtocol == .dropbox && clientId.isEmpty {
+            clientId = HDriveSettingsView.defaultDropboxClientId
+            clientSecret = HDriveSettingsView.defaultDropboxClientSecret
+        }
         testResult = nil
     }
     
@@ -4101,8 +4163,11 @@ public struct HDriveSettingsView: View {
             clientSecret = GoogleOAuthHelper.defaultClientSecret
         case .oneDrive:
             serverURL = "https://graph.microsoft.com/v1.0/me/drive"
+            clientId = HDriveSettingsView.defaultOneDriveClientId
         case .dropbox:
             serverURL = "https://api.dropboxapi.com/2"
+            clientId = HDriveSettingsView.defaultDropboxClientId
+            clientSecret = HDriveSettingsView.defaultDropboxClientSecret
         case .webdav:
             serverURL = "https://"
         case .s3:
@@ -4164,13 +4229,41 @@ public struct HDriveSettingsView: View {
         let trimmedClientId = clientId.trimmingCharacters(in: .whitespacesAndNewlines)
         let clientName = storageProtocol.providerName
         
+        let effClientId: String
+        let effClientSecret: String
+        
+        switch storageProtocol {
+        case .googleDrive:
+            effClientId = trimmedClientId.isEmpty ? GoogleOAuthHelper.defaultClientId : trimmedClientId
+            effClientSecret = clientSecret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? GoogleOAuthHelper.defaultClientSecret : clientSecret.trimmingCharacters(in: .whitespacesAndNewlines)
+        case .oneDrive:
+            effClientId = trimmedClientId.isEmpty ? HDriveSettingsView.defaultOneDriveClientId : trimmedClientId
+            effClientSecret = ""
+        case .dropbox:
+            effClientId = trimmedClientId.isEmpty ? HDriveSettingsView.defaultDropboxClientId : trimmedClientId
+            effClientSecret = clientSecret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? HDriveSettingsView.defaultDropboxClientSecret : clientSecret.trimmingCharacters(in: .whitespacesAndNewlines)
+        default:
+            effClientId = trimmedClientId
+            effClientSecret = clientSecret.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        
+        clientId = effClientId
+        clientSecret = effClientSecret
+        
+        guard !effClientId.isEmpty else {
+            isTestSuccess = false
+            testResult = "⚠️ '\(clientName)' resmi girişi için 'OAuth Client ID' zorunludur."
+            return
+        }
+        
+        guard let encodedClientId = effClientId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+            return
+        }
+        
+        isTesting = true
+        testResult = nil
+        
         if storageProtocol == .googleDrive {
-            let effClientId = trimmedClientId.isEmpty ? GoogleOAuthHelper.defaultClientId : trimmedClientId
-            let effClientSecret = clientSecret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? GoogleOAuthHelper.defaultClientSecret : clientSecret.trimmingCharacters(in: .whitespacesAndNewlines)
-            
-            clientId = effClientId
-            clientSecret = effClientSecret
-            isTesting = true
             testResult = "⏳ Tarayıcıda Google giriş ekranı açıldı. İzni onayladığınızda HDrive otomatik olarak bağlanacaktır..."
             
             GoogleOAuthHelper.shared.startListener { code in
@@ -4190,28 +4283,18 @@ public struct HDriveSettingsView: View {
                 }
             }
             
-            let authUrlStr = "https://accounts.google.com/o/oauth2/v2/auth?client_id=\(effClientId)&response_type=code&redirect_uri=http%3A%2F%2F127.0.0.1%3A8080%2Foauth%2Fcallback&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive&access_type=offline&prompt=consent"
+            let authUrlStr = "https://accounts.google.com/o/oauth2/v2.0/auth?client_id=\(effClientId)&response_type=code&redirect_uri=http%3A%2F%2F127.0.0.1%3A8080%2Foauth%2Fcallback&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive&access_type=offline&prompt=consent"
             if let url = URL(string: authUrlStr) {
                 NSWorkspace.shared.open(url)
             }
             return
         }
         
-        guard !trimmedClientId.isEmpty else {
-            isTestSuccess = false
-            testResult = "⚠️ '\(clientName)' resmi girişi için 'OAuth Client ID' zorunludur.\n\nLütfen yukarıdaki 'OAuth Client ID' kutucuğuna konsolunuzdan aldığınız kimliği yapıştırın."
-            return
-        }
-        
-        guard let encodedClientId = trimmedClientId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
-            return
-        }
-        
-        isTesting = true
-        testResult = nil
-        
         if storageProtocol == .dropbox {
+            testResult = "⏳ Tarayıcıda Dropbox giriş ekranı açıldı. İzni onayladığınızda HDrive otomatik olarak bağlanacaktır..."
+            
             GoogleOAuthHelper.shared.startListener { code in
+                self.testResult = "⏳ Dropbox yetkilendirme kodu alındı, erişim tokenı talep ediliyor..."
                 self.exchangeDropboxCode(raw: code) { result in
                     self.isTesting = false
                     switch result {
@@ -4226,32 +4309,22 @@ public struct HDriveSettingsView: View {
                     }
                 }
             }
-        }
-        
-        let authEndpoint: String
-        switch storageProtocol {
-        case .oneDrive:
-            authEndpoint = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=\(encodedClientId)&response_type=code&redirect_uri=https%3A%2F%2Flogin.microsoftonline.com%2Fcommon%2Foauth2%2Fnativeclient&response_mode=query&scope=offline_access%20Files.ReadWrite%20User.Read"
-        case .dropbox:
-            authEndpoint = "https://www.dropbox.com/oauth2/authorize?client_id=\(encodedClientId)&response_type=code&redirect_uri=http%3A%2F%2Flocalhost%3A8080%2Foauth%2Fcallback"
-        default:
-            authEndpoint = ""
-        }
-        
-        if let url = URL(string: authEndpoint) {
-            NSWorkspace.shared.open(url)
-        }
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-            self.isTesting = false
-            self.isTestSuccess = true
-            if self.storageProtocol == .oneDrive {
-                self.testResult = "🌐 Tarayıcınızda Microsoft yetkilendirme sayfası açıldı.\n\nOnay verdikten sonra tarayıcınızın adres çubuğundaki bağlantıyı (veya 'code=' ile başlayan kodu) kopyalayıp aşağıdaki 'Yetki Tokenı / Şifre' alanına yapıştırın. HDrive otomatik olarak bağlayacaktır!"
-            } else if self.storageProtocol == .dropbox {
-                self.testResult = "🌐 Tarayıcınızda Dropbox yetkilendirme sayfası açıldı.\n\nİzni onayladığınızda HDrive otomatik bağlanacaktır. (Veya adres çubuğundaki kodu kopyalayıp 'Yetki Tokenı / Şifre' alanına yapıştırabilirsiniz)."
-            } else {
-                self.testResult = "🌐 Tarayıcınızda \(clientName) yetkilendirme sayfası açıldı. Giriş yaptıktan sonra aldığınız erişim tokenını 'Yetki Tokenı / Şifre' alanına girebilirsiniz."
+            
+            let authEndpoint = "https://www.dropbox.com/oauth2/authorize?client_id=\(encodedClientId)&response_type=code&redirect_uri=http%3A%2F%2Flocalhost%3A8080%2Foauth%2Fcallback"
+            if let url = URL(string: authEndpoint) {
+                NSWorkspace.shared.open(url)
             }
+            return
+        }
+        
+        if storageProtocol == .oneDrive {
+            testResult = "🌐 Tarayıcınızda Microsoft OneDrive yetkilendirme sayfası açıldı.\n\nOnay verdikten sonra açılan boş sayfanın adres çubuğundaki bağlantıyı kopyalayıp yukarıdaki kutucuğa yapıştırın ve 'Doğrula ve Bağlan' butonuna basın."
+            
+            let authEndpoint = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=\(encodedClientId)&response_type=code&redirect_uri=https%3A%2F%2Flogin.microsoftonline.com%2Fcommon%2Foauth2%2Fnativeclient&response_mode=query&scope=offline_access%20Files.ReadWrite%20User.Read"
+            if let url = URL(string: authEndpoint) {
+                NSWorkspace.shared.open(url)
+            }
+            return
         }
     }
     
