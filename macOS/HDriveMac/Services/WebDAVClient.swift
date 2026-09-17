@@ -883,7 +883,13 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
         let ext = localFileURL.pathExtension
         let mimeType = UTType(filenameExtension: ext)?.preferredMIMEType ?? "application/octet-stream"
         
-        var cleanParent = toFolderIdOrPath.trimmingCharacters(in: CharacterSet(charactersIn: "/. \t\n\r"))
+        var cleanParent = toFolderIdOrPath.trimmingCharacters(in: CharacterSet(charactersIn: " \t\n\r"))
+        if cleanParent.hasSuffix("/" + fileName) {
+            cleanParent = String(cleanParent.dropLast(("/" + fileName).count))
+        } else if cleanParent == fileName {
+            cleanParent = "root"
+        }
+        cleanParent = cleanParent.trimmingCharacters(in: CharacterSet(charactersIn: "/. \t\n\r"))
         if cleanParent.isEmpty || cleanParent == "." {
             cleanParent = "root"
         }
@@ -902,13 +908,15 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
         initRequest.setValue(mimeType, forHTTPHeaderField: "X-Upload-Content-Type")
         initRequest.setValue("\(fileSize)", forHTTPHeaderField: "X-Upload-Content-Length")
         
-        let meta: [String: Any] = [
-            "name": fileName,
-            "parents": [cleanParent]
+        var meta: [String: Any] = [
+            "name": fileName
         ]
+        if cleanParent != "root" && !cleanParent.isEmpty {
+            meta["parents"] = [cleanParent]
+        }
         initRequest.httpBody = try? JSONSerialization.data(withJSONObject: meta)
         
-        session.dataTask(with: initRequest) { [weak self] _, response, error in
+        session.dataTask(with: initRequest) { [weak self] data, response, error in
             guard let self = self else { return }
             if let error = error {
                 DispatchQueue.main.async { completion(error) }
@@ -919,8 +927,14 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
                   let locationStr = httpResp.allHeaderFields["Location"] as? String ?? httpResp.allHeaderFields["location"] as? String,
                   let uploadURL = URL(string: locationStr) else {
                 let status = (response as? HTTPURLResponse)?.statusCode ?? 500
+                var errorDesc = "Google Drive yükleme oturumu açılamadı (HTTP \(status))"
+                if let data = data, let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let errObj = json["error"] as? [String: Any],
+                   let msg = errObj["message"] as? String {
+                    errorDesc = "\(msg) (HTTP \(status))"
+                }
                 DispatchQueue.main.async {
-                    completion(NSError(domain: "HDrive", code: status, userInfo: [NSLocalizedDescriptionKey: "Google Drive yükleme oturumu açılamadı (HTTP \(status))"]))
+                    completion(NSError(domain: "HDrive", code: status, userInfo: [NSLocalizedDescriptionKey: errorDesc]))
                 }
                 return
             }
@@ -930,7 +944,7 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
             uploadReq.setValue(mimeType, forHTTPHeaderField: "Content-Type")
             uploadReq.setValue("\(fileSize)", forHTTPHeaderField: "Content-Length")
             
-            let task = self.session.uploadTask(with: uploadReq, fromFile: localFileURL) { _, upResponse, upError in
+            let task = self.session.uploadTask(with: uploadReq, fromFile: localFileURL) { upData, upResponse, upError in
                 if let upError = upError {
                     DispatchQueue.main.async { completion(upError) }
                     return
@@ -940,7 +954,13 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
                     if upStatus == 200 || upStatus == 201 {
                         completion(nil)
                     } else {
-                        completion(NSError(domain: "HDrive", code: upStatus, userInfo: [NSLocalizedDescriptionKey: "Google Drive dosyayı kaydedemedi (HTTP \(upStatus))"]))
+                        var upErrorDesc = "Google Drive dosyayı kaydedemedi (HTTP \(upStatus))"
+                        if let upData = upData, let json = try? JSONSerialization.jsonObject(with: upData) as? [String: Any],
+                           let errObj = json["error"] as? [String: Any],
+                           let msg = errObj["message"] as? String {
+                            upErrorDesc = "\(msg) (HTTP \(upStatus))"
+                        }
+                        completion(NSError(domain: "HDrive", code: upStatus, userInfo: [NSLocalizedDescriptionKey: upErrorDesc]))
                     }
                 }
             }
@@ -952,7 +972,14 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
         let fileName = localFileURL.lastPathComponent
         guard let encodedName = fileName.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else { return }
         
-        let clean = toFolderIdOrPath.trimmingCharacters(in: CharacterSet(charactersIn: "/. \t\n\r"))
+        var clean = toFolderIdOrPath.trimmingCharacters(in: CharacterSet(charactersIn: " \t\n\r"))
+        if clean.hasSuffix("/" + fileName) {
+            clean = String(clean.dropLast(("/" + fileName).count))
+        } else if clean == fileName {
+            clean = "root"
+        }
+        clean = clean.trimmingCharacters(in: CharacterSet(charactersIn: "/. \t\n\r"))
+        
         let uploadURLStr: String
         if clean.isEmpty || clean == "root" || clean == "." {
             uploadURLStr = "https://graph.microsoft.com/v1.0/me/drive/root:/\(encodedName):/content"
@@ -974,7 +1001,7 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
         }
         request.setValue(mimeType, forHTTPHeaderField: "Content-Type")
         
-        let task = session.uploadTask(with: request, fromFile: localFileURL) { _, response, error in
+        let task = session.uploadTask(with: request, fromFile: localFileURL) { data, response, error in
             if let error = error {
                 DispatchQueue.main.async { completion(error) }
                 return
@@ -984,7 +1011,13 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
                 if status == 200 || status == 201 {
                     completion(nil)
                 } else {
-                    completion(NSError(domain: "HDrive", code: status, userInfo: [NSLocalizedDescriptionKey: "OneDrive yükleme hatası (HTTP \(status))"]))
+                    var errorDesc = "OneDrive yükleme hatası (HTTP \(status))"
+                    if let data = data, let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let errObj = json["error"] as? [String: Any],
+                       let msg = errObj["message"] as? String {
+                        errorDesc = "\(msg) (HTTP \(status))"
+                    }
+                    completion(NSError(domain: "HDrive", code: status, userInfo: [NSLocalizedDescriptionKey: errorDesc]))
                 }
             }
         }
@@ -993,13 +1026,18 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
     
     private func uploadDropboxFile(localFileURL: URL, toPath: String, completion: @escaping (Error?) -> Void) {
         let fileName = localFileURL.lastPathComponent
-        var clean = toPath.trimmingCharacters(in: CharacterSet(charactersIn: ". \t\n\r"))
+        var clean = toPath.trimmingCharacters(in: CharacterSet(charactersIn: " \t\n\r"))
+        if clean.hasSuffix("/" + fileName) {
+            clean = String(clean.dropLast(("/" + fileName).count))
+        } else if clean == fileName {
+            clean = ""
+        }
+        clean = clean.trimmingCharacters(in: CharacterSet(charactersIn: "/. \t\n\r"))
+        
         let dropboxPath: String
-        if clean.isEmpty || clean == "/" || clean == "root" {
+        if clean.isEmpty || clean == "root" {
             dropboxPath = "/\(fileName)"
         } else {
-            if !clean.hasPrefix("/") { clean = "/" + clean }
-            clean = clean.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             dropboxPath = "/\(clean)/\(fileName)"
         }
         
@@ -1017,7 +1055,7 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
         request.setValue(apiArg, forHTTPHeaderField: "Dropbox-API-Arg")
         request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
         
-        let task = session.uploadTask(with: request, fromFile: localFileURL) { _, response, error in
+        let task = session.uploadTask(with: request, fromFile: localFileURL) { data, response, error in
             if let error = error {
                 DispatchQueue.main.async { completion(error) }
                 return
@@ -1027,7 +1065,11 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
                 if status == 200 {
                     completion(nil)
                 } else {
-                    completion(NSError(domain: "HDrive", code: status, userInfo: [NSLocalizedDescriptionKey: "Dropbox yükleme hatası (HTTP \(status))"]))
+                    var errorDesc = "Dropbox yükleme hatası (HTTP \(status))"
+                    if let data = data, let str = String(data: data, encoding: .utf8), !str.isEmpty {
+                        errorDesc = "\(str) (HTTP \(status))"
+                    }
+                    completion(NSError(domain: "HDrive", code: status, userInfo: [NSLocalizedDescriptionKey: errorDesc]))
                 }
             }
         }
@@ -1048,11 +1090,13 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
             req.httpMethod = "POST"
             if let auth = authHeader { req.setValue(auth, forHTTPHeaderField: "Authorization") }
             req.setValue("application/json; charset=UTF-8", forHTTPHeaderField: "Content-Type")
-            let meta: [String: Any] = [
+            var meta: [String: Any] = [
                 "name": folderName,
-                "mimeType": "application/vnd.google-apps.folder",
-                "parents": [cleanParent]
+                "mimeType": "application/vnd.google-apps.folder"
             ]
+            if cleanParent != "root" && !cleanParent.isEmpty {
+                meta["parents"] = [cleanParent]
+            }
             req.httpBody = try? JSONSerialization.data(withJSONObject: meta)
             session.dataTask(with: req) { _, response, error in
                 let status = (response as? HTTPURLResponse)?.statusCode ?? 500
