@@ -243,7 +243,7 @@ public struct NativeExplorerView: View {
     @State private var files: [RemoteFileItem] = []
     @State private var isLoading: Bool = false
     @State private var searchText: String = ""
-    @FocusState private var isSearchFieldFocused: Bool
+    @State private var isSearchPresented: Bool = false
     @State private var mouseMonitor: Any? = nil
     @AppStorage("hdrive_isGridView") private var isGridView: Bool = true
     @AppStorage("hdrive_showPreviewPane") private var showPreviewPane: Bool = false
@@ -352,8 +352,14 @@ public struct NativeExplorerView: View {
             .toolbar {
                 explorerToolbar
             }
+            .searchable(text: $searchText, isPresented: $isSearchPresented, placement: .toolbar, prompt: "Ara...")
             .quickLookPreview($quickLookURL)
             .background(keyboardShortcutsOverlay)
+            .onChange(of: searchText) { _, newQuery in
+                if isDeepSearchEnabled && !newQuery.isEmpty {
+                    performDeepSearch(query: newQuery)
+                }
+            }
         }
         .frame(minWidth: showPreviewPane ? 960 : 750, minHeight: 520)
         .onAppear {
@@ -544,7 +550,7 @@ public struct NativeExplorerView: View {
             Button(action: expandSelectionDown) { EmptyView() }
                 .keyboardShortcut(.downArrow, modifiers: .shift)
             
-            Button(action: { isSearchFieldFocused = true }) { EmptyView() }
+            Button(action: { isSearchPresented = true }) { EmptyView() }
                 .keyboardShortcut("f", modifiers: .command)
             
             Button(action: deleteSelectedFiles) { EmptyView() }
@@ -561,11 +567,8 @@ public struct NativeExplorerView: View {
             .keyboardShortcut(.return, modifiers: [])
             
             Button(action: {
-                if isSearchFieldFocused || !searchText.isEmpty {
-                    searchText = ""
-                    isDeepSearchEnabled = false
-                    deepSearchResults = []
-                    isSearchFieldFocused = false
+                if isSearchPresented || !searchText.isEmpty {
+                    exitSearch()
                 } else {
                     clearSelection()
                 }
@@ -951,6 +954,7 @@ public struct NativeExplorerView: View {
     }
 
     private func exitSearch() {
+        isSearchPresented = false
         searchText = ""
         isDeepSearchEnabled = false
         deepSearchResults = []
@@ -1165,55 +1169,29 @@ public struct NativeExplorerView: View {
         .background(Color(NSColor.controlBackgroundColor))
     }
     
-    // MARK: - 2. Klasör Yolu ve Arama Çubuğu (Path & Search Bar)
+    // MARK: - 2. Klasör Yolu Çubuğu (Path Bar)
     private var pathBarView: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             // Ekmek Kırıntısı (Breadcrumbs)
             breadcrumbsView
             
             Spacer()
             
-            // Arama Kutusu (Canlı Arama & Kapsam Seçici)
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundColor(.secondary)
-                    .font(.system(size: 11))
-                
-                TextField("Ara...", text: $searchText)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 12))
-                    .frame(width: 150)
-                    .focused($isSearchFieldFocused)
-                    .onChange(of: searchText) { _, newQuery in
-                        if isDeepSearchEnabled && !newQuery.isEmpty {
-                            performDeepSearch(query: newQuery)
-                        }
-                    }
-                
-                if !searchText.isEmpty {
-                    Button(action: {
-                        searchText = ""
-                        isDeepSearchEnabled = false
-                        deepSearchResults = []
-                    }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(.secondary)
-                            .font(.system(size: 11))
-                    }
-                    .buttonStyle(.plain)
-                    
-                    Divider()
-                        .frame(height: 12)
+            if !searchText.isEmpty {
+                HStack(spacing: 6) {
+                    Text("Kapsam:")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
                     
                     Button(action: {
                         isDeepSearchEnabled = false
                     }) {
                         Text("Bu Klasör")
-                            .font(.system(size: 10, weight: !isDeepSearchEnabled ? .semibold : .regular))
-                            .padding(.horizontal, 5)
+                            .font(.system(size: 11, weight: !isDeepSearchEnabled ? .semibold : .regular))
+                            .padding(.horizontal, 6)
                             .padding(.vertical, 2)
                             .background(!isDeepSearchEnabled ? Color.secondary.opacity(0.2) : Color.clear)
-                            .cornerRadius(3)
+                            .cornerRadius(4)
                     }
                     .buttonStyle(.plain)
                     
@@ -1223,32 +1201,25 @@ public struct NativeExplorerView: View {
                     }) {
                         HStack(spacing: 3) {
                             Text("Tüm Sürücü")
-                                .font(.system(size: 10, weight: isDeepSearchEnabled ? .semibold : .regular))
+                                .font(.system(size: 11, weight: isDeepSearchEnabled ? .semibold : .regular))
                             if isDeepSearching {
                                 ProgressView()
                                     .scaleEffect(0.5)
-                                    .frame(width: 8, height: 8)
+                                    .frame(width: 10, height: 10)
                             }
                         }
-                        .padding(.horizontal, 5)
+                        .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .background(isDeepSearchEnabled ? Color.accentColor.opacity(0.2) : Color.clear)
-                        .cornerRadius(3)
+                        .cornerRadius(4)
                     }
                     .buttonStyle(.plain)
                 }
+                .accessibilityIdentifier("searchScope")
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(Color(NSColor.controlBackgroundColor))
-            .cornerRadius(6)
-            .overlay(
-                RoundedRectangle(cornerRadius: 6)
-                    .stroke(isSearchFieldFocused ? Color.accentColor : Color.secondary.opacity(0.25), lineWidth: isSearchFieldFocused ? 1.5 : 0.8)
-            )
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 6)
+        .padding(.vertical, 7)
         .background(Color(NSColor.windowBackgroundColor))
     }
     
