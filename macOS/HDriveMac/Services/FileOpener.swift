@@ -63,22 +63,29 @@ public final class FileOpener: ObservableObject {
         }
         
         // 2. Önizleme önbelleğinde zaten mevcut ve boyutu geçerli mi?
-        let previewCandidate = FilePreviewManager.shared.previewCacheDir.appendingPathComponent(localFileName)
-        if let attrs = try? FileManager.default.attributesOfItem(atPath: previewCandidate.path),
-           let size = attrs[.size] as? Int64, size > 0 {
-            if NSWorkspace.shared.open(previewCandidate) {
-                completion(true, nil)
-                return
+        let safeName = "\(file.id.replacingOccurrences(of: "/", with: "_"))_\(localFileName)"
+        let previewCandidate1 = FilePreviewManager.shared.previewCacheDir.appendingPathComponent(safeName)
+        let previewCandidate2 = FilePreviewManager.shared.previewCacheDir.appendingPathComponent(localFileName)
+        for previewCandidate in [previewCandidate1, previewCandidate2] {
+            if let attrs = try? FileManager.default.attributesOfItem(atPath: previewCandidate.path),
+               let size = attrs[.size] as? Int64, size > 0 {
+                if NSWorkspace.shared.open(previewCandidate) {
+                    completion(true, nil)
+                    return
+                }
             }
         }
         
         // 3. HDriveFiles önbelleğinde zaten mevcut ve boyutu geçerli mi?
-        let localFile = cacheDir.appendingPathComponent(localFileName)
-        if let attrs = try? FileManager.default.attributesOfItem(atPath: localFile.path),
-           let size = attrs[.size] as? Int64, size > 0 {
-            if NSWorkspace.shared.open(localFile) {
-                completion(true, nil)
-                return
+        let localFile = cacheDir.appendingPathComponent(safeName)
+        let legacyLocalFile = cacheDir.appendingPathComponent(localFileName)
+        for cand in [localFile, legacyLocalFile] {
+            if let attrs = try? FileManager.default.attributesOfItem(atPath: cand.path),
+               let size = attrs[.size] as? Int64, size > 0 {
+                if NSWorkspace.shared.open(cand) {
+                    completion(true, nil)
+                    return
+                }
             }
         }
         
@@ -88,11 +95,12 @@ public final class FileOpener: ObservableObject {
             self.downloadProgress = 0.05
         }
         
-        client.downloadFile(href: file.href, to: localFile, progress: { progress in
+        let activeClient = client
+        activeClient.downloadFile(href: file.href, to: localFile, progress: { progress in
             DispatchQueue.main.async {
                 self.downloadProgress = progress
             }
-        }) { error in
+        }) { [activeClient] error in
             DispatchQueue.main.async {
                 self.openingFile = nil
                 self.downloadProgress = 0.0
@@ -105,12 +113,12 @@ public final class FileOpener: ObservableObject {
                 // Mac'in varsayılan yerel programıyla aç (Excel, Word, Preview, VLC vb.)
                 let success = NSWorkspace.shared.open(localFile)
                 if success {
-                    self.watchForLiveEdits(localFile: localFile, remoteHref: file.href, client: client)
+                    self.watchForLiveEdits(localFile: localFile, remoteHref: file.href, client: activeClient)
                     completion(true, nil)
                 } else {
                     // Özel bir varsayılan program tanımlı değilse Finder'da dosyayı seçerek göster
                     NSWorkspace.shared.activateFileViewerSelecting([localFile])
-                    self.watchForLiveEdits(localFile: localFile, remoteHref: file.href, client: client)
+                    self.watchForLiveEdits(localFile: localFile, remoteHref: file.href, client: activeClient)
                     completion(true, nil)
                 }
             }

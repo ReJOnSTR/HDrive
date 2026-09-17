@@ -201,16 +201,17 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
     
     public func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
         var redirectedRequest = request
-        // Önceden imzalanmış CDN depolama bağlantılarına (googleusercontent.com, 1drv.ms, sharepoint.com)
-        // Authorization başlığı gönderilirse sunucu 400/403 ile reddeder. Sadece aynı host ise Authorization korunur.
-        if let origHost = task.currentRequest?.url?.host,
-           let newHost = request.url?.host,
-           origHost.caseInsensitiveCompare(newHost) == .orderedSame {
-            if let auth = self.authHeader {
-                redirectedRequest.setValue(auth, forHTTPHeaderField: "Authorization")
+        // Önceden imzalanmış CDN depolama bağlantılarına (1drv.ms, sharepoint.com, 1drv.com, googleusercontent.com vb.)
+        // Authorization başlığı gönderilirse sunucu 400/401/403 ile reddeder.
+        // Yalnızca ana API uç noktalarına (graph.microsoft.com, googleapis.com) Authorization başlığı iletilir.
+        if let newHost = request.url?.host?.lowercased() {
+            if newHost.contains("graph.microsoft.com") || newHost.contains("googleapis.com") {
+                if let auth = self.authHeader {
+                    redirectedRequest.setValue(auth, forHTTPHeaderField: "Authorization")
+                }
+            } else {
+                redirectedRequest.setValue(nil, forHTTPHeaderField: "Authorization")
             }
-        } else {
-            redirectedRequest.setValue(nil, forHTTPHeaderField: "Authorization")
         }
         completionHandler(redirectedRequest)
     }
@@ -648,47 +649,7 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
         }
         
         if config.storageProtocol == .oneDrive {
-            let url: URL?
-            if href.hasPrefix("http://") || href.hasPrefix("https://") {
-                url = URL(string: href)
-            } else {
-                url = URL(string: "https://graph.microsoft.com/v1.0/me/drive/items/\(href)/content")
-            }
-            guard let downloadURL = url else {
-                completion(NSError(domain: "HDrive", code: 400, userInfo: [NSLocalizedDescriptionKey: "Geçersiz OneDrive bağlantısı"]))
-                return
-            }
-            var request = URLRequest(url: downloadURL)
-            if downloadURL.host == "graph.microsoft.com" {
-                if let auth = authHeader {
-                    request.setValue(auth, forHTTPHeaderField: "Authorization")
-                }
-            }
-            let downloadTask = session.downloadTask(with: request) { tempURL, response, error in
-                if let error = error {
-                    DispatchQueue.main.async { completion(error) }
-                    return
-                }
-                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 500
-                guard (200...299).contains(statusCode), let tempURL = tempURL else {
-                    DispatchQueue.main.async {
-                        completion(NSError(domain: "HDrive", code: statusCode, userInfo: [NSLocalizedDescriptionKey: "OneDrive indirme hatası (HTTP \(statusCode))"]))
-                    }
-                    return
-                }
-                do {
-                    let parentDir = localDestination.deletingLastPathComponent()
-                    try FileManager.default.createDirectory(at: parentDir, withIntermediateDirectories: true)
-                    if FileManager.default.fileExists(atPath: localDestination.path) {
-                        try FileManager.default.removeItem(at: localDestination)
-                    }
-                    try FileManager.default.moveItem(at: tempURL, to: localDestination)
-                    DispatchQueue.main.async { completion(nil) }
-                } catch {
-                    DispatchQueue.main.async { completion(error) }
-                }
-            }
-            downloadTask.resume()
+            self.downloadOneDriveFile(fileIdOrHref: href, to: localDestination, progress: progress, completion: completion)
             return
         }
         
@@ -734,6 +695,131 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
             }
         }
         downloadTask.resume()
+    }
+    
+    // MARK: - Microsoft OneDrive İndirme Yardımcıları
+    private func downloadOneDriveFile(fileIdOrHref: String, to localDestination: URL, progress: @escaping (Double) -> Void, completion: @escaping (Error?) -> Void) {
+        // 1. Eğer halihazırda doğrudan CDN bağlantısı ise (ve graph.microsoft.com değilse) doğrudan indirmeyi dene
+        if (fileIdOrHref.hasPrefix("http://") || fileIdOrHref.hasPrefix("https://")) && !fileIdOrHref.contains("graph.microsoft.com") {
+            if let directURL = URL(string: fileIdOrHref) {
+                let req = URLRequest(url: directURL)
+                self.performDirectDownload(request: req, to: localDestination, progress: progress) { [weak self] error in
+                    if error == nil {
+                        completion(nil)
+                    } else {
+                        // Link süresi dolmuş olabilir (401/403/410), taze link alıp tekrar dene
+                        guard let self = self else { completion(error); return }
+                        self.fetchFreshOneDriveDownloadUrlAndDownload(fileIdOrHref: fileIdOrHref, to: localDestination, progress: progress, completion: completion)
+                    }
+                }
+                return
+            }
+        }
+        
+        // 2. ID veya Graph URL ise Graph API'den taze @microsoft.graph.downloadUrl alıp indir
+        self.fetchFreshOneDriveDownloadUrlAndDownload(fileIdOrHref: fileIdOrHref, to: localDestination, progress: progress, completion: completion)
+    }
+    
+    private func fetchFreshOneDriveDownloadUrlAndDownload(fileIdOrHref: String, to localDestination: URL, progress: @escaping (Double) -> Void, completion: @escaping (Error?) -> Void) {
+        var itemId = fileIdOrHref
+        if itemId.contains("/items/") {
+            if let sub = itemId.components(separatedBy: "/items/").last {
+                itemId = sub.components(separatedBy: "/").first ?? sub
+            }
+        }
+        
+        let metaUrlStr = "https://graph.microsoft.com/v1.0/me/drive/items/\(itemId)?$select=id,@microsoft.graph.downloadUrl"
+        guard let metaURL = URL(string: metaUrlStr) else {
+            self.downloadViaOneDriveContentEndpoint(itemId: itemId, to: localDestination, progress: progress, completion: completion)
+            return
+        }
+        
+        var req = URLRequest(url: metaURL)
+        if let auth = authHeader {
+            req.setValue(auth, forHTTPHeaderField: "Authorization")
+        }
+        
+        session.dataTask(with: req) { [weak self] data, response, error in
+            guard let self = self else { return }
+            if let data = data,
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let downloadUrlStr = json["@microsoft.graph.downloadUrl"] as? String,
+               let downloadUrl = URL(string: downloadUrlStr) {
+                // Taze ve geçerli CDN linki alındı!
+                let dlReq = URLRequest(url: downloadUrl)
+                self.performDirectDownload(request: dlReq, to: localDestination, progress: progress, completion: completion)
+            } else {
+                // Metadata'da downloadUrl yoksa /content endpoint'i ile indir
+                self.downloadViaOneDriveContentEndpoint(itemId: itemId, to: localDestination, progress: progress, completion: completion)
+            }
+        }.resume()
+    }
+    
+    private func downloadViaOneDriveContentEndpoint(itemId: String, to localDestination: URL, progress: @escaping (Double) -> Void, completion: @escaping (Error?) -> Void) {
+        let endpoint = "https://graph.microsoft.com/v1.0/me/drive/items/\(itemId)/content"
+        guard let url = URL(string: endpoint) else {
+            completion(NSError(domain: "HDrive", code: 400, userInfo: [NSLocalizedDescriptionKey: "Geçersiz OneDrive öğe kimliği"]))
+            return
+        }
+        var req = URLRequest(url: url)
+        if let auth = authHeader {
+            req.setValue(auth, forHTTPHeaderField: "Authorization")
+        }
+        let task = session.downloadTask(with: req) { tempURL, response, error in
+            _ = self
+            if let error = error {
+                DispatchQueue.main.async { completion(error) }
+                return
+            }
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 500
+            guard (200...299).contains(statusCode), let tempURL = tempURL else {
+                DispatchQueue.main.async {
+                    completion(NSError(domain: "HDrive", code: statusCode, userInfo: [NSLocalizedDescriptionKey: "OneDrive indirme hatası (HTTP \(statusCode))"]))
+                }
+                return
+            }
+            do {
+                let parentDir = localDestination.deletingLastPathComponent()
+                try FileManager.default.createDirectory(at: parentDir, withIntermediateDirectories: true)
+                if FileManager.default.fileExists(atPath: localDestination.path) {
+                    try FileManager.default.removeItem(at: localDestination)
+                }
+                try FileManager.default.moveItem(at: tempURL, to: localDestination)
+                DispatchQueue.main.async { completion(nil) }
+            } catch {
+                DispatchQueue.main.async { completion(error) }
+            }
+        }
+        task.resume()
+    }
+    
+    private func performDirectDownload(request: URLRequest, to localDestination: URL, progress: @escaping (Double) -> Void, completion: @escaping (Error?) -> Void) {
+        let task = session.downloadTask(with: request) { tempURL, response, error in
+            _ = self
+            if let error = error {
+                DispatchQueue.main.async { completion(error) }
+                return
+            }
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 500
+            guard (200...299).contains(statusCode), let tempURL = tempURL else {
+                DispatchQueue.main.async {
+                    completion(NSError(domain: "HDrive", code: statusCode, userInfo: [NSLocalizedDescriptionKey: "İndirme hatası (HTTP \(statusCode))"]))
+                }
+                return
+            }
+            do {
+                let parentDir = localDestination.deletingLastPathComponent()
+                try FileManager.default.createDirectory(at: parentDir, withIntermediateDirectories: true)
+                if FileManager.default.fileExists(atPath: localDestination.path) {
+                    try FileManager.default.removeItem(at: localDestination)
+                }
+                try FileManager.default.moveItem(at: tempURL, to: localDestination)
+                DispatchQueue.main.async { completion(nil) }
+            } catch {
+                DispatchQueue.main.async { completion(error) }
+            }
+        }
+        task.resume()
     }
     
     /// Google Docs, Sheets veya Slides belgelerini PDF veya uygun formata dönüştürerek indirir
