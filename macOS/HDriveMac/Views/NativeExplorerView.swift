@@ -4227,11 +4227,75 @@ public struct HDriveSettingsView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
             self.isTesting = false
             self.isTestSuccess = true
-            self.testResult = "🌐 Tarayıcınızda \(clientName) yetkilendirme sayfası açıldı. Giriş yaptıktan sonra aldığınız erişim tokenını 'Yetki Tokenı / Şifre' alanına girebilirsiniz."
+            if self.storageProtocol == .oneDrive {
+                self.testResult = "🌐 Tarayıcınızda Microsoft yetkilendirme sayfası açıldı.\n\nOnay verdikten sonra tarayıcınızın adres çubuğundaki bağlantıyı (veya 'code=' ile başlayan kodu) kopyalayıp aşağıdaki 'Yetki Tokenı / Şifre' alanına yapıştırın. HDrive otomatik olarak bağlayacaktır!"
+            } else {
+                self.testResult = "🌐 Tarayıcınızda \(clientName) yetkilendirme sayfası açıldı. Giriş yaptıktan sonra aldığınız erişim tokenını 'Yetki Tokenı / Şifre' alanına girebilirsiniz."
+            }
         }
     }
     
+    private func exchangeOneDriveCode(raw: String, completion: @escaping (Result<String, Error>) -> Void) {
+        var code = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let range = code.range(of: "code=") {
+            let sub = code[range.upperBound...]
+            code = String(sub.prefix { $0 != "&" && $0 != " " && $0 != "\r" && $0 != "\n" })
+        }
+        guard !code.isEmpty, let url = URL(string: "https://login.microsoftonline.com/common/oauth2/v2.0/token") else {
+            completion(.failure(NSError(domain: "HDrive", code: 400, userInfo: [NSLocalizedDescriptionKey: "Geçersiz yetki kodu"])))
+            return
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        
+        let cId = clientId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let body = "client_id=\(cId)&grant_type=authorization_code&code=\(code)&redirect_uri=https%3A%2F%2Flogin.microsoftonline.com%2Fcommon%2Foauth2%2Fnativeclient"
+        req.httpBody = body.data(using: .utf8)
+        
+        URLSession.shared.dataTask(with: req) { data, response, error in
+            if let error = error {
+                DispatchQueue.main.async { completion(.failure(error)) }
+                return
+            }
+            guard let data = data,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                DispatchQueue.main.async {
+                    completion(.failure(NSError(domain: "HDrive", code: 500, userInfo: [NSLocalizedDescriptionKey: "Microsoft sunucusundan geçersiz yanıt alındı"])))
+                }
+                return
+            }
+            if let token = json["access_token"] as? String {
+                DispatchQueue.main.async { completion(.success(token)) }
+            } else {
+                let err = (json["error_description"] as? String) ?? (json["error"] as? String) ?? "OneDrive tokenı alınamadı"
+                DispatchQueue.main.async {
+                    completion(.failure(NSError(domain: "HDrive", code: 400, userInfo: [NSLocalizedDescriptionKey: err])))
+                }
+            }
+        }.resume()
+    }
+    
     private func saveAndConnect() {
+        if storageProtocol == .oneDrive && (password.contains("code=") || password.hasPrefix("https://") || password.hasPrefix("M.")) {
+            isTesting = true
+            exchangeOneDriveCode(raw: password) { result in
+                self.isTesting = false
+                switch result {
+                case .success(let token):
+                    self.password = token
+                    self.performSaveAndConnect()
+                case .failure(let err):
+                    self.isTestSuccess = false
+                    self.testResult = "❌ Microsoft yetkilendirme kodu doğrulanamadı: \(err.localizedDescription)"
+                }
+            }
+            return
+        }
+        performSaveAndConnect()
+    }
+
+    private func performSaveAndConnect() {
         guard let curID = selectedServerID else { return }
         var cfg = manager.servers.first(where: { $0.id == curID }) ?? CloudreveServerConfig()
         cfg.id = curID
@@ -4255,6 +4319,25 @@ public struct HDriveSettingsView: View {
     private func testConnection() {
         isTesting = true
         testResult = nil
+        
+        if storageProtocol == .oneDrive && (password.contains("code=") || password.hasPrefix("https://") || password.hasPrefix("M.")) {
+            exchangeOneDriveCode(raw: password) { result in
+                switch result {
+                case .success(let token):
+                    self.password = token
+                    self.performTestConnection()
+                case .failure(let err):
+                    self.isTesting = false
+                    self.isTestSuccess = false
+                    self.testResult = "❌ Microsoft yetkilendirme kodu doğrulanamadı: \(err.localizedDescription)"
+                }
+            }
+            return
+        }
+        performTestConnection()
+    }
+
+    private func performTestConnection() {
         var cfg = CloudreveServerConfig()
         cfg.serverURL = serverURL.trimmingCharacters(in: .whitespacesAndNewlines)
         cfg.username = username.trimmingCharacters(in: .whitespacesAndNewlines)
