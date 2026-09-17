@@ -13,6 +13,27 @@ public struct RemoteFileItem: Identifiable, Hashable {
     public let size: Int64
     public let modificationDate: Date?
     public let contentType: String?
+    public var thumbnailURL: String?
+    
+    public init(
+        id: String,
+        name: String,
+        href: String,
+        isDirectory: Bool,
+        size: Int64,
+        modificationDate: Date?,
+        contentType: String?,
+        thumbnailURL: String? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.href = href
+        self.isDirectory = isDirectory
+        self.size = size
+        self.modificationDate = modificationDate
+        self.contentType = contentType
+        self.thumbnailURL = thumbnailURL
+    }
     
     public var formattedSize: String {
         if isDirectory { return "Klasör" }

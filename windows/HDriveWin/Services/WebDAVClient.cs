@@ -31,7 +31,14 @@ public class WebDAVClient
             Timeout = TimeSpan.FromSeconds(60)
         };
 
-        if (!string.IsNullOrEmpty(_config.Username) && !string.IsNullOrEmpty(_config.Password))
+        if (_config.Protocol == StorageProtocol.GoogleDrive || _config.Protocol == StorageProtocol.OneDrive || _config.Protocol == StorageProtocol.Dropbox)
+        {
+            if (!string.IsNullOrEmpty(_config.Password))
+            {
+                _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _config.Password);
+            }
+        }
+        else if (!string.IsNullOrEmpty(_config.Username) && !string.IsNullOrEmpty(_config.Password))
         {
             var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_config.Username}:{_config.Password}"));
             _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", credentials);

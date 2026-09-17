@@ -208,6 +208,30 @@ public final class TransferManager: NSObject, ObservableObject, URLSessionDownlo
     }
     
     private func startDownloadTask(_ item: TransferItem, client: WebDAVClient) {
+        if client.config.storageProtocol == .googleDrive || client.config.storageProtocol == .oneDrive || client.config.storageProtocol == .dropbox {
+            client.downloadFile(href: item.remotePath, to: item.localURL, progress: { [weak item] prog in
+                DispatchQueue.main.async {
+                    item?.progress = prog
+                    item?.transferredBytes = Int64(Double(item?.totalBytes ?? 0) * prog)
+                }
+            }) { [weak self, weak item] error in
+                DispatchQueue.main.async {
+                    guard let self = self, let item = item else { return }
+                    if let error = error {
+                        item.status = .failed
+                        item.errorMessage = error.localizedDescription
+                    } else {
+                        item.status = .completed
+                        item.progress = 1.0
+                        item.transferredBytes = item.totalBytes
+                        item.speedBytesPerSec = 0
+                    }
+                    self.processQueue()
+                }
+            }
+            return
+        }
+        
         if let resumeData = item.resumeData {
             let task = session.downloadTask(withResumeData: resumeData)
             item.urlSessionTask = task
@@ -224,9 +248,8 @@ public final class TransferManager: NSObject, ObservableObject, URLSessionDownlo
         }
         
         var request = URLRequest(url: url)
-        let loginString = "\(client.config.username):\(client.config.password)"
-        if let loginData = loginString.data(using: .utf8) {
-            request.setValue("Basic " + loginData.base64EncodedString(), forHTTPHeaderField: "Authorization")
+        if let auth = client.authHeader {
+            request.setValue(auth, forHTTPHeaderField: "Authorization")
         }
         
         let task = session.downloadTask(with: request)
@@ -236,6 +259,25 @@ public final class TransferManager: NSObject, ObservableObject, URLSessionDownlo
     }
     
     private func startUploadTask(_ item: TransferItem, client: WebDAVClient) {
+        if client.config.storageProtocol == .googleDrive || client.config.storageProtocol == .oneDrive || client.config.storageProtocol == .dropbox {
+            client.uploadFile(localFileURL: item.localURL, toRemotePath: item.remotePath) { [weak self, weak item] error in
+                DispatchQueue.main.async {
+                    guard let self = self, let item = item else { return }
+                    if let error = error {
+                        item.status = .failed
+                        item.errorMessage = error.localizedDescription
+                    } else {
+                        item.status = .completed
+                        item.progress = 1.0
+                        item.transferredBytes = item.totalBytes
+                        item.speedBytesPerSec = 0
+                    }
+                    self.processQueue()
+                }
+            }
+            return
+        }
+        
         guard let url = client.buildURL(for: item.remotePath) else {
             item.status = .failed
             item.errorMessage = "Geçersiz hedef adresi."
@@ -245,9 +287,8 @@ public final class TransferManager: NSObject, ObservableObject, URLSessionDownlo
         
         var request = URLRequest(url: url)
         request.httpMethod = "PUT"
-        let loginString = "\(client.config.username):\(client.config.password)"
-        if let loginData = loginString.data(using: .utf8) {
-            request.setValue("Basic " + loginData.base64EncodedString(), forHTTPHeaderField: "Authorization")
+        if let auth = client.authHeader {
+            request.setValue(auth, forHTTPHeaderField: "Authorization")
         }
         
         let task = session.uploadTask(with: request, fromFile: item.localURL)

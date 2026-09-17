@@ -2655,19 +2655,6 @@ public sealed partial class MainWindow : Window
         await OpenSettingsDialogAsync();
     }
 
-    private async void LocalShareButton_Click(object sender, RoutedEventArgs e)
-    {
-        try
-        {
-            var dialog = new Views.LocalShareDialog
-            {
-                XamlRoot = this.Content.XamlRoot
-            };
-            await dialog.ShowAsync();
-        }
-        catch { }
-    }
-
     private void TransferButton_Click(object sender, RoutedEventArgs e)
     {
         TransferEmptyText.Visibility = TransferManager.Instance.Items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;

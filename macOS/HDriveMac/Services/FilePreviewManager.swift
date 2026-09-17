@@ -109,7 +109,12 @@ public final class FilePreviewManager: ObservableObject {
             }
         }
         
-        // 4. Özel Önizleme Cache
+        // 3. Özel Önizleme Cache (Önce ID bazlı güvenli ad, sonra dosya adı)
+        let safeName = "\(file.id.replacingOccurrences(of: "/", with: "_"))_\(file.name)"
+        let safePreviewTarget = previewCacheDir.appendingPathComponent(safeName)
+        if FileManager.default.fileExists(atPath: safePreviewTarget.path) {
+            return safePreviewTarget
+        }
         let previewTarget = previewCacheDir.appendingPathComponent(file.name)
         if FileManager.default.fileExists(atPath: previewTarget.path) {
             return previewTarget
@@ -118,12 +123,27 @@ public final class FilePreviewManager: ObservableObject {
         return nil
     }
     
-    /// Görsel dosyasının küçük resmini (thumbnail) yükler veya indirir
+    /// Görsel dosyasının veya bulut küçük resminin (thumbnail) görselini yükler veya indirir
     public func loadThumbnail(for file: RemoteFileItem, client: WebDAVClient?) {
-        guard file.isImage else { return }
+        guard file.isImage || file.thumbnailURL != nil else { return }
         
-        // Zaten bellekte varsa tekrar uğraşma
+        // Zaten bellekte varsa tekrar indirme
         if cachedImages[file.id] != nil { return }
+        
+        // Bulut küçük resim URL'i varsa doğrudan indir (Google Drive, OneDrive vs.)
+        if let thumbStr = file.thumbnailURL, let thumbURL = URL(string: thumbStr) {
+            if loadingPreviewIDs.contains(file.id) { return }
+            loadingPreviewIDs.insert(file.id)
+            URLSession.shared.dataTask(with: thumbURL) { [weak self] data, _, _ in
+                DispatchQueue.main.async {
+                    self?.loadingPreviewIDs.remove(file.id)
+                    if let data = data, let img = NSImage(data: data) {
+                        self?.cachedImages[file.id] = img
+                    }
+                }
+            }.resume()
+            return
+        }
         
         // Yerel dosyadan yükle
         if let localURL = resolvedLocalURL(for: file),
@@ -139,7 +159,8 @@ public final class FilePreviewManager: ObservableObject {
         if file.size > 30 * 1024 * 1024 { return }
         
         loadingPreviewIDs.insert(file.id)
-        let destURL = previewCacheDir.appendingPathComponent(file.name)
+        let safeName = "\(file.id.replacingOccurrences(of: "/", with: "_"))_\(file.name)"
+        let destURL = previewCacheDir.appendingPathComponent(safeName)
         
         client.downloadFile(href: file.href, to: destURL, progress: { _ in }) { [weak self] error in
             DispatchQueue.main.async {
@@ -158,7 +179,8 @@ public final class FilePreviewManager: ObservableObject {
             return
         }
         
-        let destURL = previewCacheDir.appendingPathComponent(file.name)
+        let safeName = "\(file.id.replacingOccurrences(of: "/", with: "_"))_\(file.name)"
+        let destURL = previewCacheDir.appendingPathComponent(safeName)
         loadingPreviewIDs.insert(file.id)
         
         client.downloadFile(href: file.href, to: destURL, progress: { _ in }) { [weak self] error in

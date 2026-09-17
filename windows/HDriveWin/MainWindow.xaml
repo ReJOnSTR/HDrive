@@ -288,11 +288,6 @@
                             </Flyout>
                         </AppBarButton.Flyout>
                     </AppBarButton>
-                    <AppBarButton x:Name="LocalShareButton" Label="Paylaşım &amp; QR" Click="LocalShareButton_Click">
-                        <AppBarButton.Icon>
-                            <FontIcon Glyph="&#xED14;" />
-                        </AppBarButton.Icon>
-                    </AppBarButton>
                     <AppBarSeparator />
                     <!-- Üç Nokta (...) Menüsü -->
                     <AppBarButton Label="Daha Fazla">

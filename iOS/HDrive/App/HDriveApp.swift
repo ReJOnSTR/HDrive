@@ -32,11 +32,6 @@ struct HDriveApp: App {
                     Label("Dosyalar", systemImage: "folder.fill")
                 }
                 
-                MainDashboardView()
-                    .tabItem {
-                        Label("Paylaşım", systemImage: "qrcode")
-                    }
-                
                 NavigationStack {
                     SettingsView()
                 }
