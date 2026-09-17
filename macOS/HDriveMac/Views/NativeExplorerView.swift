@@ -10,70 +10,6 @@ import QuickLook
 import QuickLookUI
 import Network
 import PDFKit
-import WebKit
-
-// MARK: - Microsoft OAuth Web Pencere Yöneticisi
-class MicrosoftOAuthWindowController: NSObject, WKNavigationDelegate, NSWindowDelegate {
-    static let shared = MicrosoftOAuthWindowController()
-    private var window: NSWindow?
-    private var webView: WKWebView?
-    private var onCode: ((String) -> Void)?
-    private var onCancel: (() -> Void)?
-    
-    func startAuth(authURL: URL, onCode: @escaping (String) -> Void, onCancel: @escaping () -> Void) {
-        self.onCode = onCode
-        self.onCancel = onCancel
-        
-        let config = WKWebViewConfiguration()
-        let wv = WKWebView(frame: NSRect(x: 0, y: 0, width: 500, height: 640), configuration: config)
-        wv.navigationDelegate = self
-        self.webView = wv
-        
-        let win = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 500, height: 640),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        win.title = "Microsoft OneDrive Girişi"
-        win.contentView = wv
-        win.center()
-        win.isReleasedWhenClosed = false
-        win.delegate = self
-        self.window = win
-        
-        wv.load(URLRequest(url: authURL))
-        win.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-    }
-    
-    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-        if let url = navigationAction.request.url {
-            let urlStr = url.absoluteString
-            if urlStr.contains("nativeclient") && urlStr.contains("code=") {
-                if let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-                   let code = components.queryItems?.first(where: { $0.name == "code" })?.value,
-                   !code.isEmpty {
-                    decisionHandler(.cancel)
-                    closeWindow()
-                    self.onCode?(code)
-                    return
-                }
-            }
-        }
-        decisionHandler(.allow)
-    }
-    
-    func windowWillClose(_ notification: Notification) {
-        self.onCancel?()
-    }
-    
-    private func closeWindow() {
-        self.window?.close()
-        self.window = nil
-        self.webView = nil
-    }
-}
 
 
 public struct ExplorerTab: Identifiable, Equatable {
@@ -4281,17 +4217,9 @@ public struct HDriveSettingsView: View {
         }
         
         if storageProtocol == .oneDrive {
-            testResult = "⏳ Microsoft giriş ekranı açılıyor..."
+            testResult = "⏳ Tarayıcıda Microsoft giriş ekranı açıldı. İzni onayladığınızda HDrive otomatik olarak bağlanacaktır..."
             
-            let authEndpoint = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=\(encodedClientId)&response_type=code&redirect_uri=https%3A%2F%2Flogin.microsoftonline.com%2Fcommon%2Foauth2%2Fnativeclient&response_mode=query&scope=offline_access%20Files.ReadWrite%20User.Read"
-            
-            guard let authURL = URL(string: authEndpoint) else {
-                testResult = "❌ Geçersiz yetkilendirme adresi."
-                isTesting = false
-                return
-            }
-            
-            MicrosoftOAuthWindowController.shared.startAuth(authURL: authURL, onCode: { code in
+            GoogleOAuthHelper.shared.startListener { code in
                 DispatchQueue.main.async {
                     self.testResult = "⏳ Microsoft yetkilendirme kodu alındı, erişim tokenı talep ediliyor..."
                     self.exchangeOneDriveCode(raw: code) { result in
@@ -4308,20 +4236,19 @@ public struct HDriveSettingsView: View {
                         }
                     }
                 }
-            }, onCancel: {
-                DispatchQueue.main.async {
-                    if self.password.isEmpty {
-                        self.isTesting = false
-                        self.testResult = "ℹ️ Microsoft girişi iptal edildi."
-                    }
-                }
-            })
+            }
+            
+            let authEndpoint = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=\(encodedClientId)&response_type=code&redirect_uri=http%3A%2F%2Flocalhost%3A8080&scope=offline_access%20Files.ReadWrite%20User.Read"
+            if let url = URL(string: authEndpoint) {
+                NSWorkspace.shared.open(url)
+            }
             return
         }
     }
     
     private func exchangeOneDriveCode(raw: String, completion: @escaping (Result<String, Error>) -> Void) {
         var code = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let isNativeClient = code.contains("nativeclient")
         if let range = code.range(of: "code=") {
             let sub = code[range.upperBound...]
             code = String(sub.prefix { $0 != "&" && $0 != " " && $0 != "\r" && $0 != "\n" })
@@ -4336,7 +4263,8 @@ public struct HDriveSettingsView: View {
         
         let cId = clientId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? HDriveSettingsView.defaultOneDriveClientId : clientId.trimmingCharacters(in: .whitespacesAndNewlines)
         let encCode = code.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? code
-        let body = "client_id=\(cId)&grant_type=authorization_code&code=\(encCode)&redirect_uri=https%3A%2F%2Flogin.microsoftonline.com%2Fcommon%2Foauth2%2Fnativeclient"
+        let redirectUri = isNativeClient ? "https%3A%2F%2Flogin.microsoftonline.com%2Fcommon%2Foauth2%2Fnativeclient" : "http%3A%2F%2Flocalhost%3A8080"
+        let body = "client_id=\(cId)&grant_type=authorization_code&code=\(encCode)&redirect_uri=\(redirectUri)"
         req.httpBody = body.data(using: .utf8)
         
         URLSession.shared.dataTask(with: req) { data, response, error in
