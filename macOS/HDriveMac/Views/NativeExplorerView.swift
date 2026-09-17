@@ -243,7 +243,7 @@ public struct NativeExplorerView: View {
     @State private var files: [RemoteFileItem] = []
     @State private var isLoading: Bool = false
     @State private var searchText: String = ""
-    @State private var isSearchPresented: Bool = false
+    @FocusState private var isSearchFieldFocused: Bool
     @State private var mouseMonitor: Any? = nil
     @AppStorage("hdrive_isGridView") private var isGridView: Bool = true
     @AppStorage("hdrive_showPreviewPane") private var showPreviewPane: Bool = false
@@ -352,8 +352,6 @@ public struct NativeExplorerView: View {
             .toolbar {
                 explorerToolbar
             }
-            .searchable(text: $searchText, isPresented: $isSearchPresented, placement: .toolbar, prompt: "Ara...")
-            .focusEffectDisabled()
             .quickLookPreview($quickLookURL)
             .background(keyboardShortcutsOverlay)
         }
@@ -546,33 +544,34 @@ public struct NativeExplorerView: View {
             Button(action: expandSelectionDown) { EmptyView() }
                 .keyboardShortcut(.downArrow, modifiers: .shift)
             
+            Button(action: { isSearchFieldFocused = true }) { EmptyView() }
+                .keyboardShortcut("f", modifiers: .command)
+            
             Button(action: deleteSelectedFiles) { EmptyView() }
                 .keyboardShortcut(.delete, modifiers: .command)
             
-            Button(action: deleteSelectedFiles) { EmptyView() }
-                .keyboardShortcut(.delete, modifiers: [])
-            
             Button(action: {
+                if let firstResponder = NSApp.keyWindow?.firstResponder, (firstResponder is NSText || firstResponder is NSTextView || firstResponder is NSTextField) {
+                    return
+                }
                 if let sel = selectedFileID, let file = files.first(where: { $0.id == sel }) {
                     startRenaming(file)
                 }
             }) { EmptyView() }
             .keyboardShortcut(.return, modifiers: [])
             
-            Button(action: clearSelection) { EmptyView() }
-                .keyboardShortcut(.escape, modifiers: [])
-            
             Button(action: {
-                if quickLookURL != nil {
-                    quickLookURL = nil
-                } else if let selID = selectedFileID, let file = files.first(where: { $0.id == selID }), !file.isDirectory {
-                    triggerQuickLook(for: file)
+                if isSearchFieldFocused || !searchText.isEmpty {
+                    searchText = ""
+                    isDeepSearchEnabled = false
+                    deepSearchResults = []
+                    isSearchFieldFocused = false
+                } else {
+                    clearSelection()
                 }
-            }) {
-                EmptyView()
-            }
-            .keyboardShortcut(.space, modifiers: [])
-
+            }) { EmptyView() }
+            .keyboardShortcut(.escape, modifiers: [])
+            
             Button(action: togglePreviewPane) { EmptyView() }
                 .keyboardShortcut("p", modifiers: [.command, .shift])
             
@@ -914,7 +913,24 @@ public struct NativeExplorerView: View {
     private func setupEventMonitors() {
         if keyMonitor == nil {
             keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                // Kullanıcı herhangi bir metin kutusunda (Arama, Yeniden adlandırma vb.) yazı yazıyorsa araya girme!
+                if let firstResponder = NSApp.keyWindow?.firstResponder {
+                    if firstResponder is NSText || firstResponder is NSTextField || firstResponder is NSTextView {
+                        return event
+                    }
+                }
                 guard renamingFileID == nil else { return event }
+                
+                // Boşluk tuşu: Metin düzenlenmiyorken Hızlı Bakış (QuickLook) aç / kapat
+                if event.keyCode == 49 {
+                    if quickLookURL != nil {
+                        quickLookURL = nil
+                    } else if let selID = selectedFileID, let file = files.first(where: { $0.id == selID }), !file.isDirectory {
+                        triggerQuickLook(for: file)
+                    }
+                    return nil
+                }
+                
                 let flags = event.modifierFlags
                 if flags.contains(.command) || flags.contains(.control) || flags.contains(.option) {
                     return event
@@ -928,37 +944,16 @@ public struct NativeExplorerView: View {
         }
         
         if mouseMonitor == nil {
-            mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [self] event in
-                if isSearchPresented || !searchText.isEmpty {
-                    if let window = event.window, let contentView = window.contentView {
-                        let hitView = contentView.hitTest(event.locationInWindow)
-                        var isInsideSearch = false
-                        var current: NSView? = hitView
-                        while let v = current {
-                            let name = String(describing: type(of: v)).lowercased()
-                            if name.contains("search") || v is NSSearchField || v.accessibilityIdentifier() == "searchScope" {
-                                isInsideSearch = true
-                                break
-                            }
-                            current = v.superview
-                        }
-                        
-                        if !isInsideSearch {
-                            DispatchQueue.main.async {
-                                exitSearch()
-                            }
-                        }
-                    }
-                }
+            mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { event in
                 return event
             }
         }
     }
 
     private func exitSearch() {
-        isSearchPresented = false
         searchText = ""
         isDeepSearchEnabled = false
+        deepSearchResults = []
     }
 
     private func handleTypeToSelect(char: String) {
@@ -1170,29 +1165,55 @@ public struct NativeExplorerView: View {
         .background(Color(NSColor.controlBackgroundColor))
     }
     
-    // MARK: - 2. Klasör Yolu Çubuğu (Path Bar)
+    // MARK: - 2. Klasör Yolu ve Arama Çubuğu (Path & Search Bar)
     private var pathBarView: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             // Ekmek Kırıntısı (Breadcrumbs)
             breadcrumbsView
             
             Spacer()
             
-            if !searchText.isEmpty {
-                HStack(spacing: 6) {
-                    Text("Kapsam:")
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
+            // Arama Kutusu (Canlı Arama & Kapsam Seçici)
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundColor(.secondary)
+                    .font(.system(size: 11))
+                
+                TextField("Ara...", text: $searchText)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+                    .frame(width: 150)
+                    .focused($isSearchFieldFocused)
+                    .onChange(of: searchText) { _, newQuery in
+                        if isDeepSearchEnabled && !newQuery.isEmpty {
+                            performDeepSearch(query: newQuery)
+                        }
+                    }
+                
+                if !searchText.isEmpty {
+                    Button(action: {
+                        searchText = ""
+                        isDeepSearchEnabled = false
+                        deepSearchResults = []
+                    }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundColor(.secondary)
+                            .font(.system(size: 11))
+                    }
+                    .buttonStyle(.plain)
+                    
+                    Divider()
+                        .frame(height: 12)
                     
                     Button(action: {
                         isDeepSearchEnabled = false
                     }) {
                         Text("Bu Klasör")
-                            .font(.system(size: 11, weight: !isDeepSearchEnabled ? .semibold : .regular))
-                            .padding(.horizontal, 6)
+                            .font(.system(size: 10, weight: !isDeepSearchEnabled ? .semibold : .regular))
+                            .padding(.horizontal, 5)
                             .padding(.vertical, 2)
                             .background(!isDeepSearchEnabled ? Color.secondary.opacity(0.2) : Color.clear)
-                            .cornerRadius(4)
+                            .cornerRadius(3)
                     }
                     .buttonStyle(.plain)
                     
@@ -1202,25 +1223,32 @@ public struct NativeExplorerView: View {
                     }) {
                         HStack(spacing: 3) {
                             Text("Tüm Sürücü")
-                                .font(.system(size: 11, weight: isDeepSearchEnabled ? .semibold : .regular))
+                                .font(.system(size: 10, weight: isDeepSearchEnabled ? .semibold : .regular))
                             if isDeepSearching {
                                 ProgressView()
                                     .scaleEffect(0.5)
-                                    .frame(width: 10, height: 10)
+                                    .frame(width: 8, height: 8)
                             }
                         }
-                        .padding(.horizontal, 6)
+                        .padding(.horizontal, 5)
                         .padding(.vertical, 2)
                         .background(isDeepSearchEnabled ? Color.accentColor.opacity(0.2) : Color.clear)
-                        .cornerRadius(4)
+                        .cornerRadius(3)
                     }
                     .buttonStyle(.plain)
                 }
-                .accessibilityIdentifier("searchScope")
             }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Color(NSColor.controlBackgroundColor))
+            .cornerRadius(6)
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(isSearchFieldFocused ? Color.accentColor : Color.secondary.opacity(0.25), lineWidth: isSearchFieldFocused ? 1.5 : 0.8)
+            )
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 7)
+        .padding(.vertical, 6)
         .background(Color(NSColor.windowBackgroundColor))
     }
     
@@ -2319,9 +2347,6 @@ public struct NativeExplorerView: View {
         selectedFileIDs.removeAll()
         selectedFileID = nil
         renamingFileID = nil
-        if isSearchPresented || !searchText.isEmpty {
-            exitSearch()
-        }
     }
     
     private func startRenaming(_ file: RemoteFileItem) {
