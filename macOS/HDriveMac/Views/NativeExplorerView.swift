@@ -916,9 +916,15 @@ public struct NativeExplorerView: View {
     private func setupEventMonitors() {
         if keyMonitor == nil {
             keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                // Arama açıksa veya arama metni girilmişse tuşları yakalama, doğrudan arama alanına ilet
+                if isSearchPresented || !searchText.isEmpty {
+                    return event
+                }
+                
                 // Kullanıcı herhangi bir metin kutusunda (Arama, Yeniden adlandırma vb.) yazı yazıyorsa araya girme!
                 if let firstResponder = NSApp.keyWindow?.firstResponder {
-                    if firstResponder is NSText || firstResponder is NSTextField || firstResponder is NSTextView {
+                    let className = String(describing: type(of: firstResponder))
+                    if firstResponder is NSText || firstResponder is NSTextField || firstResponder is NSTextView || className.contains("Text") || className.contains("Search") {
                         return event
                     }
                 }
@@ -962,10 +968,10 @@ public struct NativeExplorerView: View {
 
     private func handleTypeToSelect(char: String) {
         typeToSelectWorkItem?.cancel()
-        typeToSelectQuery += char.lowercased()
+        typeToSelectQuery += char.lowercased(with: Locale(identifier: "tr_TR"))
         
         let query = typeToSelectQuery
-        if let match = filteredFiles.first(where: { $0.name.lowercased().hasPrefix(query) }) {
+        if let match = filteredFiles.first(where: { $0.name.matchesSearchQuery(query) }) {
             selectedFileIDs = [match.id]
             selectedFileID = match.id
         }
@@ -1790,7 +1796,7 @@ public struct NativeExplorerView: View {
     private var filteredFiles: [RemoteFileItem] {
         var result = (isDeepSearchEnabled && !searchText.isEmpty) ? deepSearchResults : files
         if !searchText.isEmpty && !isDeepSearchEnabled {
-            result = result.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
+            result = result.filter { $0.name.matchesSearchQuery(searchText) }
         }
         
         return result.sorted(by: { (item1: RemoteFileItem, item2: RemoteFileItem) -> Bool in
@@ -1954,7 +1960,7 @@ public struct NativeExplorerView: View {
             client.listFiles(at: path) { result in
                 switch result {
                 case .success(let items):
-                    let matching = items.filter { $0.name.localizedCaseInsensitiveContains(query) }
+                    let matching = items.filter { $0.name.matchesSearchQuery(query) }
                     foundItems.append(contentsOf: matching)
                     
                     let subDirs = items.filter { $0.isDirectory }
@@ -4345,4 +4351,45 @@ struct DiagnosticsSheetView: View {
         return isError ? .red : .green
     }
 }
+
+// MARK: - Türkçe Karakter Uyumlu Arama Genişletmesi
+extension String {
+    /// Türkçe karakter uyumlu (büyük/küçük harf, İ-i, I-ı, ç-c, ğ-g, ö-o, ş-s, ü-u toleranslı) arama karşılaştırması
+    func matchesSearchQuery(_ query: String) -> Bool {
+        let cleanQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanQuery.isEmpty else { return true }
+        
+        // 1. Standart hızlı arama
+        if self.localizedCaseInsensitiveContains(cleanQuery) { return true }
+        
+        // 2. Türkçe normalize vaka (İ -> i, I -> ı, kombine işaretlerin temizlenmesi)
+        let normSelf = self.turkishNormalized()
+        let normQuery = cleanQuery.turkishNormalized()
+        if normSelf.contains(normQuery) { return true }
+        
+        // 3. Toleranslı vaka (kullanıcı klavyeden "c" yazsa da "ç", "s" yazsa da "ş", "g" yazsa da "ğ" eşleşir)
+        let fuzzySelf = normSelf.turkishFuzzyNormalized()
+        let fuzzyQuery = normQuery.turkishFuzzyNormalized()
+        if fuzzySelf.contains(fuzzyQuery) { return true }
+        
+        return false
+    }
+    
+    private func turkishNormalized() -> String {
+        var s = self.replacingOccurrences(of: "İ", with: "i")
+        s = s.replacingOccurrences(of: "I", with: "ı")
+        s = s.lowercased(with: Locale(identifier: "tr_TR"))
+        s = s.precomposedStringWithCanonicalMapping
+        s = s.replacingOccurrences(of: "\u{0307}", with: "") // Combining dot above
+        return s
+    }
+    
+    private func turkishFuzzyNormalized() -> String {
+        let map: [Character: Character] = [
+            "ç": "c", "ğ": "g", "ı": "i", "ö": "o", "ş": "s", "ü": "u"
+        ]
+        return String(self.map { map[$0] ?? $0 })
+    }
+}
+
 
