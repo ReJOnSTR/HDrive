@@ -208,7 +208,7 @@ public final class TransferManager: NSObject, ObservableObject, URLSessionDownlo
     }
     
     private func startDownloadTask(_ item: TransferItem, client: WebDAVClient) {
-        if client.config.storageProtocol == .googleDrive || client.config.storageProtocol == .oneDrive || client.config.storageProtocol == .dropbox {
+        if client.config.storageProtocol == .googleDrive || client.config.storageProtocol == .oneDrive {
             client.downloadFile(href: item.remotePath, to: item.localURL, progress: { [weak item] prog in
                 DispatchQueue.main.async {
                     item?.progress = prog
@@ -259,7 +259,7 @@ public final class TransferManager: NSObject, ObservableObject, URLSessionDownlo
     }
     
     private func startUploadTask(_ item: TransferItem, client: WebDAVClient) {
-        if client.config.storageProtocol == .googleDrive || client.config.storageProtocol == .oneDrive || client.config.storageProtocol == .dropbox {
+        if client.config.storageProtocol == .googleDrive || client.config.storageProtocol == .oneDrive {
             client.uploadFile(localFileURL: item.localURL, toRemotePath: item.remotePath) { [weak self, weak item] error in
                 DispatchQueue.main.async {
                     guard let self = self, let item = item else { return }

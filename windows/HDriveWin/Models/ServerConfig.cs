@@ -8,8 +8,7 @@ public enum StorageProtocol
     S3,
     SMB,
     GoogleDrive,
-    OneDrive,
-    Dropbox
+    OneDrive
 }
 
 public class ServerConfig
@@ -31,7 +30,6 @@ public class ServerConfig
     {
         StorageProtocol.GoogleDrive => "Google Drive",
         StorageProtocol.OneDrive => "OneDrive",
-        StorageProtocol.Dropbox => "Dropbox",
         StorageProtocol.S3 => "Amazon S3",
         StorageProtocol.SMB => "SMB Paylaşımı",
         _ => "WebDAV"
@@ -41,7 +39,6 @@ public class ServerConfig
     {
         StorageProtocol.GoogleDrive => "\uE753", // Drive
         StorageProtocol.OneDrive => "\uE753", // Cloud
-        StorageProtocol.Dropbox => "\uE7B8", // Package / Box
         StorageProtocol.S3 => "\uEDA2", // Database / Storage
         StorageProtocol.SMB => "\uE839", // Workstation / LAN
         _ => "\uE753"

@@ -31,7 +31,7 @@ public class WebDAVClient
             Timeout = TimeSpan.FromSeconds(60)
         };
 
-        if (_config.Protocol == StorageProtocol.GoogleDrive || _config.Protocol == StorageProtocol.OneDrive || _config.Protocol == StorageProtocol.Dropbox)
+        if (_config.Protocol == StorageProtocol.GoogleDrive || _config.Protocol == StorageProtocol.OneDrive)
         {
             if (!string.IsNullOrEmpty(_config.Password))
             {

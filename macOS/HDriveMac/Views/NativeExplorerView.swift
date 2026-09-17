@@ -10,6 +10,70 @@ import QuickLook
 import QuickLookUI
 import Network
 import PDFKit
+import WebKit
+
+// MARK: - Microsoft OAuth Web Pencere Yöneticisi
+class MicrosoftOAuthWindowController: NSObject, WKNavigationDelegate, NSWindowDelegate {
+    static let shared = MicrosoftOAuthWindowController()
+    private var window: NSWindow?
+    private var webView: WKWebView?
+    private var onCode: ((String) -> Void)?
+    private var onCancel: (() -> Void)?
+    
+    func startAuth(authURL: URL, onCode: @escaping (String) -> Void, onCancel: @escaping () -> Void) {
+        self.onCode = onCode
+        self.onCancel = onCancel
+        
+        let config = WKWebViewConfiguration()
+        let wv = WKWebView(frame: NSRect(x: 0, y: 0, width: 500, height: 640), configuration: config)
+        wv.navigationDelegate = self
+        self.webView = wv
+        
+        let win = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 640),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        win.title = "Microsoft OneDrive Girişi"
+        win.contentView = wv
+        win.center()
+        win.isReleasedWhenClosed = false
+        win.delegate = self
+        self.window = win
+        
+        wv.load(URLRequest(url: authURL))
+        win.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+    
+    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        if let url = navigationAction.request.url {
+            let urlStr = url.absoluteString
+            if urlStr.contains("nativeclient") && urlStr.contains("code=") {
+                if let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+                   let code = components.queryItems?.first(where: { $0.name == "code" })?.value,
+                   !code.isEmpty {
+                    decisionHandler(.cancel)
+                    closeWindow()
+                    self.onCode?(code)
+                    return
+                }
+            }
+        }
+        decisionHandler(.allow)
+    }
+    
+    func windowWillClose(_ notification: Notification) {
+        self.onCancel?()
+    }
+    
+    private func closeWindow() {
+        self.window?.close()
+        self.window = nil
+        self.webView = nil
+    }
+}
 
 
 public struct ExplorerTab: Identifiable, Equatable {
@@ -1287,7 +1351,7 @@ public struct NativeExplorerView: View {
                     Text("Bağlı Bulut Sürücüsü Yok")
                         .font(.title3.bold())
                     
-                    Text("Dosyalarınıza erişmek için Google Drive, OneDrive, Dropbox, WebDAV veya S3 hesabınızı ekleyin.")
+                    Text("Dosyalarınıza erişmek için Google Drive, OneDrive, WebDAV veya S3 hesabınızı ekleyin.")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
@@ -1320,7 +1384,7 @@ public struct NativeExplorerView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if filteredFiles.isEmpty {
-                if let s = manager.activeServer, (s.storageProtocol == .googleDrive || s.storageProtocol == .oneDrive || s.storageProtocol == .dropbox) && s.password.isEmpty {
+                if let s = manager.activeServer, (s.storageProtocol == .googleDrive || s.storageProtocol == .oneDrive) && s.password.isEmpty {
                     VStack(spacing: 14) {
                         Spacer()
                         ProviderLogoBadge(storageProtocol: s.storageProtocol, size: 56)
@@ -1935,7 +1999,7 @@ public struct NativeExplorerView: View {
         }
         
         // Eğer OAuth bulut sürücüsünün oturumu açılmamışsa listelemeyi başlatma
-        if (server.storageProtocol == .googleDrive || server.storageProtocol == .oneDrive || server.storageProtocol == .dropbox) && server.password.isEmpty {
+        if (server.storageProtocol == .googleDrive || server.storageProtocol == .oneDrive) && server.password.isEmpty {
             self.isLoading = false
             return
         }
@@ -3069,64 +3133,6 @@ struct OneDriveLogo: View {
     }
 }
 
-struct DropboxLogo: View {
-    var size: CGFloat = 36
-    
-    var body: some View {
-        Canvas { context, sz in
-            let w = sz.width
-            let h = sz.height
-            let c = Color(red: 0.0, green: 0.38, blue: 1.0)
-            
-            // Sol Üst Eşkenar
-            var p1 = Path()
-            p1.move(to: CGPoint(x: w * 0.25, y: h * 0.14))
-            p1.addLine(to: CGPoint(x: w * 0.50, y: h * 0.31))
-            p1.addLine(to: CGPoint(x: w * 0.25, y: h * 0.48))
-            p1.addLine(to: CGPoint(x: 0, y: h * 0.31))
-            p1.closeSubpath()
-            context.fill(p1, with: .color(c))
-            
-            // Sağ Üst Eşkenar
-            var p2 = Path()
-            p2.move(to: CGPoint(x: w * 0.75, y: h * 0.14))
-            p2.addLine(to: CGPoint(x: w, y: h * 0.31))
-            p2.addLine(to: CGPoint(x: w * 0.75, y: h * 0.48))
-            p2.addLine(to: CGPoint(x: w * 0.50, y: h * 0.31))
-            p2.closeSubpath()
-            context.fill(p2, with: .color(c))
-            
-            // Sol Alt Eşkenar
-            var p3 = Path()
-            p3.move(to: CGPoint(x: 0, y: h * 0.55))
-            p3.addLine(to: CGPoint(x: w * 0.25, y: h * 0.38))
-            p3.addLine(to: CGPoint(x: w * 0.50, y: h * 0.55))
-            p3.addLine(to: CGPoint(x: w * 0.25, y: h * 0.72))
-            p3.closeSubpath()
-            context.fill(p3, with: .color(c))
-            
-            // Sağ Alt Eşkenar
-            var p4 = Path()
-            p4.move(to: CGPoint(x: w * 0.50, y: h * 0.55))
-            p4.addLine(to: CGPoint(x: w * 0.75, y: h * 0.38))
-            p4.addLine(to: CGPoint(x: w, y: h * 0.55))
-            p4.addLine(to: CGPoint(x: w * 0.75, y: h * 0.72))
-            p4.closeSubpath()
-            context.fill(p4, with: .color(c))
-            
-            // Alt Kutu Kapağı (Flap)
-            var p5 = Path()
-            p5.move(to: CGPoint(x: w * 0.50, y: h * 0.62))
-            p5.addLine(to: CGPoint(x: w * 0.68, y: h * 0.74))
-            p5.addLine(to: CGPoint(x: w * 0.50, y: h * 0.88))
-            p5.addLine(to: CGPoint(x: w * 0.32, y: h * 0.74))
-            p5.closeSubpath()
-            context.fill(p5, with: .color(c))
-        }
-        .frame(width: size, height: size)
-    }
-}
-
 struct NextcloudLogo: View {
     var size: CGFloat = 36
     
@@ -3214,8 +3220,6 @@ struct ProviderLogoBadge: View {
                 GoogleDriveLogo(size: size * 0.72)
             case .oneDrive:
                 OneDriveLogo(size: size * 0.74)
-            case .dropbox:
-                DropboxLogo(size: size * 0.70)
             case .webdav:
                 NextcloudLogo(size: size * 0.76)
             case .s3:
@@ -3421,8 +3425,6 @@ public struct HDriveSettingsView: View {
     @State private var showAdvancedApiSettings: Bool = false
     
     public static let defaultOneDriveClientId = "232843cb-b028-4bbf-97d4-039b8a611dbd"
-    public static let defaultDropboxClientId = "x5e5zxwv8dsqcpo"
-    public static let defaultDropboxClientSecret = "3tod3bzheyb7gas"
     
     @State private var isTesting: Bool = false
     @State private var testResult: String? = nil
@@ -3783,7 +3785,7 @@ public struct HDriveSettingsView: View {
                         .textFieldStyle(.roundedBorder)
                 }
                 
-                if storageProtocol == .googleDrive || storageProtocol == .oneDrive || storageProtocol == .dropbox {
+                if storageProtocol == .googleDrive || storageProtocol == .oneDrive {
                     // Temiz ve Şık Doğrudan Giriş Kartı (Teknik OAuth Detayları Gizlendi)
                     VStack(spacing: 20) {
                         ProviderLogoBadge(storageProtocol: storageProtocol, size: 64)
@@ -3823,12 +3825,9 @@ public struct HDriveSettingsView: View {
                                 if storageProtocol == .googleDrive {
                                     GoogleDriveLogo(size: 20)
                                     Text(password.isEmpty ? "Google ile Giriş Yap" : "Google Hesabını Yeniden Bağla")
-                                } else if storageProtocol == .oneDrive {
+                                } else {
                                     OneDriveLogo(size: 20)
                                     Text(password.isEmpty ? "Microsoft ile Giriş Yap" : "Microsoft Hesabını Yeniden Bağla")
-                                } else {
-                                    DropboxLogo(size: 20)
-                                    Text(password.isEmpty ? "Dropbox ile Giriş Yap" : "Dropbox Hesabını Yeniden Bağla")
                                 }
                             }
                             .font(.system(size: 13, weight: .semibold))
@@ -4104,7 +4103,7 @@ public struct HDriveSettingsView: View {
                     .foregroundColor(.secondary)
             }
             
-            Text("Google Drive, OneDrive, Dropbox, WebDAV, Amazon S3 ve SMB Depolama için Apple HIG Standartlarında Masaüstü İstemcisi.")
+            Text("Google Drive, OneDrive, WebDAV, Amazon S3 ve SMB Depolama için Apple HIG Standartlarında Masaüstü İstemcisi.")
                 .font(.caption)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
@@ -4139,9 +4138,6 @@ public struct HDriveSettingsView: View {
             clientSecret = GoogleOAuthHelper.defaultClientSecret
         } else if storageProtocol == .oneDrive && clientId.isEmpty {
             clientId = HDriveSettingsView.defaultOneDriveClientId
-        } else if storageProtocol == .dropbox && clientId.isEmpty {
-            clientId = HDriveSettingsView.defaultDropboxClientId
-            clientSecret = HDriveSettingsView.defaultDropboxClientSecret
         }
         testResult = nil
     }
@@ -4167,10 +4163,6 @@ public struct HDriveSettingsView: View {
         case .oneDrive:
             serverURL = "https://graph.microsoft.com/v1.0/me/drive"
             clientId = HDriveSettingsView.defaultOneDriveClientId
-        case .dropbox:
-            serverURL = "https://api.dropboxapi.com/2"
-            clientId = HDriveSettingsView.defaultDropboxClientId
-            clientSecret = HDriveSettingsView.defaultDropboxClientSecret
         case .webdav:
             serverURL = "https://"
         case .s3:
@@ -4189,8 +4181,6 @@ public struct HDriveSettingsView: View {
             urlStr = "https://console.cloud.google.com/apis/credentials"
         case .oneDrive:
             urlStr = "https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade"
-        case .dropbox:
-            urlStr = "https://www.dropbox.com/developers/apps"
         default:
             urlStr = ""
         }
@@ -4242,9 +4232,6 @@ public struct HDriveSettingsView: View {
         case .oneDrive:
             effClientId = trimmedClientId.isEmpty ? HDriveSettingsView.defaultOneDriveClientId : trimmedClientId
             effClientSecret = ""
-        case .dropbox:
-            effClientId = trimmedClientId.isEmpty ? HDriveSettingsView.defaultDropboxClientId : trimmedClientId
-            effClientSecret = clientSecret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? HDriveSettingsView.defaultDropboxClientSecret : clientSecret.trimmingCharacters(in: .whitespacesAndNewlines)
         default:
             effClientId = trimmedClientId
             effClientSecret = clientSecret.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -4293,104 +4280,46 @@ public struct HDriveSettingsView: View {
             return
         }
         
-        if storageProtocol == .dropbox {
-            testResult = "⏳ Tarayıcıda Dropbox giriş ekranı açıldı. İzni onayladığınızda HDrive otomatik olarak bağlanacaktır..."
-            
-            GoogleOAuthHelper.shared.startListener { code in
-                self.testResult = "⏳ Dropbox yetkilendirme kodu alındı, erişim tokenı talep ediliyor..."
-                self.exchangeDropboxCode(raw: code) { result in
-                    self.isTesting = false
-                    switch result {
-                    case .success(let token):
-                        self.password = token
-                        self.isTestSuccess = true
-                        self.testResult = "✅ Dropbox oturumu başarıyla açıldı ve bağlandı!"
-                        self.saveAndConnect()
-                    case .failure(let error):
-                        self.isTestSuccess = false
-                        self.testResult = "❌ Dropbox yetkilendirme hatası: \(error.localizedDescription)"
-                    }
-                }
-            }
-            
-            let authEndpoint = "https://www.dropbox.com/oauth2/authorize?client_id=\(encodedClientId)&response_type=code&redirect_uri=http%3A%2F%2Flocalhost%3A8080%2Foauth%2Fcallback"
-            if let url = URL(string: authEndpoint) {
-                NSWorkspace.shared.open(url)
-            }
-            return
-        }
-        
         if storageProtocol == .oneDrive {
-            testResult = "⏳ Tarayıcıda Microsoft giriş ekranı açıldı. İzni onayladığınızda HDrive otomatik olarak bağlanacaktır..."
+            testResult = "⏳ Microsoft giriş ekranı açılıyor..."
             
-            GoogleOAuthHelper.shared.startListener { code in
-                self.testResult = "⏳ Microsoft yetkilendirme kodu alındı, erişim tokenı talep ediliyor..."
-                self.exchangeOneDriveCode(raw: code) { result in
-                    self.isTesting = false
-                    switch result {
-                    case .success(let token):
-                        self.password = token
-                        self.isTestSuccess = true
-                        self.testResult = "✅ Microsoft OneDrive oturumu başarıyla açıldı ve bağlandı!"
-                        self.saveAndConnect()
-                    case .failure(let error):
-                        self.isTestSuccess = false
-                        self.testResult = "❌ Microsoft yetkilendirme hatası: \(error.localizedDescription)"
+            let authEndpoint = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=\(encodedClientId)&response_type=code&redirect_uri=https%3A%2F%2Flogin.microsoftonline.com%2Fcommon%2Foauth2%2Fnativeclient&response_mode=query&scope=offline_access%20Files.ReadWrite%20User.Read"
+            
+            guard let authURL = URL(string: authEndpoint) else {
+                testResult = "❌ Geçersiz yetkilendirme adresi."
+                isTesting = false
+                return
+            }
+            
+            MicrosoftOAuthWindowController.shared.startAuth(authURL: authURL, onCode: { code in
+                DispatchQueue.main.async {
+                    self.testResult = "⏳ Microsoft yetkilendirme kodu alındı, erişim tokenı talep ediliyor..."
+                    self.exchangeOneDriveCode(raw: code) { result in
+                        self.isTesting = false
+                        switch result {
+                        case .success(let token):
+                            self.password = token
+                            self.isTestSuccess = true
+                            self.testResult = "✅ Microsoft OneDrive oturumu başarıyla açıldı ve bağlandı!"
+                            self.saveAndConnect()
+                        case .failure(let error):
+                            self.isTestSuccess = false
+                            self.testResult = "❌ Microsoft yetkilendirme hatası: \(error.localizedDescription)"
+                        }
                     }
                 }
-            }
-            
-            let authEndpoint = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=\(encodedClientId)&response_type=code&redirect_uri=http%3A%2F%2Flocalhost%3A8080%2Foauth%2Fcallback&scope=offline_access%20Files.ReadWrite%20User.Read"
-            if let url = URL(string: authEndpoint) {
-                NSWorkspace.shared.open(url)
-            }
+            }, onCancel: {
+                DispatchQueue.main.async {
+                    if self.password.isEmpty {
+                        self.isTesting = false
+                        self.testResult = "ℹ️ Microsoft girişi iptal edildi."
+                    }
+                }
+            })
             return
         }
     }
     
-    private func exchangeDropboxCode(raw: String, completion: @escaping (Result<String, Error>) -> Void) {
-        var code = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let range = code.range(of: "code=") {
-            let sub = code[range.upperBound...]
-            code = String(sub.prefix { $0 != "&" && $0 != " " && $0 != "\r" && $0 != "\n" })
-        }
-        guard !code.isEmpty, let url = URL(string: "https://api.dropboxapi.com/oauth2/token") else {
-            completion(.failure(NSError(domain: "HDrive", code: 400, userInfo: [NSLocalizedDescriptionKey: "Geçersiz yetki kodu"])))
-            return
-        }
-        var req = URLRequest(url: url)
-        req.httpMethod = "POST"
-        req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        
-        let cId = clientId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? HDriveSettingsView.defaultDropboxClientId : clientId.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cSec = clientSecret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? HDriveSettingsView.defaultDropboxClientSecret : clientSecret.trimmingCharacters(in: .whitespacesAndNewlines)
-        let encCode = code.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? code
-        let body = "code=\(encCode)&grant_type=authorization_code&client_id=\(cId)&client_secret=\(cSec)&redirect_uri=http%3A%2F%2Flocalhost%3A8080%2Foauth%2Fcallback"
-        req.httpBody = body.data(using: .utf8)
-        
-        URLSession.shared.dataTask(with: req) { data, response, error in
-            if let error = error {
-                DispatchQueue.main.async { completion(.failure(error)) }
-                return
-            }
-            guard let data = data,
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                DispatchQueue.main.async {
-                    completion(.failure(NSError(domain: "HDrive", code: 500, userInfo: [NSLocalizedDescriptionKey: "Dropbox sunucusundan geçersiz yanıt"])))
-                }
-                return
-            }
-            if let token = json["access_token"] as? String {
-                DispatchQueue.main.async { completion(.success(token)) }
-            } else {
-                let err = (json["error_description"] as? String) ?? (json["error"] as? String) ?? "Dropbox tokenı alınamadı"
-                DispatchQueue.main.async {
-                    completion(.failure(NSError(domain: "HDrive", code: 400, userInfo: [NSLocalizedDescriptionKey: err])))
-                }
-            }
-        }.resume()
-    }
-
     private func exchangeOneDriveCode(raw: String, completion: @escaping (Result<String, Error>) -> Void) {
         var code = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if let range = code.range(of: "code=") {
@@ -4407,7 +4336,7 @@ public struct HDriveSettingsView: View {
         
         let cId = clientId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? HDriveSettingsView.defaultOneDriveClientId : clientId.trimmingCharacters(in: .whitespacesAndNewlines)
         let encCode = code.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? code
-        let body = "client_id=\(cId)&grant_type=authorization_code&code=\(encCode)&redirect_uri=http%3A%2F%2Flocalhost%3A8080%2Foauth%2Fcallback"
+        let body = "client_id=\(cId)&grant_type=authorization_code&code=\(encCode)&redirect_uri=https%3A%2F%2Flogin.microsoftonline.com%2Fcommon%2Foauth2%2Fnativeclient"
         req.httpBody = body.data(using: .utf8)
         
         URLSession.shared.dataTask(with: req) { data, response, error in
@@ -4449,22 +4378,7 @@ public struct HDriveSettingsView: View {
             }
             return
         }
-        if storageProtocol == .dropbox && (password.contains("code=") || password.hasPrefix("http")) {
-            isTesting = true
-            exchangeDropboxCode(raw: password) { result in
-                self.isTesting = false
-                switch result {
-                case .success(let token):
-                    self.password = token
-                    self.performSaveAndConnect()
-                case .failure(let err):
-                    self.isTestSuccess = false
-                    self.testResult = "❌ Dropbox yetkilendirme kodu doğrulanamadı: \(err.localizedDescription)"
-                }
-            }
-            return
-        }
-        if (storageProtocol == .googleDrive || storageProtocol == .oneDrive || storageProtocol == .dropbox) && password.isEmpty {
+        if (storageProtocol == .googleDrive || storageProtocol == .oneDrive) && password.isEmpty {
             isTestSuccess = false
             testResult = "⚠️ Lütfen önce yukarıdaki '\(storageProtocol.providerName) ile Giriş Yap' butonuna basarak hesabınızı yetkilendirin."
             return
@@ -4507,20 +4421,6 @@ public struct HDriveSettingsView: View {
                     self.isTesting = false
                     self.isTestSuccess = false
                     self.testResult = "❌ Microsoft yetkilendirme kodu doğrulanamadı: \(err.localizedDescription)"
-                }
-            }
-            return
-        }
-        if storageProtocol == .dropbox && (password.contains("code=") || password.hasPrefix("http")) {
-            exchangeDropboxCode(raw: password) { result in
-                switch result {
-                case .success(let token):
-                    self.password = token
-                    self.performTestConnection()
-                case .failure(let err):
-                    self.isTesting = false
-                    self.isTestSuccess = false
-                    self.testResult = "❌ Dropbox yetkilendirme kodu doğrulanamadı: \(err.localizedDescription)"
                 }
             }
             return

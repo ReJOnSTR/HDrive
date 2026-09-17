@@ -99,11 +99,6 @@ public sealed partial class SettingsDialog : ContentDialog
                     _editingServer.Name = "OneDrive";
                     _editingServer.ServerURL = "https://graph.microsoft.com/v1.0/me/drive";
                     break;
-                case "Dropbox":
-                    _editingServer.Protocol = StorageProtocol.Dropbox;
-                    _editingServer.Name = "Dropbox";
-                    _editingServer.ServerURL = "https://api.dropboxapi.com/2";
-                    break;
                 case "S3":
                     _editingServer.Protocol = StorageProtocol.S3;
                     _editingServer.Name = "Amazon S3";
@@ -204,7 +199,7 @@ public sealed partial class SettingsDialog : ContentDialog
         S3FieldsGrid.Visibility = (s.Protocol == StorageProtocol.S3) ? Visibility.Visible : Visibility.Collapsed;
         SmbShareBox.Visibility = (s.Protocol == StorageProtocol.SMB) ? Visibility.Visible : Visibility.Collapsed;
 
-        var isCloud = (s.Protocol == StorageProtocol.GoogleDrive || s.Protocol == StorageProtocol.OneDrive || s.Protocol == StorageProtocol.Dropbox);
+        var isCloud = (s.Protocol == StorageProtocol.GoogleDrive || s.Protocol == StorageProtocol.OneDrive);
         OAuthFieldsGrid.Visibility = Visibility.Collapsed; // Teknik OAuth kutucukları gizlendi, arka planda hazır yüklenir
         ClientIdBox.Text = s.ClientId ?? "";
         ClientSecretBox.Password = s.ClientSecret ?? "";
@@ -261,7 +256,7 @@ public sealed partial class SettingsDialog : ContentDialog
             ClientSecret = ClientSecretBox.Password
         };
 
-        if (tempConfig.Protocol == StorageProtocol.GoogleDrive || tempConfig.Protocol == StorageProtocol.OneDrive || tempConfig.Protocol == StorageProtocol.Dropbox)
+        if (tempConfig.Protocol == StorageProtocol.GoogleDrive || tempConfig.Protocol == StorageProtocol.OneDrive)
         {
             await System.Threading.Tasks.Task.Delay(300);
             TestResultInfoBar.Severity = InfoBarSeverity.Success;

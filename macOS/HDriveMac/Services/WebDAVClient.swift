@@ -62,7 +62,6 @@ public struct RemoteFileItem: Identifiable, Hashable {
 public enum StorageProtocol: String, Codable, CaseIterable, Identifiable {
     case googleDrive = "Google Drive"
     case oneDrive = "Microsoft OneDrive"
-    case dropbox = "Dropbox"
     case webdav = "WebDAV (Cloudreve / Nextcloud / NAS)"
     case s3 = "Amazon S3 / MinIO / Cloudflare R2"
     case smb = "SMB (Yerel Ağ / NAS Paylaşımı)"
@@ -73,7 +72,6 @@ public enum StorageProtocol: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .googleDrive: return "triangle.fill"
         case .oneDrive: return "cloud.sun.fill"
-        case .dropbox: return "shippingbox.fill"
         case .webdav: return "cloud.fill"
         case .s3: return "cylinder.split.1x2.fill"
         case .smb: return "network"
@@ -84,7 +82,6 @@ public enum StorageProtocol: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .googleDrive: return "Google Drive"
         case .oneDrive: return "OneDrive"
-        case .dropbox: return "Dropbox"
         case .webdav: return "WebDAV"
         case .s3: return "Amazon S3"
         case .smb: return "SMB Paylaşımı"
@@ -95,7 +92,6 @@ public enum StorageProtocol: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .googleDrive: return "Google Workspace & Kişisel Drive"
         case .oneDrive: return "Microsoft 365 & Kişisel OneDrive"
-        case .dropbox: return "Dropbox Kişisel & İş Alanı"
         case .webdav: return "Cloudreve, Nextcloud, ownCloud, NAS"
         case .s3: return "AWS S3, Cloudflare R2, MinIO, Wasabi"
         case .smb: return "Windows Paylaşımı, Samba, Yerel NAS"
@@ -205,7 +201,7 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
     
     public func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
         var redirectedRequest = request
-        // Önceden imzalanmış CDN depolama bağlantılarına (googleusercontent.com, 1drv.ms, sharepoint.com, dropboxusercontent.com)
+        // Önceden imzalanmış CDN depolama bağlantılarına (googleusercontent.com, 1drv.ms, sharepoint.com)
         // Authorization başlığı gönderilirse sunucu 400/403 ile reddeder. Sadece aynı host ise Authorization korunur.
         if let origHost = task.currentRequest?.url?.host,
            let newHost = request.url?.host,
@@ -220,7 +216,7 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
     }
     
     public var authHeader: String? {
-        if config.storageProtocol == .googleDrive || config.storageProtocol == .oneDrive || config.storageProtocol == .dropbox {
+        if config.storageProtocol == .googleDrive || config.storageProtocol == .oneDrive {
             if !config.password.isEmpty {
                 return config.password.hasPrefix("Bearer ") ? config.password : "Bearer \(config.password)"
             }
@@ -249,8 +245,6 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
                 base = "https://www.googleapis.com/drive/v3"
             } else if config.storageProtocol == .oneDrive {
                 base = "https://graph.microsoft.com/v1.0/me/drive"
-            } else if config.storageProtocol == .dropbox {
-                base = "https://api.dropboxapi.com/2"
             }
         }
         if config.storageProtocol == .s3 && !config.bucketName.isEmpty {
@@ -315,7 +309,7 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
             return
         }
 
-        if config.storageProtocol == .oneDrive || config.storageProtocol == .dropbox {
+        if config.storageProtocol == .oneDrive {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 if !self.config.username.isEmpty || !self.config.password.isEmpty || !self.config.serverURL.isEmpty {
                     completion(true, "\(self.config.storageProtocol.providerName) bağlantı ve kimlik doğrulama profili hazır.")
@@ -388,10 +382,6 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
         }
         if config.storageProtocol == .oneDrive {
             listOneDriveFiles(at: relativePath, completion: completion)
-            return
-        }
-        if config.storageProtocol == .dropbox {
-            listDropboxFiles(at: relativePath, completion: completion)
             return
         }
         guard let targetURL = buildURL(for: relativePath) else {
@@ -494,16 +484,9 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
         }.resume()
     }
     
-    private func listOneDriveFiles(at folderIdOrPath: String, completion: @escaping (Result<[RemoteFileItem], Error>) -> Void) {
-        let clean = folderIdOrPath.trimmingCharacters(in: CharacterSet(charactersIn: "/. \t\n\r"))
-        let endpoint: String
-        if clean.isEmpty || clean == "root" || clean == "." {
-            endpoint = "https://graph.microsoft.com/v1.0/me/drive/root/children"
-        } else {
-            endpoint = "https://graph.microsoft.com/v1.0/me/drive/items/\(clean)/children"
-        }
-        guard let url = URL(string: endpoint) else {
-            completion(.failure(NSError(domain: "HDrive", code: 400, userInfo: [NSLocalizedDescriptionKey: "Geçersiz istek"])))
+    private func fetchOneDriveFolder(urlStr: String, completion: @escaping (Result<[RemoteFileItem], Error>) -> Void) {
+        guard let url = URL(string: urlStr) else {
+            completion(.failure(NSError(domain: "HDrive", code: 400, userInfo: [NSLocalizedDescriptionKey: "Geçersiz istek adresi"])))
             return
         }
         var request = URLRequest(url: url)
@@ -515,13 +498,20 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
                 DispatchQueue.main.async { completion(.failure(error)) }
                 return
             }
+            let httpStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
+            if httpStatus == 401 {
+                DispatchQueue.main.async {
+                    completion(.failure(NSError(domain: "HDrive", code: 401, userInfo: [NSLocalizedDescriptionKey: "OneDrive oturumunuzun süresi dolmuş. Lütfen ayarlardan hesabınızı yeniden bağlayın."])))
+                }
+                return
+            }
             guard let data = data,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let values = json["value"] as? [[String: Any]] else {
                 let msg = (try? JSONSerialization.jsonObject(with: data ?? Data()) as? [String: Any])?["error"] as? [String: Any]
                 let desc = msg?["message"] as? String ?? "OneDrive dosyaları alınamadı."
                 DispatchQueue.main.async {
-                    completion(.failure(NSError(domain: "HDrive", code: 500, userInfo: [NSLocalizedDescriptionKey: desc])))
+                    completion(.failure(NSError(domain: "HDrive", code: httpStatus == 404 ? 404 : 500, userInfo: [NSLocalizedDescriptionKey: desc])))
                 }
                 return
             }
@@ -552,61 +542,28 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
         }.resume()
     }
     
-    private func listDropboxFiles(at folderIdOrPath: String, completion: @escaping (Result<[RemoteFileItem], Error>) -> Void) {
-        var clean = folderIdOrPath.trimmingCharacters(in: CharacterSet(charactersIn: ". \t\n\r"))
-        if clean == "/" || clean == "root" || clean.isEmpty {
-            clean = ""
-        } else if !clean.hasPrefix("/") {
-            clean = "/" + clean
-        }
-        guard let url = URL(string: "https://api.dropboxapi.com/2/files/list_folder") else { return }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        if let auth = authHeader {
-            request.setValue(auth, forHTTPHeaderField: "Authorization")
-        }
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let body: [String: Any] = ["path": clean, "recursive": false, "include_media_info": true]
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        
-        session.dataTask(with: request) { data, response, error in
-            if let error = error {
-                DispatchQueue.main.async { completion(.failure(error)) }
-                return
-            }
-            guard let data = data,
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let entries = json["entries"] as? [[String: Any]] else {
-                let desc = (try? JSONSerialization.jsonObject(with: data ?? Data()) as? [String: Any])?["error_summary"] as? String ?? "Dropbox dosyaları alınamadı."
-                DispatchQueue.main.async {
-                    completion(.failure(NSError(domain: "HDrive", code: 500, userInfo: [NSLocalizedDescriptionKey: desc])))
+    private func listOneDriveFiles(at folderIdOrPath: String, completion: @escaping (Result<[RemoteFileItem], Error>) -> Void) {
+        let clean = folderIdOrPath.trimmingCharacters(in: CharacterSet(charactersIn: "/. \t\n\r"))
+        if clean.isEmpty || clean == "root" || clean == "." {
+            fetchOneDriveFolder(urlStr: "https://graph.microsoft.com/v1.0/me/drive/root/children", completion: completion)
+        } else if clean.contains("/") {
+            let encoded = clean.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? clean
+            fetchOneDriveFolder(urlStr: "https://graph.microsoft.com/v1.0/me/drive/root:/\(encoded):/children", completion: completion)
+        } else {
+            // First try by ID (/items/{id}/children). If 404, fallback to /root:/{path}:/children
+            fetchOneDriveFolder(urlStr: "https://graph.microsoft.com/v1.0/me/drive/items/\(clean)/children") { [weak self] result in
+                guard let self = self else { return }
+                switch result {
+                case .success(let items):
+                    completion(.success(items))
+                case .failure(let err as NSError) where err.code == 404:
+                    let encoded = clean.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? clean
+                    self.fetchOneDriveFolder(urlStr: "https://graph.microsoft.com/v1.0/me/drive/root:/\(encoded):/children", completion: completion)
+                case .failure(let error):
+                    completion(.failure(error))
                 }
-                return
             }
-            let dateFormatter = ISO8601DateFormatter()
-            let items: [RemoteFileItem] = entries.compactMap { dict in
-                guard let tag = dict[".tag"] as? String,
-                      let name = dict["name"] as? String,
-                      let pathLower = dict["path_lower"] as? String else { return nil }
-                let isDir = (tag == "folder")
-                let size = (dict["size"] as? NSNumber)?.int64Value ?? 0
-                let dateStr = dict["server_modified"] as? String ?? ""
-                let modified = dateFormatter.date(from: dateStr)
-                let id = dict["id"] as? String ?? pathLower
-                
-                return RemoteFileItem(
-                    id: id,
-                    name: name,
-                    href: pathLower,
-                    isDirectory: isDir,
-                    size: size,
-                    modificationDate: modified,
-                    contentType: nil,
-                    thumbnailURL: nil
-                )
-            }
-            DispatchQueue.main.async { completion(.success(items)) }
-        }.resume()
+        }
     }
     
     /// WebDAV indirme adresini güvenli ve doğru biçimde oluşturur
@@ -702,8 +659,10 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
                 return
             }
             var request = URLRequest(url: downloadURL)
-            if let auth = authHeader {
-                request.setValue(auth, forHTTPHeaderField: "Authorization")
+            if downloadURL.host == "graph.microsoft.com" {
+                if let auth = authHeader {
+                    request.setValue(auth, forHTTPHeaderField: "Authorization")
+                }
             }
             let downloadTask = session.downloadTask(with: request) { tempURL, response, error in
                 if let error = error {
@@ -714,43 +673,6 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
                 guard (200...299).contains(statusCode), let tempURL = tempURL else {
                     DispatchQueue.main.async {
                         completion(NSError(domain: "HDrive", code: statusCode, userInfo: [NSLocalizedDescriptionKey: "OneDrive indirme hatası (HTTP \(statusCode))"]))
-                    }
-                    return
-                }
-                do {
-                    let parentDir = localDestination.deletingLastPathComponent()
-                    try FileManager.default.createDirectory(at: parentDir, withIntermediateDirectories: true)
-                    if FileManager.default.fileExists(atPath: localDestination.path) {
-                        try FileManager.default.removeItem(at: localDestination)
-                    }
-                    try FileManager.default.moveItem(at: tempURL, to: localDestination)
-                    DispatchQueue.main.async { completion(nil) }
-                } catch {
-                    DispatchQueue.main.async { completion(error) }
-                }
-            }
-            downloadTask.resume()
-            return
-        }
-        
-        if config.storageProtocol == .dropbox {
-            guard let url = URL(string: "https://content.dropboxapi.com/2/files/download") else { return }
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            if let auth = authHeader {
-                request.setValue(auth, forHTTPHeaderField: "Authorization")
-            }
-            let pathArg = href.hasPrefix("/") ? href : "/\(href)"
-            request.setValue("{\"path\": \"\(pathArg)\"}", forHTTPHeaderField: "Dropbox-API-Arg")
-            let downloadTask = session.downloadTask(with: request) { tempURL, response, error in
-                if let error = error {
-                    DispatchQueue.main.async { completion(error) }
-                    return
-                }
-                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 500
-                guard (200...299).contains(statusCode), let tempURL = tempURL else {
-                    DispatchQueue.main.async {
-                        completion(NSError(domain: "HDrive", code: statusCode, userInfo: [NSLocalizedDescriptionKey: "Dropbox indirme hatası (HTTP \(statusCode))"]))
                     }
                     return
                 }
@@ -875,7 +797,7 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
         task.resume()
     }
     
-    /// Dosya Yükler (Google Drive, OneDrive, Dropbox, WebDAV, S3)
+    /// Dosya Yükler (Google Drive, OneDrive, WebDAV, S3)
     public func uploadFile(localFileURL: URL, toRemotePath: String, completion: @escaping (Error?) -> Void) {
         if config.storageProtocol == .googleDrive {
             uploadGoogleDriveFile(localFileURL: localFileURL, toFolderIdOrPath: toRemotePath, completion: completion)
@@ -883,10 +805,6 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
         }
         if config.storageProtocol == .oneDrive {
             uploadOneDriveFile(localFileURL: localFileURL, toFolderIdOrPath: toRemotePath, completion: completion)
-            return
-        }
-        if config.storageProtocol == .dropbox {
-            uploadDropboxFile(localFileURL: localFileURL, toPath: toRemotePath, completion: completion)
             return
         }
         
@@ -1065,58 +983,6 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
         task.resume()
     }
     
-    private func uploadDropboxFile(localFileURL: URL, toPath: String, completion: @escaping (Error?) -> Void) {
-        let fileName = localFileURL.lastPathComponent
-        var clean = toPath.trimmingCharacters(in: CharacterSet(charactersIn: " \t\n\r"))
-        if clean.hasSuffix("/" + fileName) {
-            clean = String(clean.dropLast(("/" + fileName).count))
-        } else if clean == fileName {
-            clean = ""
-        }
-        clean = clean.trimmingCharacters(in: CharacterSet(charactersIn: "/. \t\n\r"))
-        
-        let dropboxPath: String
-        if clean.isEmpty || clean == "root" {
-            dropboxPath = "/\(fileName)"
-        } else {
-            dropboxPath = "/\(clean)/\(fileName)"
-        }
-        
-        guard let url = URL(string: "https://content.dropboxapi.com/2/files/upload") else {
-            completion(NSError(domain: "HDrive", code: 400, userInfo: [NSLocalizedDescriptionKey: "Geçersiz Dropbox adresi"]))
-            return
-        }
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        if let auth = authHeader {
-            request.setValue(auth, forHTTPHeaderField: "Authorization")
-        }
-        let apiArg = "{\"path\": \"\(dropboxPath)\", \"mode\": \"add\", \"autorename\": true, \"mute\": false}"
-        request.setValue(apiArg, forHTTPHeaderField: "Dropbox-API-Arg")
-        request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
-        
-        let task = session.uploadTask(with: request, fromFile: localFileURL) { data, response, error in
-            if let error = error {
-                DispatchQueue.main.async { completion(error) }
-                return
-            }
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 500
-            DispatchQueue.main.async {
-                if status == 200 {
-                    completion(nil)
-                } else {
-                    var errorDesc = "Dropbox yükleme hatası (HTTP \(status))"
-                    if let data = data, let str = String(data: data, encoding: .utf8), !str.isEmpty {
-                        errorDesc = "\(str) (HTTP \(status))"
-                    }
-                    completion(NSError(domain: "HDrive", code: status, userInfo: [NSLocalizedDescriptionKey: errorDesc]))
-                }
-            }
-        }
-        task.resume()
-    }
-    
     /// Klasör Oluşturur
     public func createFolder(at remotePath: String, completion: @escaping (Error?) -> Void) {
         if config.storageProtocol == .googleDrive {
@@ -1170,24 +1036,6 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
                 DispatchQueue.main.async {
                     if status == 200 || status == 201 { completion(nil) }
                     else { completion(error ?? NSError(domain: "HDrive", code: status, userInfo: [NSLocalizedDescriptionKey: "OneDrive klasör oluşturulamadı"])) }
-                }
-            }.resume()
-            return
-        }
-        if config.storageProtocol == .dropbox {
-            var clean = remotePath.trimmingCharacters(in: CharacterSet(charactersIn: ". \t\n\r"))
-            if !clean.hasPrefix("/") { clean = "/" + clean }
-            guard let url = URL(string: "https://api.dropboxapi.com/2/files/create_folder_v2") else { return }
-            var req = URLRequest(url: url)
-            req.httpMethod = "POST"
-            if let auth = authHeader { req.setValue(auth, forHTTPHeaderField: "Authorization") }
-            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            req.httpBody = try? JSONSerialization.data(withJSONObject: ["path": clean, "autorename": false])
-            session.dataTask(with: req) { _, response, error in
-                let status = (response as? HTTPURLResponse)?.statusCode ?? 500
-                DispatchQueue.main.async {
-                    if status == 200 { completion(nil) }
-                    else { completion(error ?? NSError(domain: "HDrive", code: status, userInfo: [NSLocalizedDescriptionKey: "Dropbox klasör oluşturulamadı"])) }
                 }
             }.resume()
             return
@@ -1248,24 +1096,6 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
                 DispatchQueue.main.async {
                     if status == 204 || status == 200 { completion(nil) }
                     else { completion(error ?? NSError(domain: "HDrive", code: status, userInfo: [NSLocalizedDescriptionKey: "OneDrive dosya silinemedi"])) }
-                }
-            }.resume()
-            return
-        }
-        if config.storageProtocol == .dropbox {
-            var clean = remotePath.trimmingCharacters(in: CharacterSet(charactersIn: ". \t\n\r"))
-            if !clean.hasPrefix("/") { clean = "/" + clean }
-            guard let url = URL(string: "https://api.dropboxapi.com/2/files/delete_v2") else { return }
-            var req = URLRequest(url: url)
-            req.httpMethod = "POST"
-            if let auth = authHeader { req.setValue(auth, forHTTPHeaderField: "Authorization") }
-            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            req.httpBody = try? JSONSerialization.data(withJSONObject: ["path": clean])
-            session.dataTask(with: req) { _, response, error in
-                let status = (response as? HTTPURLResponse)?.statusCode ?? 500
-                DispatchQueue.main.async {
-                    if status == 200 { completion(nil) }
-                    else { completion(error ?? NSError(domain: "HDrive", code: status, userInfo: [NSLocalizedDescriptionKey: "Dropbox dosya silinemedi"])) }
                 }
             }.resume()
             return
@@ -1432,41 +1262,6 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
                 let used = (quotaDict["used"] as? NSNumber)?.int64Value ?? 0
                 let remaining = (quotaDict["remaining"] as? NSNumber)?.int64Value ?? max(0, total - used)
                 let q = StorageQuota(usedBytes: used, availableBytes: remaining)
-                DispatchQueue.main.async { completion(.success(q)) }
-            }.resume()
-            return
-        }
-        
-        if config.storageProtocol == .dropbox {
-            guard let url = URL(string: "https://api.dropboxapi.com/2/users/get_space_usage") else {
-                completion(.failure(NSError(domain: "HDrive", code: 400, userInfo: [NSLocalizedDescriptionKey: "Geçersiz Dropbox URL'si"])))
-                return
-            }
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            if let auth = authHeader {
-                request.setValue(auth, forHTTPHeaderField: "Authorization")
-            }
-            
-            session.dataTask(with: request) { data, response, error in
-                if let error = error {
-                    DispatchQueue.main.async { completion(.failure(error)) }
-                    return
-                }
-                guard let data = data,
-                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                    DispatchQueue.main.async { completion(.failure(NSError(domain: "HDrive", code: 500, userInfo: [NSLocalizedDescriptionKey: "Dropbox kota bilgisi alınamadı"]))) }
-                    return
-                }
-                
-                let used = (json["used"] as? NSNumber)?.int64Value ?? 0
-                var total: Int64 = 0
-                if let alloc = json["allocation"] as? [String: Any],
-                   let allocated = (alloc["allocated"] as? NSNumber)?.int64Value {
-                    total = allocated
-                }
-                let available = max(0, total - used)
-                let q = StorageQuota(usedBytes: used, availableBytes: available)
                 DispatchQueue.main.async { completion(.success(q)) }
             }.resume()
             return
