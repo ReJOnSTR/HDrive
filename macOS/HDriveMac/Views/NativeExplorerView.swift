@@ -4272,7 +4272,7 @@ public struct HDriveSettingsView: View {
                 }
             }
             
-            let authUrlStr = "https://accounts.google.com/o/oauth2/v2.0/auth?client_id=\(effClientId)&response_type=code&redirect_uri=http%3A%2F%2F127.0.0.1%3A8080%2Foauth%2Fcallback&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive&access_type=offline&prompt=consent"
+            let authUrlStr = "https://accounts.google.com/o/oauth2/v2/auth?client_id=\(encodedClientId)&response_type=code&redirect_uri=http%3A%2F%2F127.0.0.1%3A8080%2Foauth%2Fcallback&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive&access_type=offline&prompt=consent"
             if let url = URL(string: authUrlStr) {
                 NSWorkspace.shared.open(url)
             }
