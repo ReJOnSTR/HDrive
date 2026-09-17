@@ -7,6 +7,7 @@ import Foundation
 import AppKit
 import SwiftUI
 import QuickLookUI
+import PDFKit
 
 public extension RemoteFileItem {
     var fileExtension: String {
@@ -217,6 +218,37 @@ public struct QuickLookRepresentable: NSViewRepresentable {
     public func updateNSView(_ nsView: QLPreviewView, context: Context) {
         if (nsView.previewItem as? NSURL) != (url as NSURL) {
             nsView.previewItem = url as NSURL
+        }
+    }
+}
+
+/// macOS Yerleşik PDFKit Çok Sayfalı Önizleme Görünümü
+public struct PDFRepresentableView: NSViewRepresentable {
+    public let url: URL
+    
+    public init(url: URL) {
+        self.url = url
+    }
+    
+    public func makeNSView(context: Context) -> PDFView {
+        let pdfView = PDFView()
+        pdfView.autoScales = true
+        pdfView.displayMode = .singlePageContinuous
+        pdfView.displayDirection = .vertical
+        pdfView.displaysPageBreaks = true
+        pdfView.backgroundColor = .clear
+        if let doc = PDFDocument(url: url) {
+            pdfView.document = doc
+        }
+        return pdfView
+    }
+    
+    public func updateNSView(_ pdfView: PDFView, context: Context) {
+        if pdfView.document?.documentURL != url {
+            if let doc = PDFDocument(url: url) {
+                pdfView.document = doc
+                pdfView.autoScales = true
+            }
         }
     }
 }

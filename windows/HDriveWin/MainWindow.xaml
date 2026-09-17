@@ -733,71 +733,50 @@
                                            TextWrapping="Wrap" />
                             </StackPanel>
 
-                            <!-- 2. Dolu Durum (Öğe Seçildiğinde - Windows 11 Birebir) -->
-                            <ScrollViewer x:Name="PreviewContentState" Grid.Row="1" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
-                                <StackPanel Spacing="14">
-                                    <!-- Büyük İkon / Resim / Belge Önizlemesi (Windows 11 Birebir) -->
-                                    <Grid Height="180" HorizontalAlignment="Stretch" VerticalAlignment="Center">
-                                        <!-- İkon Görünümü -->
-                                        <StackPanel x:Name="PreviewIconContainer" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="6">
-                                            <Image x:Name="PreviewIconImage" Width="80" Height="80" Stretch="Uniform" Visibility="Collapsed" />
-                                            <FontIcon x:Name="PreviewIcon" Glyph="&#xE8A5;" FontSize="80" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" HorizontalAlignment="Center" />
-                                        </StackPanel>
-                                        
-                                        <!-- Resim Önizlemesi -->
-                                        <Border CornerRadius="4" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                            <Image x:Name="PreviewImage" Stretch="Uniform" MaxHeight="175" Visibility="Collapsed" />
-                                        </Border>
+                            <!-- 2. Dolu Durum (Öğe Seçildiğinde - Tam Önizleme Odaklı) -->
+                            <Grid x:Name="PreviewContentState" Visibility="Collapsed">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
 
-                                        <!-- Metin / Kod Dosyası Canlı Önizlemesi -->
-                                        <Border Background="{ThemeResource LayerFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="4" Padding="6">
-                                            <ScrollViewer x:Name="PreviewTextScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" Visibility="Collapsed">
-                                                <TextBlock x:Name="PreviewTextContent" FontFamily="Consolas, Cascadia Code, Courier New" FontSize="11" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
-                                            </ScrollViewer>
-                                        </Border>
-                                    </Grid>
+                                <!-- Dosya Adı Başlığı -->
+                                <Border Grid.Row="0" Padding="12,8" Background="{ThemeResource LayerFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
+                                    <TextBlock x:Name="PreviewFileName" Text="Dosya Adı" FontWeight="SemiBold" FontSize="13" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" HorizontalAlignment="Left" />
+                                </Border>
 
-                                    <!-- Dosya Adı ve Tür Başlığı (Windows 11 Standartları) -->
-                                    <StackPanel Spacing="2">
-                                        <TextBlock x:Name="PreviewFileName" Text="Dosya Adı" FontWeight="SemiBold" FontSize="14" TextWrapping="Wrap" HorizontalAlignment="Center" TextAlignment="Center" />
-                                        <TextBlock x:Name="PreviewTypeBadge" Text="Dosya Türü" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" HorizontalAlignment="Center" TextAlignment="Center" />
+                                <!-- Canlı Önizleme Alanı (Tam Ekran / Tam Yükseklik) -->
+                                <Grid Grid.Row="1" Margin="8">
+                                    <!-- İkon Görünümü -->
+                                    <StackPanel x:Name="PreviewIconContainer" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="6">
+                                        <Image x:Name="PreviewIconImage" Width="96" Height="96" Stretch="Uniform" Visibility="Collapsed" />
+                                        <FontIcon x:Name="PreviewIcon" Glyph="&#xE8A5;" FontSize="80" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" HorizontalAlignment="Center" />
                                     </StackPanel>
+                                    
+                                    <!-- Resim Önizlemesi (Kaydırılabilir) -->
+                                    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+                                        <Image x:Name="PreviewImage" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed" />
+                                    </ScrollViewer>
 
-                                    <MenuFlyoutSeparator Margin="0,4,0,4" />
+                                    <!-- Metin / Kod / Belge Dosyası Canlı Önizlemesi (Kaydırılabilir) -->
+                                    <Border Background="{ThemeResource LayerFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="4" Padding="8">
+                                        <ScrollViewer x:Name="PreviewTextScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" Visibility="Collapsed">
+                                            <TextBlock x:Name="PreviewTextContent" FontFamily="Consolas, Cascadia Code, Courier New" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                                        </ScrollViewer>
+                                    </Border>
+                                </Grid>
 
-                                    <!-- Windows 11 Standart Özellikler Tablosu (Ayrıntılar) -->
-                                    <Grid RowSpacing="8">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="90" />
-                                            <ColumnDefinition Width="*" />
-                                        </Grid.ColumnDefinitions>
-                                        <Grid.RowDefinitions>
-                                            <RowDefinition Height="Auto" />
-                                            <RowDefinition Height="Auto" />
-                                            <RowDefinition Height="Auto" />
-                                            <RowDefinition Height="Auto" />
-                                        </Grid.RowDefinitions>
-
-                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Öğe türü:" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" />
-                                        <TextBlock x:Name="PreviewExtensionText" Grid.Row="0" Grid.Column="1" Text="--" FontSize="12" TextWrapping="Wrap" />
-
-                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Boyut:" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" />
-                                        <TextBlock x:Name="PreviewSizeText" Grid.Row="1" Grid.Column="1" Text="--" FontWeight="Medium" FontSize="12" />
-
-                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Değiştirilme:" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" />
-                                        <TextBlock x:Name="PreviewDateText" Grid.Row="2" Grid.Column="1" Text="--" FontSize="12" />
-
-                                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Klasör:" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" />
-                                        <TextBlock x:Name="PreviewPathText" Grid.Row="3" Grid.Column="1" Text="--" FontSize="11" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                    </Grid>
-
-                                    <!-- Windows 11 Aç / İndir Eylem Butonları -->
-                                    <StackPanel Spacing="8" Margin="0,8,0,0">
-                                        <Button x:Name="PreviewOpenButton" Content="Dosyayı Aç" Style="{ThemeResource AccentButtonStyle}" HorizontalAlignment="Stretch" Click="PreviewOpenButton_Click" />
-                                        <Button x:Name="PreviewDownloadButton" Content="İndir ve Kaydet..." HorizontalAlignment="Stretch" Click="PreviewDownloadButton_Click" />
-                                    </StackPanel>
+                                <!-- Gizli Alanlar (C# Kod Bağlantılarının Bozulmaması İçin) -->
+                                <StackPanel Visibility="Collapsed">
+                                    <TextBlock x:Name="PreviewTypeBadge" />
+                                    <TextBlock x:Name="PreviewExtensionText" />
+                                    <TextBlock x:Name="PreviewSizeText" />
+                                    <TextBlock x:Name="PreviewDateText" />
+                                    <TextBlock x:Name="PreviewPathText" />
+                                    <Button x:Name="PreviewOpenButton" Click="PreviewOpenButton_Click" />
+                                    <Button x:Name="PreviewDownloadButton" Click="PreviewDownloadButton_Click" />
                                 </StackPanel>
-                            </ScrollViewer>
+                            </Grid>
                         </Grid>
                     </Border>
 

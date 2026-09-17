@@ -9,6 +9,7 @@ import UniformTypeIdentifiers
 import QuickLook
 import QuickLookUI
 import Network
+import PDFKit
 
 
 public struct ExplorerTab: Identifiable, Equatable {
@@ -334,7 +335,7 @@ public struct NativeExplorerView: View {
                     if showPreviewPane {
                         Divider()
                         previewPaneSideView
-                            .frame(width: 265)
+                            .frame(width: 320)
                             .frame(maxHeight: .infinity)
                             .background(Color(NSColor.windowBackgroundColor))
                             .layoutPriority(1)
@@ -2770,163 +2771,154 @@ public struct NativeExplorerView: View {
         }
     }
 
-    // MARK: - macOS Finder Birebir Önizleme Bölmesi (Preview Pane)
+    // MARK: - Canlı ve Çok Sayfalı Önizleme Bölmesi (Full Preview Pane)
     private func previewPaneView(_ file: RemoteFileItem) -> some View {
-        ScrollView {
-            VStack(spacing: 14) {
-                // 1. Canlı Görsel / QuickLook / Büyük İkon (Finder Tarzı Doğrudan Tuval Üzerinde)
-                ZStack {
-                    if file.isDirectory {
+        VStack(spacing: 0) {
+            // Üst Başlık Çubuğu: Sade Dosya Adı ve Sayfa Sayısı
+            HStack(spacing: 8) {
+                Image(nsImage: FileIconProvider.shared.icon(for: file.name, isDirectory: file.isDirectory, size: 16, contentType: file.contentType))
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 16, height: 16)
+                
+                Text(file.name)
+                    .font(.system(size: 12, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+                
+                Spacer()
+                
+                if file.isPDF, let localURL = previewManager.resolvedLocalURL(for: file),
+                   let doc = PDFDocument(url: localURL) {
+                    Text("\(doc.pageCount) sayfa")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.secondary.opacity(0.12))
+                        .cornerRadius(4)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Color(NSColor.controlBackgroundColor).opacity(0.6))
+            
+            Divider()
+            
+            // Tam Tuval İçerik Önizlemesi (Çok Sayfalı PDF / Görsel / QuickLook / Kod)
+            ZStack {
+                if file.isDirectory {
+                    VStack(spacing: 12) {
                         Image(nsImage: FileIconProvider.shared.icon(for: file.name, isDirectory: true, size: 128))
                             .resizable()
                             .scaledToFit()
-                            .frame(width: 108, height: 108)
-                            .shadow(color: Color.black.opacity(0.12), radius: 6, y: 3)
-                    } else if let img = previewManager.cachedImages[file.id] {
+                            .frame(width: 96, height: 96)
+                            .shadow(color: Color.black.opacity(0.10), radius: 6, y: 3)
+                        Text(file.name)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if file.isPDF, let localURL = previewManager.resolvedLocalURL(for: file) {
+                    // PDFKit: Çok sayfalı kesintisiz dikey kaydırmalı tam PDF önizlemesi
+                    PDFRepresentableView(url: localURL)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if file.isImage, let img = previewManager.cachedImages[file.id] {
+                    // Tam boyutlu görsel önizleme (Kaydırılabilir)
+                    ScrollView([.horizontal, .vertical]) {
                         Image(nsImage: img)
                             .resizable()
                             .scaledToFit()
-                            .frame(maxHeight: 210)
-                            .cornerRadius(6)
-                            .shadow(color: Color.black.opacity(0.15), radius: 8, y: 4)
-                    } else if file.isImage || file.thumbnailURL != nil {
-                        VStack(spacing: 8) {
-                            ProgressView()
-                                .scaleEffect(0.85)
-                            Text("Önizleme yükleniyor...")
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                        }
-                    } else if let localURL = previewManager.resolvedLocalURL(for: file) {
-                        QuickLookRepresentable(url: localURL)
-                            .frame(height: 210)
-                            .cornerRadius(6)
-                            .shadow(color: Color.black.opacity(0.12), radius: 6, y: 3)
-                    } else if previewManager.loadingPreviewIDs.contains(file.id) {
-                        VStack(spacing: 8) {
-                            ProgressView()
-                                .scaleEffect(0.85)
-                            Text("Önizleme hazırlanıyor...")
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                        }
-                    } else {
-                        Image(nsImage: FileIconProvider.shared.icon(for: file.name, isDirectory: false, size: 128))
+                            .frame(maxWidth: .infinity)
+                            .shadow(color: Color.black.opacity(0.10), radius: 6, y: 3)
+                            .padding(8)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if let localURL = previewManager.resolvedLocalURL(for: file) {
+                    // Diğer tüm belgeler için QuickLook (Word, Excel, Metin vs. çok sayfalı kaydırma)
+                    QuickLookRepresentable(url: localURL)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if let img = previewManager.cachedImages[file.id] {
+                    // Bulut küçük resmi hazırsa, arka planda tam dosya inerken göster
+                    VStack(spacing: 8) {
+                        Image(nsImage: img)
                             .resizable()
                             .scaledToFit()
-                            .frame(width: 108, height: 108)
+                            .frame(maxHeight: 320)
+                            .cornerRadius(6)
                             .shadow(color: Color.black.opacity(0.12), radius: 6, y: 3)
+                            .padding(12)
+                        
+                        if previewManager.loadingPreviewIDs.contains(file.id) {
+                            HStack(spacing: 6) {
+                                ProgressView()
+                                    .scaleEffect(0.7)
+                                Text("Tüm sayfalar yükleniyor...")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
                     }
-                }
-                .frame(maxWidth: .infinity, minHeight: 180, maxHeight: 220)
-                .padding(.top, 16)
-                .onAppear {
-                    loadPreviewIfNeeded(for: file)
-                }
-                
-                // 2. Dosya Başlığı ve Alt Bilgi
-                VStack(spacing: 3) {
-                    Text(file.name)
-                        .font(.system(size: 14, weight: .bold))
-                        .multilineTextAlignment(.center)
-                        .lineLimit(3)
-                        .textSelection(.enabled)
-                        .padding(.horizontal, 6)
-                    
-                    Text("\(file.kindDescription) • \(file.formattedSize)")
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                }
-                
-                // 3. Finder Hızlı Eylemleri (Quick Actions)
-                VStack(spacing: 6) {
-                    Button(action: { handleDoubleClick(file) }) {
-                        Label(file.isDirectory ? "Klasörü Aç" : "Uygulamayla Aç", systemImage: file.isDirectory ? "folder" : "arrow.up.forward.app")
-                            .frame(maxWidth: .infinity)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if previewManager.loadingPreviewIDs.contains(file.id) {
+                    VStack(spacing: 10) {
+                        ProgressView()
+                            .scaleEffect(0.9)
+                        Text("Önizleme hazırlanıyor...")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.regular)
-                    
-                    if !file.isDirectory {
-                        Button(action: { triggerQuickLook(for: file) }) {
-                            Label("Hızlı Bakış (Boşluk)", systemImage: "eye")
-                                .frame(maxWidth: .infinity)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    VStack(spacing: 12) {
+                        Image(nsImage: FileIconProvider.shared.icon(for: file.name, isDirectory: false, size: 128, contentType: file.contentType))
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 96, height: 96)
+                            .shadow(color: Color.black.opacity(0.10), radius: 6, y: 3)
+                        
+                        Button("Önizlemeyi Yükle") {
+                            guard let server = manager.activeServer else { return }
+                            let client = WebDAVClient(config: server)
+                            previewManager.ensureLocalFile(file: file, client: client) { _ in }
                         }
                         .buttonStyle(.bordered)
-                        .controlSize(.regular)
+                        .controlSize(.small)
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .padding(.horizontal, 4)
-                .padding(.top, 2)
-                
-                Divider()
-                    .padding(.vertical, 2)
-                
-                // 4. Finder Birebir Bilgi Tablosu (BİLGİ)
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("BİLGİ")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundColor(.secondary)
-                        .padding(.bottom, 2)
-                    
-                    inspectorRow(title: "Tür", value: file.kindDescription)
-                    inspectorRow(title: "Boyut", value: file.isDirectory ? "—" : "\(file.formattedSize) (\(NumberFormatter.localizedString(from: NSNumber(value: file.size), number: .decimal)) bayt)")
-                    
-                    if let date = file.modificationDate {
-                        inspectorRow(title: "Değiştirilme", value: dateFormatter.string(from: date))
-                    }
-                    
-                    let loc = currentPath.isEmpty ? "/" : currentPath
-                    inspectorRow(title: "Konum", value: loc)
-                    
-                    if let ct = file.contentType, !ct.isEmpty {
-                        inspectorRow(title: "Biçim", value: ct)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 4)
             }
-            .padding(14)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear {
+            loadPreviewIfNeeded(for: file)
         }
     }
     
-    // MARK: - Önizleme Boş Durumu (Öğe Seçilmediğinde - macOS Finder Birebir)
+    // MARK: - Önizleme Boş Durumu (Öğe Seçilmediğinde)
     private var emptyPreviewPaneView: some View {
         VStack(spacing: 12) {
             Spacer()
             
-            Image(systemName: "sidebar.right")
-                .font(.system(size: 36))
-                .foregroundColor(.secondary.opacity(0.4))
+            Image(systemName: "doc.text.magnifyingglass")
+                .font(.system(size: 38))
+                .foregroundColor(.secondary.opacity(0.35))
             
             Text("Seçili Öğe Yok")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(.secondary)
             
-            Text("Ayrıntıları ve önizlemeyi görüntülemek için bir dosya seçin.")
+            Text("Önizlemek için bir dosya seçin.")
                 .font(.system(size: 11))
-                .foregroundColor(.secondary.opacity(0.8))
+                .foregroundColor(.secondary.opacity(0.7))
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
             
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-    
-    private func inspectorRow(title: String, value: String) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Text(title)
-                .font(.system(size: 11))
-                .foregroundColor(.secondary)
-                .frame(width: 80, alignment: .trailing)
-            
-            Text(value)
-                .font(.system(size: 11))
-                .foregroundColor(.primary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
-        }
     }
     
     // MARK: - Mac Finder Renk Paleti
