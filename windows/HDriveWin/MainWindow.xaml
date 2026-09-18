@@ -843,12 +843,16 @@
                 Padding="16,0,16,0">
             <Grid>
                 <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <TextBlock x:Name="ItemCountText" Grid.Column="0" Text="0 öğe" 
                            VerticalAlignment="Center" Style="{ThemeResource CaptionTextBlockStyle}" />
-                <TextBlock x:Name="StatusConnectionText" Grid.Column="1" Text="Bulut Bağlantısı Aktif" 
+                <TextBlock x:Name="SyncStatusText" Grid.Column="1" Text="" Margin="16,0"
+                           VerticalAlignment="Center" Style="{ThemeResource CaptionTextBlockStyle}" 
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" />
+                <TextBlock x:Name="StatusConnectionText" Grid.Column="2" Text="Bulut Bağlantısı Aktif" 
                            VerticalAlignment="Center" Style="{ThemeResource CaptionTextBlockStyle}" 
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
             </Grid>
