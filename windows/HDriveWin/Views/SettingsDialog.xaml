@@ -11,6 +11,17 @@
     PrimaryButtonText="Uygula"
     DefaultButton="Close">
 
+    <ContentDialog.Resources>
+        <Style x:Key="CardButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
+            <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+        </Style>
+    </ContentDialog.Resources>
+
     <Grid Width="580" Margin="0,4,0,0">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
