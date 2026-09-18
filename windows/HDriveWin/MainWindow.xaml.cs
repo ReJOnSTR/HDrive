@@ -264,6 +264,44 @@ public sealed partial class MainWindow : Window
 
     #region Windows 11 Sekme (TabView) Yönetimi
 
+    private string GetRootTitle()
+    {
+        var active = CloudreveManager.Instance.ActiveServer;
+        if (active != null && !string.IsNullOrWhiteSpace(active.Name))
+        {
+            return active.Name;
+        }
+        return "Bulut Sürücüsü";
+    }
+
+    private string GetRootGlyph()
+    {
+        var active = CloudreveManager.Instance.ActiveServer;
+        if (active != null && !string.IsNullOrWhiteSpace(active.GlyphIcon))
+        {
+            return active.GlyphIcon;
+        }
+        return "\uE753";
+    }
+
+    private void UpdateTabHeaders()
+    {
+        foreach (var item in ExplorerTabs.TabItems)
+        {
+            if (item is TabViewItem tab && tab.Tag is ExplorerTabState state)
+            {
+                if (string.IsNullOrEmpty(state.CurrentPath))
+                {
+                    tab.Header = GetRootTitle();
+                    if (tab.IconSource is FontIconSource icon)
+                    {
+                        icon.Glyph = GetRootGlyph();
+                    }
+                }
+            }
+        }
+    }
+
     public void OpenNewTab(string path = "")
     {
         var state = new ExplorerTabState
@@ -272,15 +310,15 @@ public sealed partial class MainWindow : Window
             History = new List<string> { path },
             HistoryIndex = 0
         };
-        var folderName = string.IsNullOrEmpty(path) ? "Cloudreve" : Path.GetFileName(path.TrimEnd('/'));
         var isRoot = string.IsNullOrEmpty(path);
+        var folderName = isRoot ? GetRootTitle() : Path.GetFileName(path.TrimEnd('/'));
 
         var newTab = new TabViewItem
         {
             Header = folderName,
             IconSource = new FontIconSource
             {
-                Glyph = isRoot ? "\uE753" : "\uE8B7",
+                Glyph = isRoot ? GetRootGlyph() : "\uE8B7",
                 Foreground = isRoot 
                     ? new SolidColorBrush(Windows.UI.Color.FromArgb(255, 0, 120, 212)) 
                     : new SolidColorBrush(Windows.UI.Color.FromArgb(255, 234, 163, 0))
@@ -411,12 +449,12 @@ public sealed partial class MainWindow : Window
             state.CurrentPath = path;
             state.History = new List<string>(_history);
             state.HistoryIndex = _historyIndex;
-            var folderName = string.IsNullOrEmpty(path) ? "Cloudreve" : Path.GetFileName(path.TrimEnd('/'));
             var isRoot = string.IsNullOrEmpty(path);
+            var folderName = isRoot ? GetRootTitle() : Path.GetFileName(path.TrimEnd('/'));
             currentTab.Header = folderName;
             currentTab.IconSource = new FontIconSource
             {
-                Glyph = isRoot ? "\uE753" : "\uE8B7",
+                Glyph = isRoot ? GetRootGlyph() : "\uE8B7",
                 Foreground = isRoot 
                     ? new SolidColorBrush(Windows.UI.Color.FromArgb(255, 0, 120, 212)) 
                     : new SolidColorBrush(Windows.UI.Color.FromArgb(255, 234, 163, 0))
@@ -438,7 +476,7 @@ public sealed partial class MainWindow : Window
     private void UpdateBreadcrumbs(string path)
     {
         _breadcrumbs.Clear();
-        _breadcrumbs.Add("Cloudreve");
+        _breadcrumbs.Add(GetRootTitle());
 
         var parts = path.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
         foreach (var part in parts)
@@ -457,7 +495,10 @@ public sealed partial class MainWindow : Window
         var config = CloudreveManager.Instance.ActiveServer;
         if (config == null)
         {
+            _allItems.Clear();
+            _items.Clear();
             LoadingRing.IsActive = false;
+            ItemCountText.Text = "Bağlı sunucu yok";
             return;
         }
 
@@ -1642,6 +1683,8 @@ public sealed partial class MainWindow : Window
             XamlRoot = this.Content.XamlRoot
         };
         await dialog.ShowAsync();
+        UpdateTabHeaders();
+        UpdateBreadcrumbs(_currentPath);
         await LoadDirectoryAsync(_currentPath);
     }
 

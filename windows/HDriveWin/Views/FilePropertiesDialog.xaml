@@ -53,7 +53,7 @@
                 <TextBlock Grid.Row="3" Grid.Column="0" Text="Depolama:" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" VerticalAlignment="Center" />
                 <StackPanel Grid.Row="3" Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                     <FontIcon Glyph="&#xE73E;" FontSize="12" Foreground="#107C41" />
-                    <TextBlock Text="Cloudreve Bulutunda Mevcut" FontSize="12" />
+                    <TextBlock Text="Bulut Depolama Alanında Mevcut" FontSize="12" />
                 </StackPanel>
             </Grid>
         </Border>

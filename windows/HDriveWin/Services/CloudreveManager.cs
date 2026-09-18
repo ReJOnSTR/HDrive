@@ -91,6 +91,18 @@ public class CloudreveManager
         if (ActiveServer?.Id == config.Id)
         {
             ActiveServer = Servers.FirstOrDefault();
+            try
+            {
+                if (ActiveServer != null)
+                {
+                    File.WriteAllText(_activeIdFilePath, ActiveServer.Id);
+                }
+                else if (File.Exists(_activeIdFilePath))
+                {
+                    File.Delete(_activeIdFilePath);
+                }
+            }
+            catch { }
         }
         Persist();
     }
