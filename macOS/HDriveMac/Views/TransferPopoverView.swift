@@ -16,7 +16,7 @@ public struct TransferPopoverView: View {
             // ÜST BAŞLIK
             HStack {
                 HStack(spacing: 8) {
-                    Image(systemName: "arrow.up.arrow.down.circle.fill")
+                    Image(systemName: "tray.and.arrow.down.fill")
                         .font(.system(size: 16))
                         .foregroundColor(.accentColor)
                     Text("Transferler")

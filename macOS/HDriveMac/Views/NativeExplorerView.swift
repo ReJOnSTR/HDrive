@@ -229,7 +229,7 @@ public enum ExplorerToolbarItemId: String, CaseIterable, Identifiable, Codable {
         case .getInfo: return "info.circle"
         case .delete: return "trash"
         case .mountFinder: return "macwindow"
-        case .transferQueue: return "arrow.up.arrow.down.circle"
+        case .transferQueue: return "tray.and.arrow.down"
         case .settings: return "gearshape"
         }
     }
@@ -715,7 +715,7 @@ public struct NativeExplorerView: View {
             if isToolbarItemEnabled(.transferQueue) {
                 Button(action: { showingTransferPopover.toggle() }) {
                     HStack(spacing: 3) {
-                        Image(systemName: transferManager.isTransferring ? "arrow.up.arrow.down.circle.fill" : "arrow.up.arrow.down.circle")
+                        Image(systemName: transferManager.isTransferring ? "tray.and.arrow.down.fill" : "tray.and.arrow.down")
                             .foregroundColor(transferManager.isTransferring ? .accentColor : .primary)
                         if transferManager.activeTransfersCount > 0 {
                             Text("\(transferManager.activeTransfersCount)")
@@ -5365,7 +5365,7 @@ struct ToolbarCustomizationSheet: View {
                         
                         // Saptanmış takım önizleme şeridi
                         HStack(spacing: 12) {
-                            ForEach(["chevron.left.chevron.right", "square.grid.2x2", "arrow.up.arrow.down", "sidebar.right", "folder.badge.plus", "arrow.up.circle.fill", "arrow.clockwise", "arrow.up.arrow.down.circle", "gearshape"], id: \.self) { iconName in
+                            ForEach(["chevron.left.chevron.right", "square.grid.2x2", "arrow.up.arrow.down", "sidebar.right", "folder.badge.plus", "arrow.up.circle.fill", "arrow.clockwise", "tray.and.arrow.down", "gearshape"], id: \.self) { iconName in
                                 ZStack {
                                     RoundedRectangle(cornerRadius: 6)
                                         .fill(Color.primary.opacity(0.05))
