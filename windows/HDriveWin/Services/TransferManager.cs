@@ -138,6 +138,9 @@ public class TransferItem : INotifyPropertyChanged
     public bool IsFailed => Status == TransferStatus.Failed;
     public bool IsCompleted => Status == TransferStatus.Completed;
 
+    public string DirectionGlyph => Direction == TransferDirection.Upload ? "\uE895" : "\uE896";
+    public string DirectionTooltip => Direction == TransferDirection.Upload ? "Yükleme (Upload)" : "İndirme (Download)";
+
     public string StatusText => Status switch
     {
         TransferStatus.Queued => "Kuyrukta",

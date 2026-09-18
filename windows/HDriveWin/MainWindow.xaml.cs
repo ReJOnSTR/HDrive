@@ -214,7 +214,7 @@ public sealed partial class MainWindow : Window
             {
                 DispatcherQueue?.TryEnqueue(() =>
                 {
-                    TransferEmptyText.Visibility = TransferManager.Instance.Items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+                    TransferEmptyState.Visibility = TransferManager.Instance.Items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
                 });
             };
             TransferManager.Instance.PropertyChanged += (s, e) =>
@@ -225,6 +225,14 @@ public sealed partial class MainWindow : Window
                     {
                         var count = TransferManager.Instance.ActiveTransfersCount;
                         TransferButton.Label = count > 0 ? $"Transferler ({count})" : "Transferler";
+                        if (count > 0)
+                        {
+                            TransferButtonIcon.Foreground = (Brush)App.Current.Resources["AccentFillColorDefaultBrush"];
+                        }
+                        else
+                        {
+                            TransferButtonIcon.ClearValue(PathIcon.ForegroundProperty);
+                        }
                     });
                 }
             };
