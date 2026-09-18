@@ -1,0 +1,83 @@
+<UserControl
+    x:Class="HDriveWin.Views.ProviderLogoBadge"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <Border x:Name="BadgeBorder" 
+            CornerRadius="8"
+            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+            BorderThickness="1"
+            Padding="6"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Center">
+        <Grid HorizontalAlignment="Center" VerticalAlignment="Center">
+            <!-- 1. Google Drive (Resmi 4 Renkli Workspace Vektör Logosu) -->
+            <Viewbox x:Name="GoogleDriveLogo" Stretch="Uniform" Visibility="Collapsed">
+                <Canvas Width="88" Height="88">
+                    <Canvas.RenderTransform>
+                        <TranslateTransform X="4.35" Y="9" />
+                    </Canvas.RenderTransform>
+                    <Path Fill="#0066DA" Data="m6.6 66.85 3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8h-27.5c0 1.55.4 3.1 1.2 4.5z" />
+                    <Path Fill="#00AC47" Data="m43.65 25-13.75-23.8c-1.35.8-2.5 1.9-3.3 3.3l-25.4 44a9.06 9.06 0 0 0 -1.2 4.5h27.5z" />
+                    <Path Fill="#EA4335" Data="m73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5h-27.502l5.852 11.5z" />
+                    <Path Fill="#00832D" Data="m43.65 25 13.75-23.8c-1.35-.8-2.9-1.2-4.5-1.2h-18.5c-1.6 0-3.15.45-4.5 1.2z" />
+                    <Path Fill="#2684FC" Data="m59.8 53h-32.3l-13.75 23.8c1.35.8 2.9 1.2 4.5 1.2h50.8c1.6 0 3.15-.45 4.5-1.2z" />
+                    <Path Fill="#FFBA00" Data="m73.4 26.5-12.7-22c-.8-1.4-1.95-2.5-3.3-3.3l-13.75 23.8 16.15 28h27.45c0-1.55-.4-3.1-1.2-4.5z" />
+                </Canvas>
+            </Viewbox>
+
+            <!-- 2. Microsoft OneDrive (Resmi Microsoft 365 Fluent Cloud Vektör Logosu) -->
+            <Viewbox x:Name="OneDriveLogo" Stretch="Uniform" Visibility="Collapsed">
+                <Canvas Width="32" Height="32">
+                    <Canvas.RenderTransform>
+                        <TranslateTransform Y="0.25" />
+                    </Canvas.RenderTransform>
+                    <Path Fill="#0364B8" Data="M12.20245,11.19292l.00031-.0011,6.71765,4.02379,4.00293-1.68451.00018.00068A6.4768,6.4768,0,0,1,25.5,13c.14764,0,.29358.0067.43878.01639a10.00075,10.00075,0,0,0-18.041-3.01381C7.932,10.00215,7.9657,10,8,10A7.96073,7.96073,0,0,1,12.20245,11.19292Z" />
+                    <Path Fill="#0078D4" Data="M12.20276,11.19182l-.00031.0011A7.96073,7.96073,0,0,0,8,10c-.0343,0-.06805.00215-.10223.00258A7.99676,7.99676,0,0,0,1.43732,22.57277l5.924-2.49292,2.63342-1.10819,5.86353-2.46746,3.06213-1.28859Z" />
+                    <Path Fill="#1490DF" Data="M25.93878,13.01639C25.79358,13.0067,25.64764,13,25.5,13a6.4768,6.4768,0,0,0-2.57648.53178l-.00018-.00068-4.00293,1.68451,1.16077.69528L23.88611,18.19l1.66009.99438,5.67633,3.40007a6.5002,6.5002,0,0,0-5.28375-9.56805Z" />
+                    <Path Fill="#28A8EA" Data="M25.5462,19.18437,23.88611,18.19l-3.80493-2.2791-1.16077-.69528L15.85828,16.5042,9.99475,18.97166,7.36133,20.07985l-5.924,2.49292A7.98889,7.98889,0,0,0,8,26H25.5a6.49837,6.49837,0,0,0,5.72253-3.41556Z" />
+                </Canvas>
+            </Viewbox>
+
+            <!-- 3. WebDAV / Nextcloud (Resmi Nextcloud Hub Vektör Logosu) -->
+            <Viewbox x:Name="WebDAVLogo" Stretch="Uniform" Visibility="Collapsed">
+                <Canvas Width="24" Height="24">
+                    <Path Fill="#0082C9" Data="M12.018 6.537c-2.5 0-4.6 1.712-5.241 4.015-.56-1.232-1.793-2.105-3.225-2.105A3.569 3.569 0 0 0 0 12a3.569 3.569 0 0 0 3.552 3.553c1.432 0 2.664-.874 3.224-2.106.641 2.304 2.742 4.016 5.242 4.016 2.487 0 4.576-1.693 5.231-3.977.569 1.21 1.783 2.067 3.198 2.067A3.568 3.568 0 0 0 24 12a3.569 3.569 0 0 0-3.553-3.553c-1.416 0-2.63.858-3.199 2.067-.654-2.284-2.743-3.978-5.23-3.977zm0 2.085c1.878 0 3.378 1.5 3.378 3.378 0 1.878-1.5 3.378-3.378 3.378A3.362 3.362 0 0 1 8.641 12c0-1.878 1.5-3.378 3.377-3.378zm-8.466 1.91c.822 0 1.467.645 1.467 1.468s-.644 1.467-1.467 1.468A1.452 1.452 0 0 1 2.085 12c0-.823.644-1.467 1.467-1.467zm16.895 0c.823 0 1.468.645 1.468 1.468s-.645 1.468-1.468 1.468A1.452 1.452 0 0 1 18.98 12c0-.823.644-1.467 1.467-1.467z" />
+                </Canvas>
+            </Viewbox>
+
+            <!-- 4. Amazon S3 (Resmi AWS S3 İzometrik Küp Vektör Logosu) -->
+            <Viewbox x:Name="S3Logo" Stretch="Uniform" Visibility="Collapsed">
+                <Canvas Width="512" Height="512">
+                    <Canvas.RenderTransform>
+                        <TranslateTransform X="42" Y="0" />
+                    </Canvas.RenderTransform>
+                    <Path Fill="#E25444" Data="M378,99L295,257l83,158,34-19V118Z" />
+                    <Path Fill="#7B1D13" Data="M378,99L212,118,127.5,257,212,396l166,19V99Z" />
+                    <Path Fill="#58150D" Data="M43,99L16,111V403l27,12L212,257Z" />
+                    <Path Fill="#E25444" Data="M42.637,98.667l169.587,47.111V372.444L42.637,415.111V98.667Z" />
+                    <Path Fill="#58150D" Data="M212.313,170.667l-72.008-11.556,72.008-81.778,71.83,81.778Z" />
+                    <Path Fill="#58150D" Data="M284.143,159.111l-71.919,11.733-71.919-11.733V77.333" />
+                    <Path Fill="#58150D" Data="M212.313,342.222l-72.008,13.334,72.008,70.222,71.83-70.222Z" />
+                    <Path Fill="#7B1D13" Data="M212,16L140,54V159l72.224-20.333Z" />
+                    <Path Fill="#7B1D13" Data="M212.224,196.444l-71.919,7.823V309.105l71.919,8.228V196.444Z" />
+                    <Path Fill="#7B1D13" Data="M212.224,373.333L140.305,355.3V458.363L212.224,496V373.333Z" />
+                    <Path Fill="#E25444" Data="M284.143,355.3l-71.919,18.038V496l71.919-37.637V355.3Z" />
+                    <Path Fill="#E25444" Data="M212.224,196.444l71.919,7.823V309.105l-71.919,8.228V196.444Z" />
+                    <Path Fill="#E25444" Data="M212,16l72,38V159l-72-20V16Z" />
+                </Canvas>
+            </Viewbox>
+
+            <!-- 5. Windows SMB (Resmi Windows 11 Fluent 4'lü Pencere Vektör Logosu) -->
+            <Viewbox x:Name="SMBLogo" Stretch="Uniform" Visibility="Collapsed">
+                <Canvas Width="4875" Height="4875">
+                    <Path Fill="#0078D4" Data="M0 0h2311v2310H0zm2564 0h2311v2310H2564zM0 2564h2311v2311H0zm2564 0h2311v2311H2564" />
+                </Canvas>
+            </Viewbox>
+        </Grid>
+    </Border>
+</UserControl>
