@@ -10,6 +10,8 @@ import QuickLook
 import QuickLookUI
 import Network
 import PDFKit
+import ObjectiveC
+
 
 
 public struct ExplorerTab: Identifiable, Equatable {
@@ -132,7 +134,109 @@ struct ColumnHeaderDropDelegate: DropDelegate {
     }
 }
 
+// MARK: - Araç Çubuğu Öğeleri ve Görünüm Modları (Toolbar Customization Models)
+public enum ToolbarDisplayMode: String, CaseIterable, Identifiable, Codable {
+    case iconOnly = "iconOnly"
+    case iconAndText = "iconAndText"
+    
+    public var id: String { rawValue }
+    public var title: String {
+        switch self {
+        case .iconOnly: return "Yalnızca Simge"
+        case .iconAndText: return "Simge ve Metin"
+        }
+    }
+}
+public struct ToolbarLabelStyleModifier: ViewModifier {
+    public let mode: ToolbarDisplayMode
+    
+    @ViewBuilder
+    public func body(content: Content) -> some View {
+        if mode == .iconAndText {
+            content.labelStyle(.titleAndIcon)
+        } else {
+            content.labelStyle(.iconOnly)
+        }
+    }
+}
+public enum ExplorerToolbarItemId: String, CaseIterable, Identifiable, Codable {
+    case navigation = "navigation"           // Geri / İleri
+    case viewMode = "viewMode"               // Görünüm (Izgara / Liste)
+    case sort = "sort"                       // Sıralama
+    case previewPane = "previewPane"         // Önizleme Bölmesi
+    case newFolder = "newFolder"             // Yeni Klasör
+    case upload = "upload"                   // Dosya Yükle
+    case download = "download"               // Dosya İndir
+    case refresh = "refresh"                 // Yenile
+    case quickLook = "quickLook"             // Hızlı Bakış
+    case getInfo = "getInfo"                 // Bilgi Ver
+    case delete = "delete"                   // Sil
+    case mountFinder = "mountFinder"         // Finder'da Aç
+    case transferQueue = "transferQueue"     // Transferler
+    case settings = "settings"               // Ayarlar
+    
+    public var id: String { rawValue }
+    
+    public var title: String {
+        switch self {
+        case .navigation: return "Geri / İleri"
+        case .viewMode: return "Görünüm"
+        case .sort: return "Sırala"
+        case .previewPane: return "Önizleme"
+        case .newFolder: return "Yeni Klasör"
+        case .upload: return "Yükle"
+        case .download: return "İndir"
+        case .refresh: return "Yenile"
+        case .quickLook: return "Hızlı Bakış"
+        case .getInfo: return "Bilgi Ver"
+        case .delete: return "Sil"
+        case .mountFinder: return "Finder'da Aç"
+        case .transferQueue: return "Transferler"
+        case .settings: return "Ayarlar"
+        }
+    }
+    
+    public var subtitle: String {
+        switch self {
+        case .navigation: return "Klasör geçmişinde geri ve ileri gezin"
+        case .viewMode: return "Izgara ve liste görünüm biçimi arasında geçiş yap"
+        case .sort: return "Ada, tarihe, türe veya boyuta göre sırala"
+        case .previewPane: return "Sağ taraftaki önizleme ve detay panelini göster/gizle"
+        case .newFolder: return "Geçerli dizinde yeni bir klasör oluştur"
+        case .upload: return "Bilgisayarınızdan buluta yeni dosya yükle"
+        case .download: return "Seçili dosyayı bilgisayarınıza indir"
+        case .refresh: return "Mevcut dizindeki dosya listesini yeniden yükle"
+        case .quickLook: return "Seçili dosyayı Hızlı Bakış ile önizle"
+        case .getInfo: return "Seçili dosyanın boyut ve konum özelliklerini göster"
+        case .delete: return "Seçili dosya veya klasörleri sil"
+        case .mountFinder: return "Mevcut bulut sürücüsünü Finder'da yerel disk olarak bağla"
+        case .transferQueue: return "Aktif yükleme ve indirme kuyruğunu göster"
+        case .settings: return "HDrive sunucu ve uygulama tercihlerini aç"
+        }
+    }
+    
+    public var icon: String {
+        switch self {
+        case .navigation: return "chevron.left.chevron.right"
+        case .viewMode: return "square.grid.2x2"
+        case .sort: return "arrow.up.arrow.down"
+        case .previewPane: return "sidebar.right"
+        case .newFolder: return "folder.badge.plus"
+        case .upload: return "arrow.up.circle.fill"
+        case .download: return "arrow.down.circle"
+        case .refresh: return "arrow.clockwise"
+        case .quickLook: return "eye"
+        case .getInfo: return "info.circle"
+        case .delete: return "trash"
+        case .mountFinder: return "macwindow"
+        case .transferQueue: return "arrow.up.arrow.down.circle"
+        case .settings: return "gearshape"
+        }
+    }
+}
+
 public struct NativeExplorerView: View {
+    public static var isSearchActiveGlobal: Bool = false
     @ObservedObject var manager = CloudreveManager.shared
     @ObservedObject var mounter = DriveMounter.shared
     @ObservedObject var opener = FileOpener.shared
@@ -160,6 +264,40 @@ public struct NativeExplorerView: View {
     @AppStorage("hdrive_showColDate") private var showColDate: Bool = true
     @AppStorage("hdrive_showColKind") private var showColKind: Bool = true
     @AppStorage("hdrive_showColSize") private var showColSize: Bool = true
+    
+    // Araç Çubuğu Özelleştirmesi (Toolbar Customization)
+    public static let defaultToolbarItems = "navigation,viewMode,sort,previewPane,newFolder,upload,refresh,transferQueue,settings"
+    @AppStorage("hdrive_toolbar_items") private var toolbarItemsRaw: String = NativeExplorerView.defaultToolbarItems
+    @AppStorage("hdrive_toolbar_display_mode") private var toolbarDisplayModeRaw: String = ToolbarDisplayMode.iconOnly.rawValue
+    @State private var showingToolbarCustomizer: Bool = false
+    
+    private var toolbarDisplayMode: ToolbarDisplayMode {
+        ToolbarDisplayMode(rawValue: toolbarDisplayModeRaw) ?? .iconOnly
+    }
+    
+    private var enabledToolbarItemIDs: Set<ExplorerToolbarItemId> {
+        let items = toolbarItemsRaw.components(separatedBy: ",").compactMap { ExplorerToolbarItemId(rawValue: $0) }
+        return Set(items)
+    }
+    
+    private func isToolbarItemEnabled(_ id: ExplorerToolbarItemId) -> Bool {
+        return enabledToolbarItemIDs.contains(id)
+    }
+    
+    private func toggleToolbarItem(_ id: ExplorerToolbarItemId) {
+        var current = toolbarItemsRaw.components(separatedBy: ",").filter { !$0.isEmpty }
+        if current.contains(id.rawValue) {
+            current.removeAll { $0 == id.rawValue }
+        } else {
+            current.append(id.rawValue)
+        }
+        toolbarItemsRaw = current.joined(separator: ",")
+    }
+    
+    private func resetToolbarItemsToDefault() {
+        toolbarItemsRaw = Self.defaultToolbarItems
+        toolbarDisplayModeRaw = ToolbarDisplayMode.iconOnly.rawValue
+    }
     
     // Sütun Canlı Boyutlandırma & Taşıma Durumu
     @State private var liveResizingCol: ExplorerColumnId? = nil
@@ -245,6 +383,7 @@ public struct NativeExplorerView: View {
     @State private var searchText: String = ""
     @State private var isSearchPresented: Bool = false
     @State private var mouseMonitor: Any? = nil
+    @State private var rightClickMonitor: Any? = nil
     @AppStorage("hdrive_isGridView") private var isGridView: Bool = true
     @AppStorage("hdrive_showPreviewPane") private var showPreviewPane: Bool = false
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
@@ -316,50 +455,7 @@ public struct NativeExplorerView: View {
             // SOL MENÜ (Sidebar)
             sidebarView
         } detail: {
-            // SAĞ ANA BÖLÜM (Klasör Dosya Gezgini)
-            VStack(spacing: 0) {
-                // Sekmeler Çubuğu (Finder Birebir Sekmeler)
-                tabBarView
-                
-                // Klasör Yolu Çubuğu (Finder Path Bar & Arama)
-                pathBarView
-                
-                Divider()
-                
-                // Dosya Listesi ve Önizleme Bölmesi
-                HStack(spacing: 0) {
-                    mainFilesAreaView
-                        .frame(minWidth: 200, maxWidth: .infinity, maxHeight: .infinity)
-                        .clipped()
-                    
-                    if showPreviewPane {
-                        Divider()
-                        previewPaneSideView
-                            .frame(width: 320)
-                            .frame(maxHeight: .infinity)
-                            .background(Color(NSColor.windowBackgroundColor))
-                            .layoutPriority(1)
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                
-                // Alt Durum Çubuğu
-                bottomStatusBarView
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(NSColor.windowBackgroundColor))
-            .navigationTitle(currentPath.isEmpty ? (manager.activeServer?.name ?? "Cloudreve") : (currentPath as NSString).lastPathComponent)
-            .toolbar {
-                explorerToolbar
-            }
-            .searchable(text: $searchText, isPresented: $isSearchPresented, placement: .toolbar, prompt: "Ara...")
-            .quickLookPreview($quickLookURL)
-            .background(keyboardShortcutsOverlay)
-            .onChange(of: searchText) { _, newQuery in
-                if isDeepSearchEnabled && !newQuery.isEmpty {
-                    performDeepSearch(query: newQuery)
-                }
-            }
+            mainDetailView
         }
         .frame(minWidth: showPreviewPane ? 960 : 750, minHeight: 520)
         .onAppear {
@@ -372,7 +468,21 @@ public struct NativeExplorerView: View {
             } else {
                 loadDirectory(at: currentPath)
             }
+            loadStorageQuota()
             setupEventMonitors()
+        }
+        .onChange(of: manager.activeServer?.id) { _, newServerID in
+            guard newServerID != nil else {
+                self.files = []
+                return
+            }
+            // Yeni sunucu aktif olduğunda (bağlantı kaydedilince) dosyaları yükle
+            currentPath = ""
+            pathHistory = [""]
+            historyIndex = 0
+            selectedFileID = nil
+            loadDirectory(at: "")
+            loadStorageQuota()
         }
         .onDisappear {
             if let monitor = keyMonitor {
@@ -382,6 +492,10 @@ public struct NativeExplorerView: View {
             if let monitor = mouseMonitor {
                 NSEvent.removeMonitor(monitor)
                 mouseMonitor = nil
+            }
+            if let monitor = rightClickMonitor {
+                NSEvent.removeMonitor(monitor)
+                rightClickMonitor = nil
             }
         }
 
@@ -405,82 +519,245 @@ public struct NativeExplorerView: View {
         }
     }
     
+    @ViewBuilder
+    private var mainDetailView: some View {
+        VStack(spacing: 0) {
+            // Sekmeler Çubuğu (Finder Birebir Sekmeler)
+            tabBarView
+            
+            // Klasör Yolu Çubuğu (Finder Path Bar & Arama)
+            pathBarView
+            
+            Divider()
+            
+            // Dosya Listesi ve Önizleme Bölmesi
+            HStack(spacing: 0) {
+                mainFilesAreaView
+                    .frame(minWidth: 200, maxWidth: .infinity, maxHeight: .infinity)
+                    .clipped()
+                
+                if showPreviewPane {
+                    Divider()
+                    previewPaneSideView
+                        .frame(width: 320)
+                        .frame(maxHeight: .infinity)
+                        .background(Color(NSColor.windowBackgroundColor))
+                        .layoutPriority(1)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            
+            // Alt Durum Çubuğu
+            bottomStatusBarView
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(NSColor.windowBackgroundColor))
+        .navigationTitle(currentPath.isEmpty ? (manager.activeServer?.name ?? "Cloudreve") : (currentPath as NSString).lastPathComponent)
+        .toolbar {
+            explorerToolbar
+        }
+        .modifier(ToolbarLabelStyleModifier(mode: toolbarDisplayMode))
+        .sheet(isPresented: $showingToolbarCustomizer) {
+            ToolbarCustomizationSheet(
+                isPresented: $showingToolbarCustomizer,
+                toolbarItemsRaw: $toolbarItemsRaw,
+                toolbarDisplayModeRaw: $toolbarDisplayModeRaw
+            )
+        }
+        .searchable(text: $searchText, isPresented: $isSearchPresented, placement: .toolbar, prompt: "Ara...")
+        .quickLookPreview($quickLookURL)
+        .background(keyboardShortcutsOverlay)
+        .onReceive(NotificationCenter.default.publisher(for: .exitSearchRequested)) { _ in
+            exitSearch()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openToolbarCustomizer)) { _ in
+            showingToolbarCustomizer = true
+        }
+        .onChange(of: isSearchPresented) { _, isPresented in
+            NativeExplorerView.isSearchActiveGlobal = isPresented
+            if !isPresented {
+                NativeExplorerView.collapseSearch(in: NSApp.keyWindow)
+            }
+        }
+        .onChange(of: searchText) { _, newQuery in
+            handleSearchTextChange(newQuery)
+        }
+    }
+    
+    private func handleSearchTextChange(_ newQuery: String) {
+        if isDeepSearchEnabled && !newQuery.isEmpty {
+            performDeepSearch(query: newQuery)
+        }
+    }
+    
     // MARK: - Araç Çubuğu ve Kısayollar (Toolbar & Shortcuts)
     @ToolbarContentBuilder
     private var explorerToolbar: some ToolbarContent {
-        ToolbarItemGroup(placement: .navigation) {
-            Button(action: goBack) {
-                Image(systemName: "chevron.left")
+        if isToolbarItemEnabled(.navigation) {
+            ToolbarItemGroup(placement: .navigation) {
+                Button(action: goBack) {
+                    Image(systemName: "chevron.left")
+                }
+                .disabled(historyIndex <= 0)
+                .help("Geri")
+                
+                Button(action: goForward) {
+                    Image(systemName: "chevron.right")
+                }
+                .disabled(historyIndex >= pathHistory.count - 1)
+                .help("İleri")
             }
-            .disabled(historyIndex <= 0)
-            .help("Geri")
-            
-            Button(action: goForward) {
-                Image(systemName: "chevron.right")
-            }
-            .disabled(historyIndex >= pathHistory.count - 1)
-            .help("İleri")
         }
         
         ToolbarItemGroup(placement: .primaryAction) {
-            Picker("Görünüm", selection: $isGridView) {
-                Image(systemName: "square.grid.2x2").tag(true)
-                Image(systemName: "list.bullet").tag(false)
+            if isToolbarItemEnabled(.viewMode) {
+                Picker("Görünüm", selection: $isGridView) {
+                    Image(systemName: "square.grid.2x2").tag(true)
+                    Image(systemName: "list.bullet").tag(false)
+                }
+                .pickerStyle(.segmented)
+                .help("Görünüm Biçimi")
+                .contextMenu { toolbarContextMenu }
             }
-            .pickerStyle(.segmented)
-            .help("Görünüm Biçimi")
             
-            sortMenu
-            
-            Button(action: togglePreviewPane) {
-                Image(systemName: "sidebar.right")
-                    .foregroundColor(showPreviewPane ? .accentColor : .primary)
+            if isToolbarItemEnabled(.sort) {
+                sortMenu
             }
-            .help("Önizleme Bölmesini Göster / Gizle")
             
-            Button(action: { showingNewFolderAlert = true }) {
-                Label("Yeni Klasör", systemImage: "folder.badge.plus")
+            if isToolbarItemEnabled(.previewPane) {
+                Button(action: togglePreviewPane) {
+                    Label("Önizleme", systemImage: "sidebar.right")
+                        .foregroundColor(showPreviewPane ? .accentColor : .primary)
+                }
+                .help("Önizleme Bölmesini Göster / Gizle")
+                .contextMenu { toolbarContextMenu }
             }
-            .help("Yeni Klasör Oluştur")
             
-            Button(action: uploadFile) {
-                Label("Yükle", systemImage: "arrow.up.circle.fill")
+            if isToolbarItemEnabled(.newFolder) {
+                Button(action: { showingNewFolderAlert = true }) {
+                    Label("Yeni Klasör", systemImage: "folder.badge.plus")
+                }
+                .help("Yeni Klasör Oluştur")
+                .contextMenu { toolbarContextMenu }
             }
-            .help("Dosya Yükle")
             
-            Button(action: { loadDirectory(at: currentPath) }) {
-                Label("Yenile", systemImage: "arrow.clockwise")
+            if isToolbarItemEnabled(.upload) {
+                Button(action: uploadFile) {
+                    Label("Yükle", systemImage: "arrow.up.circle.fill")
+                }
+                .help("Dosya Yükle")
+                .contextMenu { toolbarContextMenu }
             }
-            .help("Yenile")
             
-            Button(action: { showingTransferPopover.toggle() }) {
-                HStack(spacing: 3) {
-                    Image(systemName: transferManager.isTransferring ? "arrow.up.arrow.down.circle.fill" : "arrow.up.arrow.down.circle")
-                        .foregroundColor(transferManager.isTransferring ? .accentColor : .primary)
-                    if transferManager.activeTransfersCount > 0 {
-                        Text("\(transferManager.activeTransfersCount)")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 1)
-                            .background(Color.accentColor)
-                            .clipShape(Capsule())
+            if isToolbarItemEnabled(.download) {
+                Button(action: downloadSelectedFiles) {
+                    Label("İndir", systemImage: "arrow.down.circle")
+                }
+                .disabled(selectedFileID == nil && selectedFileIDs.isEmpty)
+                .help("Seçili Dosyaları İndir")
+                .contextMenu { toolbarContextMenu }
+            }
+            
+            if isToolbarItemEnabled(.quickLook) {
+                Button(action: {
+                    if let selID = selectedFileID, let file = files.first(where: { $0.id == selID }), !file.isDirectory {
+                        triggerQuickLook(for: file)
+                    }
+                }) {
+                    Label("Hızlı Bakış", systemImage: "eye")
+                }
+                .disabled(selectedFileID == nil)
+                .help("Hızlı Bakış (Boşluk)")
+                .contextMenu { toolbarContextMenu }
+            }
+            
+            if isToolbarItemEnabled(.getInfo) {
+                Button(action: {
+                    if !showPreviewPane {
+                        showPreviewPane = true
+                    }
+                }) {
+                    Label("Bilgi Ver", systemImage: "info.circle")
+                }
+                .help("Detay ve Bilgi Bölmesi")
+                .contextMenu { toolbarContextMenu }
+            }
+            
+            if isToolbarItemEnabled(.delete) {
+                Button(action: deleteSelectedFiles) {
+                    Label("Sil", systemImage: "trash")
+                }
+                .disabled(selectedFileID == nil && selectedFileIDs.isEmpty)
+                .help("Seçili Öğeleri Sil (⌘⌫)")
+                .contextMenu { toolbarContextMenu }
+            }
+            
+            if isToolbarItemEnabled(.mountFinder) {
+                Button(action: {
+                    if let s = manager.activeServer {
+                        mounter.connectAndOpenInFinder(config: s) { _, _ in }
+                    }
+                }) {
+                    Label("Finder'da Aç", systemImage: "macwindow")
+                }
+                .help("Finder'da Ağ Diski Olarak Bağla ve Aç")
+                .contextMenu { toolbarContextMenu }
+            }
+            
+            if isToolbarItemEnabled(.refresh) {
+                Button(action: { loadDirectory(at: currentPath) }) {
+                    Label("Yenile", systemImage: "arrow.clockwise")
+                }
+                .help("Yenile")
+                .contextMenu { toolbarContextMenu }
+            }
+            
+            if isToolbarItemEnabled(.transferQueue) {
+                Button(action: { showingTransferPopover.toggle() }) {
+                    HStack(spacing: 3) {
+                        Image(systemName: transferManager.isTransferring ? "arrow.up.arrow.down.circle.fill" : "arrow.up.arrow.down.circle")
+                            .foregroundColor(transferManager.isTransferring ? .accentColor : .primary)
+                        if transferManager.activeTransfersCount > 0 {
+                            Text("\(transferManager.activeTransfersCount)")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 1)
+                                .background(Color.accentColor)
+                                .clipShape(Capsule())
+                        }
                     }
                 }
-            }
-            .popover(isPresented: $showingTransferPopover, arrowEdge: .bottom) {
-                TransferPopoverView()
-            }
-            .help("Transfer Kuyruğu (İndirme / Yükleme)")
-            
-            Button(action: {
-                SettingsWindowManager.shared.showSettings {
-                    loadDirectory(at: currentPath)
+                .popover(isPresented: $showingTransferPopover, arrowEdge: .bottom) {
+                    TransferPopoverView()
                 }
-            }) {
-                Label("Ayarlar", systemImage: "gearshape")
+                .help("Transfer Kuyruğu (İndirme / Yükleme)")
+                .contextMenu { toolbarContextMenu }
             }
-            .help("HDrive Ayarları (⌘,)")
+            
+            if isToolbarItemEnabled(.settings) {
+                Button(action: {
+                    SettingsWindowManager.shared.showSettings {
+                        loadDirectory(at: currentPath)
+                    }
+                }) {
+                    Label("Ayarlar", systemImage: "gearshape")
+                }
+                .help("HDrive Ayarları (⌘,)")
+                .contextMenu { toolbarContextMenu }
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private var toolbarContextMenu: some View {
+        Button(action: { showingToolbarCustomizer = true }) {
+            Label("Araç Çubuğunu Özelleştir...", systemImage: "slider.horizontal.3")
+        }
+        Divider()
+        Picker("Görünüm", selection: $toolbarDisplayModeRaw) {
+            Text("Yalnızca Simge").tag(ToolbarDisplayMode.iconOnly.rawValue)
+            Text("Simge ve Metin").tag(ToolbarDisplayMode.iconAndText.rawValue)
         }
     }
     
@@ -930,6 +1207,20 @@ public struct NativeExplorerView: View {
                 }
                 guard renamingFileID == nil else { return event }
                 
+                // Escape tuşu (53): Arama aktifse aramayı tamamen kapat ve çubuğu eski boyutuna küçült
+                if event.keyCode == 53 {
+                    let firstResp = NSApp.keyWindow?.firstResponder
+                    let firstRespName = firstResp != nil ? String(describing: type(of: firstResp!)) : ""
+                    let inSearch = NativeExplorerView.isSearchActiveGlobal || firstResp is NSSearchField || firstRespName.contains("Search") || !searchText.isEmpty
+                    if inSearch {
+                        DispatchQueue.main.async {
+                            NativeExplorerView.collapseSearch(in: NSApp.keyWindow)
+                            NotificationCenter.default.post(name: .exitSearchRequested, object: nil)
+                        }
+                        return nil
+                    }
+                }
+                
                 // Boşluk tuşu: Metin düzenlenmiyorken Hızlı Bakış (QuickLook) aç / kapat
                 if event.keyCode == 49 {
                     if quickLookURL != nil {
@@ -954,16 +1245,230 @@ public struct NativeExplorerView: View {
         
         if mouseMonitor == nil {
             mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { event in
+                guard let win = event.window ?? NSApp.keyWindow else { return event }
+                
+                // Penceredeki arama kutusunu (NSSearchField) bul
+                func findSearchField(in view: NSView) -> NSSearchField? {
+                    if let sf = view as? NSSearchField { return sf }
+                    for sub in view.subviews {
+                        if let found = findSearchField(in: sub) { return found }
+                    }
+                    return nil
+                }
+                
+                let sf = win.contentView?.superview.flatMap(findSearchField)
+                let firstResp = win.firstResponder
+                let firstRespName = firstResp != nil ? String(describing: type(of: firstResp!)) : ""
+                let isSearchFocused = firstResp is NSSearchField || firstRespName.contains("Search") || firstRespName.contains("search") || (sf?.currentEditor() != nil)
+                let hasSearchText = !(sf?.stringValue.isEmpty ?? true)
+                
+                var toolbarIsEditingSearch = false
+                if let toolbar = win.toolbar {
+                    for item in toolbar.items {
+                        if let searchItem = item as? NSSearchToolbarItem {
+                            if (searchItem.value(forKey: "isEditing") as? Bool) == true {
+                                toolbarIsEditingSearch = true
+                            }
+                            if !searchItem.searchField.stringValue.isEmpty {
+                                toolbarIsEditingSearch = true
+                            }
+                        }
+                    }
+                }
+                
+                let isSearchActive = NativeExplorerView.isSearchActiveGlobal || isSearchFocused || hasSearchText || toolbarIsEditingSearch
+                
+                if isSearchActive {
+                    let hitView = win.contentView?.superview?.hitTest(event.locationInWindow)
+                    var clickInSearch = false
+                    var cur = hitView
+                    while let v = cur {
+                        let name = String(describing: type(of: v))
+                        if v is NSSearchField || name.contains("Search") || name.contains("search") {
+                            clickInSearch = true
+                            break
+                        }
+                        if let sf = sf, (v === sf || v.isDescendant(of: sf)) {
+                            clickInSearch = true
+                            break
+                        }
+                        cur = v.superview
+                    }
+                    
+                    // Arama alanının dışına tıklandıysa aramadan çık, çubuğu eski boyutuna küçült ve odağı kaldır
+                    if !clickInSearch {
+                        NativeExplorerView.isSearchActiveGlobal = false
+                        DispatchQueue.main.async {
+                            NativeExplorerView.collapseSearch(in: win)
+                            NotificationCenter.default.post(name: .exitSearchRequested, object: nil)
+                        }
+                    }
+                }
                 return event
+            }
+        }
+        
+        if rightClickMonitor == nil {
+            rightClickMonitor = NSEvent.addLocalMonitorForEvents(matching: .rightMouseDown) { event in
+                guard let win = event.window ?? NSApp.keyWindow else { return event }
+                let loc = event.locationInWindow
+                let contentMaxY = win.contentLayoutRect.maxY
+                
+                // 1. Arama alanına tıklandıysa normal sağ tık metin menüsünü göster
+                if let hitView = win.contentView?.superview?.hitTest(loc) {
+                    if hitView is NSTextView || hitView is NSSearchField || hitView.superview is NSSearchField {
+                        return event
+                    }
+                }
+                
+                // 2. Sol üst pencere kapatma/küçültme/büyütme (trafik ışıkları) hariç
+                if loc.x < 80 && loc.y > (win.frame.height - 35) {
+                    return event
+                }
+                
+                // 3. Pencere içeriğinin üstünde mi (Toolbar / Titlebar bölgesinde mi?)
+                let isAboveContent = loc.y >= (contentMaxY - 2)
+                
+                // 4. Tıklanan görünüm bir Toolbar bileşeni mi?
+                var isToolbarView = false
+                if let hitView = win.contentView?.superview?.hitTest(loc) {
+                    var cur: NSView? = hitView
+                    while let v = cur {
+                        let name = NSStringFromClass(type(of: v))
+                        if name.contains("Toolbar") || name.contains("Titlebar") {
+                            isToolbarView = true
+                            break
+                        }
+                        cur = v.superview
+                    }
+                }
+                
+                if isAboveContent || isToolbarView {
+                    DispatchQueue.main.async {
+                        self.showToolbarContextMenu(for: event, in: win)
+                    }
+                    return nil
+                }
+                
+                return event
+            }
+        }
+    }
+    
+    private func showToolbarContextMenu(for event: NSEvent, in window: NSWindow) {
+        ToolbarMenuBridge.shared.onSelectMode = { mode in
+            toolbarDisplayModeRaw = mode.rawValue
+        }
+        ToolbarMenuBridge.shared.onOpenCustomizer = {
+            showingToolbarCustomizer = true
+        }
+        
+        let menu = NSMenu(title: "ToolbarMenu")
+        
+        let iconAndText = NSMenuItem(title: "Simge ve Metin", action: #selector(ToolbarMenuBridge.shared.setIconAndText), keyEquivalent: "")
+        iconAndText.target = ToolbarMenuBridge.shared
+        iconAndText.state = (toolbarDisplayMode == .iconAndText) ? .on : .off
+        menu.addItem(iconAndText)
+        
+        let iconOnly = NSMenuItem(title: "Yalnızca Simge", action: #selector(ToolbarMenuBridge.shared.setIconOnly), keyEquivalent: "")
+        iconOnly.target = ToolbarMenuBridge.shared
+        iconOnly.state = (toolbarDisplayMode == .iconOnly) ? .on : .off
+        menu.addItem(iconOnly)
+        
+        menu.addItem(NSMenuItem.separator())
+        
+        let customize = NSMenuItem(title: "Araç Çubuğunu Özelleştir...", action: #selector(ToolbarMenuBridge.shared.openCustomizer), keyEquivalent: "")
+        customize.target = ToolbarMenuBridge.shared
+        menu.addItem(customize)
+        
+        if let hitView = window.contentView?.superview?.hitTest(event.locationInWindow) {
+            NSMenu.popUpContextMenu(menu, with: event, for: hitView)
+        } else if let contentView = window.contentView {
+            NSMenu.popUpContextMenu(menu, with: event, for: contentView)
+        }
+    }
+
+    public static func collapseSearch(in targetWindow: NSWindow? = nil) {
+        let windows: [NSWindow]
+        if let target = targetWindow {
+            windows = [target]
+        } else {
+            windows = NSApp.windows
+        }
+        
+        for win in windows {
+            win.makeFirstResponder(nil)
+            
+            if let toolbar = win.toolbar {
+                for item in toolbar.items {
+                    if let searchItem = item as? NSSearchToolbarItem {
+                        searchItem.searchField.stringValue = ""
+                        searchItem.searchField.abortEditing()
+                        
+                        if let cell = searchItem.searchField.cell as? NSSearchFieldCell,
+                           let cancelBtn = cell.cancelButtonCell,
+                           let action = cancelBtn.action,
+                           let target = cancelBtn.target {
+                            _ = (target as AnyObject).perform(action, with: searchItem.searchField)
+                        }
+                        
+                        searchItem.endSearchInteraction()
+                        
+                        let cancelSel = NSSelectorFromString("_searchToolbarItemSearchCancelled:")
+                        if searchItem.responds(to: cancelSel) {
+                            searchItem.perform(cancelSel, with: searchItem.searchField)
+                        }
+                        
+                        searchItem.setValue(false, forKey: "isEditing")
+                        
+                        typealias SetExpandedFn = @convention(c) (AnyObject, Selector, Bool, Bool) -> Void
+                        let sel = NSSelectorFromString("_setExpanded:animated:")
+                        if let method = class_getInstanceMethod(NSSearchToolbarItem.self, sel) {
+                            let imp = method_getImplementation(method)
+                            let fn = unsafeBitCast(imp, to: SetExpandedFn.self)
+                            fn(searchItem, sel, false, true)
+                        }
+                    } else if String(describing: type(of: item)).contains("Search") {
+                        let endSel = NSSelectorFromString("endSearchInteraction")
+                        if item.responds(to: endSel) {
+                            item.perform(endSel)
+                        }
+                        let cancelSel = NSSelectorFromString("cancel")
+                        if item.responds(to: cancelSel) {
+                            item.perform(cancelSel)
+                        }
+                    }
+                }
+            }
+            
+            func clearSearchFields(in view: NSView) {
+                if let sf = view as? NSSearchField {
+                    sf.stringValue = ""
+                    sf.abortEditing()
+                    if let cell = sf.cell as? NSSearchFieldCell,
+                       let cancelBtn = cell.cancelButtonCell,
+                       let action = cancelBtn.action,
+                       let target = cancelBtn.target {
+                        _ = (target as AnyObject).perform(action, with: sf)
+                    }
+                }
+                for sub in view.subviews {
+                    clearSearchFields(in: sub)
+                }
+            }
+            if let root = win.contentView?.superview {
+                clearSearchFields(in: root)
             }
         }
     }
 
     private func exitSearch() {
+        NativeExplorerView.isSearchActiveGlobal = false
         isSearchPresented = false
         searchText = ""
         isDeepSearchEnabled = false
         deepSearchResults = []
+        NativeExplorerView.collapseSearch(in: NSApp.keyWindow)
     }
 
     private func handleTypeToSelect(char: String) {
@@ -1079,101 +1584,176 @@ public struct NativeExplorerView: View {
             }
             .listStyle(.sidebar)
             
-            Divider()
-            
-            // SABİT ALT KULLANIM / DEPOLAMA ALANI (Sticky Footer)
+            // SABİT ALT KULLANIM / DEPOLAMA ALANI (Floating Sidebar Storage Card)
             sidebarStorageFooterView
         }
         .navigationSplitViewColumnWidth(min: 190, ideal: 220, max: 260)
     }
     
-    // MARK: - Sabit Alt Kullanım / Depolama Bölümü (Sticky Sidebar Footer)
+    // MARK: - Yerel Mac Depolama Boyutu
+    private var localDiskQuota: StorageQuota {
+        if let attrs = try? FileManager.default.attributesOfFileSystem(forPath: NSHomeDirectory()),
+           let total = attrs[.systemSize] as? Int64,
+           let free = attrs[.systemFreeSize] as? Int64 {
+            let used = max(0, total - free)
+            return StorageQuota(usedBytes: used, availableBytes: free)
+        }
+        return StorageQuota(usedBytes: 0, availableBytes: 0)
+    }
+
+    // MARK: - Sabit Alt Kullanım / Depolama Bölümü (Modern Sidebar Card)
     private var sidebarStorageFooterView: some View {
         let server = activeTabServer
         let quota = currentStorageQuota
-        
-        return VStack(alignment: .leading, spacing: 6) {
-            if let server = server, let q = quota {
-                HStack(spacing: 6) {
-                    ProviderLogoBadge(storageProtocol: server.storageProtocol, size: 15)
-                    
-                    Text(server.name)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(.primary)
-                        .lineLimit(1)
-                    
-                    Spacer()
-                    
-                    if q.totalBytes > 0 {
-                        Text("%\(Int(q.usedPercentage * 100))")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(.secondary)
-                    }
-                }
-                
-                if q.totalBytes > 0 {
-                    ProgressView(value: q.usedPercentage)
-                        .progressViewStyle(.linear)
-                        .tint(q.usedPercentage > 0.9 ? Color.red : (q.usedPercentage > 0.75 ? Color.orange : Color.blue))
-                        .scaleEffect(x: 1, y: 0.8, anchor: .center)
-                }
-                
-                HStack(spacing: 3) {
-                    Text(q.formattedUsed)
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundColor(.primary.opacity(0.85))
-                    
-                    if q.totalBytes > 0 {
-                        Text("/ \(q.formattedTotal)")
-                            .font(.system(size: 10))
-                            .foregroundColor(.secondary)
+        let local = localDiskQuota
+        let isLocalOrSmb = server == nil || server?.storageProtocol == .smb
+
+        // Gösterilecek depolama verileri:
+        let (displayTitle, displayUsed, displayTotal, displayPct, hasValidQuota): (String, String, String, Double, Bool) = {
+            if let server = server {
+                if let q = quota, q.totalBytes > 0 {
+                    return (server.name, q.formattedUsed, q.formattedTotal, q.usedPercentage, true)
+                } else if let q = quota, q.usedBytes > 0 {
+                    return (server.name, q.formattedUsed, "Bulut", 0.0, false)
+                } else if isLocalOrSmb {
+                    return (server.name, local.formattedUsed, local.formattedTotal, local.usedPercentage, true)
+                } else if isLoadingQuota {
+                    return (server.name, "Yükleniyor...", "--", 0.0, false)
+                } else {
+                    // Uzak bulut sürücüsü (Google Drive, OneDrive vb.) ve API kotası yoksa
+                    // ASLA yerel Mac diskini gösterme! Klasördeki dosyaların gerçek boyutunu hesapla:
+                    let filesBytes = files.reduce(Int64(0)) { $0 + $1.size }
+                    if files.isEmpty {
+                        return (server.name, "0 B", "0 Öge", 0.0, false)
                     } else {
-                        Text("kullanılıyor")
-                            .font(.system(size: 10))
-                            .foregroundColor(.secondary)
+                        let formattedFilesSize = ByteCountFormatter.string(fromByteCount: filesBytes, countStyle: .file)
+                        return (server.name, formattedFilesSize, "\(files.count) Öge", 0.0, false)
                     }
-                    
-                    Spacer()
-                    
-                    Button(action: { loadStorageQuota(for: server) }) {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 9))
-                            .foregroundColor(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .help("\(server.name) depolama bilgisini yenile")
-                }
-            } else if let server = server {
-                HStack(spacing: 6) {
-                    ProviderLogoBadge(storageProtocol: server.storageProtocol, size: 15)
-                    Text(server.name)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(.primary)
-                        .lineLimit(1)
-                    Spacer()
-                    Button(action: { loadStorageQuota(for: server) }) {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 10))
-                            .foregroundColor(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .help("\(server.name) depolama bilgisini yenile")
                 }
             } else {
-                HStack(spacing: 6) {
-                    Image(systemName: "internaldrive")
-                        .font(.system(size: 11))
+                return ("Macintosh HD", local.formattedUsed, local.formattedTotal, local.usedPercentage, true)
+            }
+        }()
+
+        let pctInt = Int(round(displayPct * 100))
+        let barColor: Color = {
+            if !hasValidQuota && displayPct == 0 {
+                return Color.secondary
+            }
+            if displayPct > 0.90 { return Color(red: 0.95, green: 0.30, blue: 0.25) }
+            if displayPct > 0.75 { return Color(red: 0.98, green: 0.60, blue: 0.15) }
+            return Color(red: 0.0, green: 0.48, blue: 1.0)
+        }()
+
+        return VStack(spacing: 8) {
+            // 1. Satır: İkon + İsim + Yüzdelik Canlı Rozet
+            HStack(spacing: 7) {
+                if let server = server {
+                    ProviderLogoBadge(storageProtocol: server.storageProtocol, size: 18)
+                } else {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 5)
+                            .fill(Color.primary.opacity(0.06))
+                            .frame(width: 18, height: 18)
+                        Image(systemName: "internaldrive.fill")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                Text(displayTitle)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+
+                Spacer()
+
+                // Canlı Yüzdelik Rozeti (Working Percentage Capsule)
+                if hasValidQuota {
+                    Text("%\(pctInt)")
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .foregroundColor(barColor)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(barColor.opacity(0.12))
+                        .clipShape(Capsule())
+                } else if isLoadingQuota {
+                    ProgressView()
+                        .scaleEffect(0.5)
+                        .frame(width: 14, height: 14)
+                } else {
+                    Text("%0")
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
                         .foregroundColor(.secondary)
-                    Text("Depolama")
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                    Spacer()
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.secondary.opacity(0.12))
+                        .clipShape(Capsule())
                 }
             }
+
+            // 2. Satır: Özel Degrade İlerleme Çubuğu (Custom Sleek Progress Capsule)
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(Color.primary.opacity(0.07))
+                        .frame(height: 5)
+
+                    if hasValidQuota && displayPct > 0 {
+                        Capsule()
+                            .fill(
+                                LinearGradient(
+                                    colors: [barColor, barColor.opacity(0.8)],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                            )
+                            .frame(width: max(5, geo.size.width * CGFloat(min(1.0, max(0.02, displayPct)))), height: 5)
+                            .animation(.spring(response: 0.4, dampingFraction: 0.8), value: displayPct)
+                    }
+                }
+            }
+            .frame(height: 5)
+
+            // 3. Satır: Kullanım Metni + Yenile Butonu
+            HStack(spacing: 4) {
+                Text("\(displayUsed) / \(displayTotal)")
+                    .font(.system(size: 10, weight: .medium, design: .rounded))
+                    .foregroundColor(.secondary)
+
+                Spacer()
+
+                Button(action: {
+                    if let server = server {
+                        loadStorageQuota(for: server)
+                    }
+                }) {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 9.5, weight: .semibold))
+                        .foregroundColor(isLoadingQuota ? Color.accentColor : Color.secondary)
+                        .rotationEffect(.degrees(isLoadingQuota ? 360 : 0))
+                        .animation(isLoadingQuota ? .linear(duration: 0.9).repeatForever(autoreverses: false) : .default, value: isLoadingQuota)
+                }
+                .buttonStyle(.plain)
+                .help("Depolama bilgisini yenile")
+            }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(Color(NSColor.controlBackgroundColor))
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color(NSColor.separatorColor).opacity(0.09))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(Color.primary.opacity(0.07), lineWidth: 1)
+        )
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .onAppear {
+            if let server = server {
+                loadStorageQuota(for: server)
+            }
+        }
     }
     
     // MARK: - 2. Klasör Yolu Çubuğu (Path Bar)
@@ -1228,6 +1808,11 @@ public struct NativeExplorerView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 7)
         .background(Color(NSColor.windowBackgroundColor))
+        .contextMenu {
+            Button(action: { showingToolbarCustomizer = true }) {
+                Label("Araç Çubuğunu Özelleştir...", systemImage: "slider.horizontal.3")
+            }
+        }
     }
     
     // MARK: - Ekmek Kırıntısı (Breadcrumbs)
@@ -1782,9 +2367,22 @@ public struct NativeExplorerView: View {
                         .foregroundColor(.secondary)
                 }
             } else if let server = activeTabServer {
-                Text(server.name)
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
+                let isLocalOrSmb = server.storageProtocol == .smb
+                if isLocalOrSmb {
+                    let local = localDiskQuota
+                    Text("\(server.name): \(local.formattedAvailable) kullanılabilir")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                } else if !files.isEmpty {
+                    let totalSize = files.reduce(Int64(0)) { $0 + $1.size }
+                    Text("\(server.name): \(ByteCountFormatter.string(fromByteCount: totalSize, countStyle: .file))")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                } else {
+                    Text(server.name)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
             }
         }
         .padding(.horizontal, 16)
@@ -1929,15 +2527,26 @@ public struct NativeExplorerView: View {
         self.selectedFileID = nil
         self.selectedFileIDs = []
         
-        guard let server = manager.activeServer, !server.serverURL.isEmpty else {
+        guard var server = manager.activeServer, !server.serverURL.isEmpty else {
             self.isLoading = false
             return
         }
         
-        // Eğer OAuth bulut sürücüsünün oturumu açılmamışsa listelemeyi başlatma
+        // OAuth sunucular için: password boşsa Keychain'den token'ı çek
         if (server.storageProtocol == .googleDrive || server.storageProtocol == .oneDrive) && server.password.isEmpty {
-            self.isLoading = false
-            return
+            if let savedToken = KeychainHelper.shared.get(account: server.id.uuidString), !savedToken.isEmpty {
+                server.password = savedToken
+                // Manager'daki in-memory kopyayı da güncelle
+                if let idx = manager.servers.firstIndex(where: { $0.id == server.id }) {
+                    manager.servers[idx].password = savedToken
+                }
+                if manager.activeServer?.id == server.id {
+                    manager.activeServer?.password = savedToken
+                }
+            } else {
+                self.isLoading = false
+                return
+            }
         }
         
         isLoading = true
@@ -1971,14 +2580,26 @@ public struct NativeExplorerView: View {
     }
     
     private func loadStorageQuota(for targetServer: CloudreveServerConfig? = nil) {
-        guard let server = targetServer ?? activeTabServer else { return }
+        guard var server = targetServer ?? activeTabServer else { return }
+        
+        // OAuth sağlayıcıları için token Keychain'deyse al
+        if (server.storageProtocol == .googleDrive || server.storageProtocol == .oneDrive) && server.password.isEmpty {
+            if let saved = KeychainHelper.shared.get(account: server.id.uuidString), !saved.isEmpty {
+                server.password = saved
+            }
+        }
+        
+        isLoadingQuota = true
         let client = WebDAVClient(config: server)
         client.fetchQuota { result in
-            switch result {
-            case .success(let q):
-                self.storageQuotas[server.id] = q
-            case .failure(let err):
-                print("[HDrive] Kota sorgulanamadı (\(server.name)): \(err.localizedDescription)")
+            DispatchQueue.main.async {
+                self.isLoadingQuota = false
+                switch result {
+                case .success(let q):
+                    self.storageQuotas[server.id] = q
+                case .failure(let err):
+                    print("[HDrive] Kota sorgulanamadı (\(server.name)): \(err.localizedDescription)")
+                }
             }
         }
     }
@@ -3006,162 +3627,193 @@ enum SettingsTab: String, CaseIterable, Identifiable {
 
 // MARK: - Orijinal Marka Logoları (Authentic Brand Logos)
 
+// MARK: - Resmi Vektör Logo Motoru (Sıfır Bağımlılık, Sıfır Gecikme, Sonsuz Netlik)
+/// Bulut depolama sağlayıcılarının en güncel ve resmi marka logolarını vektör SVG olarak
+/// doğrudan bellekten 0 ms gecikmeyle sunar. Ağ bağlantısına bağımlı değildir,
+/// gecikme ve yükleme aşaması oluşturmaz, tüm çözünürlüklerde (Retina/5K) mükemmel netliktedir.
+final class ProviderLogoCache: NSObject {
+    static let shared = ProviderLogoCache()
+    let mem = NSCache<NSString, NSImage>()
+
+    /// Sağlayıcıların güncel ve resmi vektör SVG tanımları
+    private static let officialSVGs: [StorageProtocol: String] = [
+        // 1. Google Drive (Resmi 4 renkli Workspace logosu - en güncel)
+        .googleDrive: """
+        <svg viewBox="-4.35 -9 96 96" xmlns="http://www.w3.org/2000/svg">
+          <path d="m6.6 66.85 3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8h-27.5c0 1.55.4 3.1 1.2 4.5z" fill="#0066da"/>
+          <path d="m43.65 25-13.75-23.8c-1.35.8-2.5 1.9-3.3 3.3l-25.4 44a9.06 9.06 0 0 0 -1.2 4.5h27.5z" fill="#00ac47"/>
+          <path d="m73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5h-27.502l5.852 11.5z" fill="#ea4335"/>
+          <path d="m43.65 25 13.75-23.8c-1.35-.8-2.9-1.2-4.5-1.2h-18.5c-1.6 0-3.15.45-4.5 1.2z" fill="#00832d"/>
+          <path d="m59.8 53h-32.3l-13.75 23.8c1.35.8 2.9 1.2 4.5 1.2h50.8c1.6 0 3.15-.45 4.5-1.2z" fill="#2684fc"/>
+          <path d="m73.4 26.5-12.7-22c-.8-1.4-1.95-2.5-3.3-3.3l-13.75 23.8 16.15 28h27.45c0-1.55-.4-3.1-1.2-4.5z" fill="#ffba00"/>
+        </svg>
+        """,
+
+        // 2. Microsoft OneDrive (Resmi Microsoft 365 Fluent Design Cloud - en güncel)
+        .oneDrive: """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -0.25 32 32">
+          <path d="M12.20245,11.19292l.00031-.0011,6.71765,4.02379,4.00293-1.68451.00018.00068A6.4768,6.4768,0,0,1,25.5,13c.14764,0,.29358.0067.43878.01639a10.00075,10.00075,0,0,0-18.041-3.01381C7.932,10.00215,7.9657,10,8,10A7.96073,7.96073,0,0,1,12.20245,11.19292Z" fill="#0364b8"/>
+          <path d="M12.20276,11.19182l-.00031.0011A7.96073,7.96073,0,0,0,8,10c-.0343,0-.06805.00215-.10223.00258A7.99676,7.99676,0,0,0,1.43732,22.57277l5.924-2.49292,2.63342-1.10819,5.86353-2.46746,3.06213-1.28859Z" fill="#0078d4"/>
+          <path d="M25.93878,13.01639C25.79358,13.0067,25.64764,13,25.5,13a6.4768,6.4768,0,0,0-2.57648.53178l-.00018-.00068-4.00293,1.68451,1.16077.69528L23.88611,18.19l1.66009.99438,5.67633,3.40007a6.5002,6.5002,0,0,0-5.28375-9.56805Z" fill="#1490df"/>
+          <path d="M25.5462,19.18437,23.88611,18.19l-3.80493-2.2791-1.16077-.69528L15.85828,16.5042,9.99475,18.97166,7.36133,20.07985l-5.924,2.49292A7.98889,7.98889,0,0,0,8,26H25.5a6.49837,6.49837,0,0,0,5.72253-3.41556Z" fill="#28a8ea"/>
+        </svg>
+        """,
+
+        // 3. WebDAV / Nextcloud (Resmi Nextcloud Hub bağlı bulut halkaları)
+        .webdav: """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+          <path fill="#0082c9" d="M12.018 6.537c-2.5 0-4.6 1.712-5.241 4.015-.56-1.232-1.793-2.105-3.225-2.105A3.569 3.569 0 0 0 0 12a3.569 3.569 0 0 0 3.552 3.553c1.432 0 2.664-.874 3.224-2.106.641 2.304 2.742 4.016 5.242 4.016 2.487 0 4.576-1.693 5.231-3.977.569 1.21 1.783 2.067 3.198 2.067A3.568 3.568 0 0 0 24 12a3.569 3.569 0 0 0-3.553-3.553c-1.416 0-2.63.858-3.199 2.067-.654-2.284-2.743-3.978-5.23-3.977zm0 2.085c1.878 0 3.378 1.5 3.378 3.378 0 1.878-1.5 3.378-3.378 3.378A3.362 3.362 0 0 1 8.641 12c0-1.878 1.5-3.378 3.377-3.378zm-8.466 1.91c.822 0 1.467.645 1.467 1.468s-.644 1.467-1.467 1.468A1.452 1.452 0 0 1 2.085 12c0-.823.644-1.467 1.467-1.467zm16.895 0c.823 0 1.468.645 1.468 1.468s-.645 1.468-1.468 1.468A1.452 1.452 0 0 1 18.98 12c0-.823.644-1.467 1.467-1.467z"/>
+        </svg>
+        """,
+
+        // 4. Amazon S3 (Resmi AWS Simple Storage Service S3 izometrik küp logosu - en güncel)
+        .s3: """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="-42 0 512 512">
+          <path fill="#e25444" fill-rule="evenodd" d="M378,99L295,257l83,158,34-19V118Z"/>
+          <path fill="#7b1d13" fill-rule="evenodd" d="M378,99L212,118,127.5,257,212,396l166,19V99Z"/>
+          <path fill="#58150d" fill-rule="evenodd" d="M43,99L16,111V403l27,12L212,257Z"/>
+          <path fill="#e25444" fill-rule="evenodd" d="M42.637,98.667l169.587,47.111V372.444L42.637,415.111V98.667Z"/>
+          <path fill="#58150d" fill-rule="evenodd" d="M212.313,170.667l-72.008-11.556,72.008-81.778,71.83,81.778Z"/>
+          <path fill="#58150d" fill-rule="evenodd" d="M284.143,159.111l-71.919,11.733-71.919-11.733V77.333"/>
+          <path fill="#58150d" fill-rule="evenodd" d="M212.313,342.222l-72.008,13.334,72.008,70.222,71.83-70.222Z"/>
+          <path fill="#7b1d13" fill-rule="evenodd" d="M212,16L140,54V159l72.224-20.333Z"/>
+          <path fill="#7b1d13" fill-rule="evenodd" d="M212.224,196.444l-71.919,7.823V309.105l71.919,8.228V196.444Z"/>
+          <path fill="#7b1d13" fill-rule="evenodd" d="M212.224,373.333L140.305,355.3V458.363L212.224,496V373.333Z"/>
+          <path fill="#e25444" fill-rule="evenodd" d="M284.143,355.3l-71.919,18.038V496l71.919-37.637V355.3Z"/>
+          <path fill="#e25444" fill-rule="evenodd" d="M212.224,196.444l71.919,7.823V309.105l-71.919,8.228V196.444Z"/>
+          <path fill="#e25444" fill-rule="evenodd" d="M212,16l72,38V159l-72-20V16Z"/>
+        </svg>
+        """,
+
+        // 5. Windows SMB (Resmi Windows 11 Fluent 4'lü pencere logosu)
+        .smb: """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4875 4875">
+          <path fill="#0078d4" d="M0 0h2311v2310H0zm2564 0h2311v2310H2564zM0 2564h2311v2311H0zm2564 0h2311v2311H2564"/>
+        </svg>
+        """
+    ]
+
+    private override init() {
+        super.init()
+        mem.countLimit = 60
+        mem.totalCostLimit = 16 * 1024 * 1024
+        preloadVectors()
+    }
+
+    private func preloadVectors() {
+        for (proto, svgStr) in Self.officialSVGs {
+            if let data = svgStr.data(using: .utf8), let img = NSImage(data: data) {
+                mem.setObject(img, forKey: proto.rawValue as NSString)
+            }
+        }
+    }
+
+    /// Marka logosunu bellekten anında (0 ms) döndürür
+    func image(for proto: StorageProtocol) -> NSImage? {
+        let key = proto.rawValue as NSString
+        if let cached = mem.object(forKey: key) {
+            return cached
+        }
+        if let svgStr = Self.officialSVGs[proto],
+           let data = svgStr.data(using: .utf8),
+           let img = NSImage(data: data) {
+            mem.setObject(img, forKey: key)
+            return img
+        }
+        return nil
+    }
+
+    /// Geriye dönük uyumluluk için asenkron yükleme arayüzü
+    func load(for proto: StorageProtocol, completion: @escaping (NSImage?) -> Void) {
+        completion(image(for: proto))
+    }
+}
+
+// MARK: - Gerçek Marka Logosu Görünümü
+/// Herhangi bir ağ gecikmesi olmadan, doğrudan yerel vektörden çizilen marka logosu.
+struct ProviderLogoView: View {
+    let proto: StorageProtocol
+    let size: CGFloat
+
+    var body: some View {
+        if let img = ProviderLogoCache.shared.image(for: proto) {
+            Image(nsImage: img)
+                .resizable()
+                .interpolation(.high)
+                .antialiased(true)
+                .scaledToFit()
+                .frame(width: size, height: size)
+        } else {
+            ProviderFallbackIcon(proto: proto, size: size)
+        }
+    }
+}
+
+/// Beklenmedik durumda gösterilen yedek ikon
+private struct ProviderFallbackIcon: View {
+    let proto: StorageProtocol
+    let size: CGFloat
+
+    var sfSymbol: String {
+        switch proto {
+        case .googleDrive: return "triangle.fill"
+        case .oneDrive: return "cloud.sun.fill"
+        case .s3: return "cylinder.split.1x2.fill"
+        case .webdav: return "server.rack"
+        case .smb: return "network"
+        }
+    }
+
+    var brandColor: Color {
+        switch proto {
+        case .googleDrive: return Color(red: 0.26, green: 0.52, blue: 0.96)
+        case .oneDrive: return Color(red: 0.0, green: 0.47, blue: 0.83)
+        case .s3: return Color(red: 0.89, green: 0.32, blue: 0.25)
+        case .webdav: return Color(red: 0.0, green: 0.51, blue: 0.79)
+        case .smb: return Color(red: 0.0, green: 0.47, blue: 0.84)
+        }
+    }
+
+    var body: some View {
+        Image(systemName: sfSymbol)
+            .font(.system(size: size * 0.65, weight: .medium))
+            .foregroundColor(brandColor)
+            .frame(width: size, height: size)
+    }
+}
+
+// MARK: - Geriye Dönük Uyumluluk Yardımcıları
 struct GoogleDriveLogo: View {
     var size: CGFloat = 36
-    
-    var body: some View {
-        Canvas { context, sz in
-            let w = sz.width
-            let h = sz.height
-            
-            // 1. Sarı Bant (Üst)
-            var yellowPath = Path()
-            yellowPath.move(to: CGPoint(x: w * 0.33, y: h * 0.12))
-            yellowPath.addLine(to: CGPoint(x: w * 0.67, y: h * 0.12))
-            yellowPath.addLine(to: CGPoint(x: w * 0.95, y: h * 0.60))
-            yellowPath.addLine(to: CGPoint(x: w * 0.62, y: h * 0.60))
-            yellowPath.closeSubpath()
-            context.fill(yellowPath, with: .color(Color(red: 1.0, green: 0.73, blue: 0.0)))
-            
-            // 2. Yeşil Bant (Sağ / Alt)
-            var greenPath = Path()
-            greenPath.move(to: CGPoint(x: w * 0.62, y: h * 0.60))
-            greenPath.addLine(to: CGPoint(x: w * 0.95, y: h * 0.60))
-            greenPath.addLine(to: CGPoint(x: w * 0.78, y: h * 0.90))
-            greenPath.addLine(to: CGPoint(x: w * 0.22, y: h * 0.90))
-            greenPath.closeSubpath()
-            context.fill(greenPath, with: .color(Color(red: 0.0, green: 0.67, blue: 0.28)))
-            
-            // 3. Mavi Bant (Sol Çapraz)
-            var bluePath = Path()
-            bluePath.move(to: CGPoint(x: w * 0.33, y: h * 0.12))
-            bluePath.addLine(to: CGPoint(x: w * 0.50, y: h * 0.42))
-            bluePath.addLine(to: CGPoint(x: w * 0.22, y: h * 0.90))
-            bluePath.addLine(to: CGPoint(x: w * 0.05, y: h * 0.60))
-            bluePath.closeSubpath()
-            context.fill(bluePath, with: .color(Color(red: 0.15, green: 0.53, blue: 0.95)))
-        }
-        .frame(width: size, height: size)
-    }
+    var body: some View { ProviderLogoView(proto: .googleDrive, size: size) }
 }
-
 struct OneDriveLogo: View {
     var size: CGFloat = 36
-    
-    var body: some View {
-        Canvas { context, sz in
-            let w = sz.width
-            let h = sz.height
-            
-            // Arka Bulut (Açık Mavi)
-            let backCloudRect = CGRect(x: w * 0.30, y: h * 0.18, width: w * 0.62, height: h * 0.55)
-            context.fill(Path(ellipseIn: backCloudRect), with: .color(Color(red: 0.0, green: 0.65, blue: 0.95)))
-            
-            // Ön Bulut (Microsoft Derin Mavi)
-            let frontCloudRect = CGRect(x: w * 0.08, y: h * 0.35, width: w * 0.68, height: h * 0.52)
-            context.fill(Path(ellipseIn: frontCloudRect), with: .color(Color(red: 0.0, green: 0.47, blue: 0.83)))
-            
-            // Orta birleşme tabanı
-            let baseRect = CGRect(x: w * 0.18, y: h * 0.55, width: w * 0.65, height: h * 0.32)
-            context.fill(Path(roundedRect: baseRect, cornerRadius: h * 0.16), with: .color(Color(red: 0.0, green: 0.47, blue: 0.83)))
-        }
-        .frame(width: size, height: size)
-    }
-}
-
-struct NextcloudLogo: View {
-    var size: CGFloat = 36
-    
-    var body: some View {
-        Canvas { context, sz in
-            let w = sz.width
-            let h = sz.height
-            let c = Color(red: 0.0, green: 0.51, blue: 0.79) // Nextcloud Blue
-            
-            // Orta Büyük Halka
-            let centerR: CGFloat = w * 0.28
-            let centerPath = Path(ellipseIn: CGRect(x: (w - centerR) / 2, y: (h - centerR) / 2, width: centerR, height: centerR))
-            context.stroke(centerPath, with: .color(c), lineWidth: w * 0.09)
-            
-            // Sol Halka
-            let sideR: CGFloat = w * 0.21
-            let leftPath = Path(ellipseIn: CGRect(x: w * 0.12, y: (h - sideR) / 2, width: sideR, height: sideR))
-            context.stroke(leftPath, with: .color(c), lineWidth: w * 0.08)
-            
-            // Sağ Halka
-            let rightPath = Path(ellipseIn: CGRect(x: w * 0.88 - sideR, y: (h - sideR) / 2, width: sideR, height: sideR))
-            context.stroke(rightPath, with: .color(c), lineWidth: w * 0.08)
-        }
-        .frame(width: size, height: size)
-    }
-}
-
-struct AmazonS3Logo: View {
-    var size: CGFloat = 36
-    
-    var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: size * 0.22)
-                .fill(LinearGradient(colors: [Color(red: 1.0, green: 0.60, blue: 0.0), Color(red: 0.90, green: 0.40, blue: 0.0)], startPoint: .topLeading, endPoint: .bottomTrailing))
-                .frame(width: size, height: size)
-            
-            Image(systemName: "cylinder.split.1x2.fill")
-                .font(.system(size: size * 0.52, weight: .bold))
-                .foregroundColor(.white)
-        }
-    }
-}
-
-struct WindowsSmbLogo: View {
-    var size: CGFloat = 36
-    
-    var body: some View {
-        Canvas { context, sz in
-            let w = sz.width
-            let h = sz.height
-            let pad = w * 0.08
-            let gap = w * 0.08
-            let boxW = (w - pad * 2 - gap) / 2
-            let boxH = (h - pad * 2 - gap) / 2
-            let c = Color(red: 0.0, green: 0.47, blue: 0.84) // Windows Blue
-            
-            // 4 Windows Döşemesi
-            context.fill(Path(CGRect(x: pad, y: pad, width: boxW, height: boxH)), with: .color(c))
-            context.fill(Path(CGRect(x: pad + boxW + gap, y: pad, width: boxW, height: boxH)), with: .color(c))
-            context.fill(Path(CGRect(x: pad, y: pad + boxH + gap, width: boxW, height: boxH)), with: .color(c))
-            context.fill(Path(CGRect(x: pad + boxW + gap, y: pad + boxH + gap, width: boxW, height: boxH)), with: .color(c))
-        }
-        .frame(width: size, height: size)
-    }
+    var body: some View { ProviderLogoView(proto: .oneDrive, size: size) }
 }
 
 // MARK: - Sağlayıcı Logo ve Rozet Bileşeni
 struct ProviderLogoBadge: View {
     let storageProtocol: StorageProtocol
     var size: CGFloat = 36
-    
+
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: size * 0.24)
-                .fill(Color(NSColor.controlBackgroundColor))
-                .frame(width: size, height: size)
-                .overlay(
-                    RoundedRectangle(cornerRadius: size * 0.24)
-                        .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-                )
-                .shadow(color: Color.black.opacity(0.06), radius: 2, x: 0, y: 1)
-            
-            switch storageProtocol {
-            case .googleDrive:
-                GoogleDriveLogo(size: size * 0.72)
-            case .oneDrive:
-                OneDriveLogo(size: size * 0.74)
-            case .webdav:
-                NextcloudLogo(size: size * 0.76)
-            case .s3:
-                AmazonS3Logo(size: size * 0.80)
-            case .smb:
-                WindowsSmbLogo(size: size * 0.68)
+        if size <= 22 {
+            // Kenar çubuğu ve tablo listesinde net, sınırsız vektör
+            ProviderLogoView(proto: storageProtocol, size: size)
+        } else {
+            // Kart, diyalog ve ayarlarda şık zeminli rozet
+            ZStack {
+                RoundedRectangle(cornerRadius: size * 0.24)
+                    .fill(Color(NSColor.controlBackgroundColor))
+                    .frame(width: size, height: size)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: size * 0.24)
+                            .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                    )
+                    .shadow(color: .black.opacity(0.06), radius: 2, x: 0, y: 1)
+
+                ProviderLogoView(proto: storageProtocol, size: size * 0.74)
             }
         }
     }
@@ -3211,8 +3863,10 @@ public class GoogleOAuthHelper {
                     if let data = data, let req = String(data: data, encoding: .utf8) {
                         if let range = req.range(of: "code=") {
                             let sub = req[range.upperBound...]
-                            let code = sub.prefix { $0 != "&" && $0 != " " && $0 != "\r" && $0 != "\n" }
-                            let codeStr = String(code)
+                            let rawCode = sub.prefix { $0 != "&" && $0 != " " && $0 != "\r" && $0 != "\n" }
+                            // HTTP path'teki kod URL-encoded gelir; decode et
+                            let codeStr = (String(rawCode).removingPercentEncoding ?? String(rawCode))
+                                .trimmingCharacters(in: .whitespacesAndNewlines)
                             
                             let html = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nConnection: close\r\n\r\n<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>HDrive</title></head><body style=\"font-family:system-ui,-apple-system;text-align:center;padding:60px 20px;background:#f8fafc;\"><div style=\"max-width:440px;margin:auto;background:white;padding:40px;border-radius:16px;box-shadow:0 10px 25px rgba(0,0,0,0.06);\"><h2 style=\"color:#10b981;margin-bottom:8px;\">✅ Giriş Başarılı!</h2><p style=\"color:#64748b;font-size:15px;line-height:1.5;\">HDrive bulut oturumunuzu başarıyla doğruladı.<br>Bu sekmeyi kapatıp uygulamaya dönebilirsiniz.</p></div></body></html>"
                             connection.send(content: html.data(using: .utf8), completion: .contentProcessed({ _ in
@@ -3287,6 +3941,7 @@ public final class SettingsWindowManager: NSObject, NSWindowDelegate {
     private var onSaveCallback: (() -> Void)?
     
     public func showSettings(onSave: (() -> Void)? = nil) {
+        // Her çağrıda callback güncelle (pencere açık olsa bile)
         if let callback = onSave {
             self.onSaveCallback = callback
         }
@@ -4305,7 +4960,10 @@ public struct HDriveSettingsView: View {
         req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         
         let cId = clientId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? HDriveSettingsView.defaultOneDriveClientId : clientId.trimmingCharacters(in: .whitespacesAndNewlines)
-        let encCode = code.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? code
+        // Form-body için katı encoding: + → %2B (urlQueryAllowed + karakterini encode etmez)
+        var strictChars = CharacterSet.alphanumerics
+        strictChars.insert(charactersIn: "-._~")
+        let encCode = code.addingPercentEncoding(withAllowedCharacters: strictChars) ?? code
         let redirectUri = isNativeClient ? "https%3A%2F%2Flogin.microsoftonline.com%2Fcommon%2Foauth2%2Fnativeclient" : "http%3A%2F%2Flocalhost%3A8080"
         let body = "client_id=\(cId)&grant_type=authorization_code&code=\(encCode)&redirect_uri=\(redirectUri)"
         req.httpBody = body.data(using: .utf8)
@@ -4536,5 +5194,238 @@ extension String {
         return String(self.map { map[$0] ?? $0 })
     }
 }
+
+// MARK: - Bildirim İsimleri
+extension Notification.Name {
+    static let exitSearchRequested = Notification.Name("HDriveExitSearchRequested")
+    static let openToolbarCustomizer = Notification.Name("HDriveOpenToolbarCustomizer")
+}
+
+// MARK: - AppKit Toolbar Menü Köprüsü (Right-Click Context Menu Bridge)
+final class ToolbarMenuBridge: NSObject {
+    static let shared = ToolbarMenuBridge()
+    var onSelectMode: ((ToolbarDisplayMode) -> Void)?
+    var onOpenCustomizer: (() -> Void)?
+    
+    @objc func setIconAndText() {
+        onSelectMode?(.iconAndText)
+    }
+    
+    @objc func setIconOnly() {
+        onSelectMode?(.iconOnly)
+    }
+    
+    @objc func openCustomizer() {
+        onOpenCustomizer?()
+    }
+}
+
+// MARK: - Finder Tarzı Araç Çubuğu Özelleştirme Penceresi (Toolbar Customizer)
+struct ToolbarCustomizationSheet: View {
+    @Binding var isPresented: Bool
+    @Binding var toolbarItemsRaw: String
+    @Binding var toolbarDisplayModeRaw: String
+    
+    private var enabledItems: Set<ExplorerToolbarItemId> {
+        let items = toolbarItemsRaw.components(separatedBy: ",").compactMap { ExplorerToolbarItemId(rawValue: $0) }
+        return Set(items)
+    }
+    
+    private func toggleItem(_ item: ExplorerToolbarItemId) {
+        var current = toolbarItemsRaw.components(separatedBy: ",").filter { !$0.isEmpty }
+        if current.contains(item.rawValue) {
+            current.removeAll { $0 == item.rawValue }
+        } else {
+            current.append(item.rawValue)
+        }
+        toolbarItemsRaw = current.joined(separator: ",")
+    }
+    
+    private func restoreDefaults() {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            toolbarItemsRaw = NativeExplorerView.defaultToolbarItems
+            toolbarDisplayModeRaw = ToolbarDisplayMode.iconOnly.rawValue
+        }
+    }
+    
+    private let columns = [
+        GridItem(.adaptive(minimum: 155, maximum: 180), spacing: 14)
+    ]
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            // Başlık Bölümü (Header)
+            VStack(spacing: 8) {
+                HStack(spacing: 14) {
+                    ZStack {
+                        Circle()
+                            .fill(Color.accentColor.opacity(0.12))
+                            .frame(width: 44, height: 44)
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(.accentColor)
+                    }
+                    
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Araç Çubuğunu Özelleştir")
+                            .font(.system(size: 17, weight: .bold))
+                        Text("Sık kullandığınız araçları araç çubuğuna ekleyin veya kaldırın. Kartlara tıklayarak durumunu değiştirebilirsiniz.")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    Spacer()
+                }
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 20)
+            .padding(.bottom, 16)
+            
+            Divider()
+            
+            // Araçlar Izgarası (Interactive Tool Cards Grid)
+            ScrollView(.vertical, showsIndicators: true) {
+                VStack(spacing: 20) {
+                    LazyVGrid(columns: columns, spacing: 12) {
+                        ForEach(ExplorerToolbarItemId.allCases) { item in
+                            let isEnabled = enabledItems.contains(item)
+                            
+                            Button(action: {
+                                withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
+                                    toggleItem(item)
+                                }
+                            }) {
+                                VStack(spacing: 8) {
+                                    HStack {
+                                        Spacer()
+                                        // Durum Rozeti (Badge)
+                                        HStack(spacing: 3) {
+                                            Image(systemName: isEnabled ? "checkmark.circle.fill" : "plus.circle")
+                                                .font(.system(size: 11, weight: .semibold))
+                                            Text(isEnabled ? "Eklendi" : "Ekle")
+                                                .font(.system(size: 10, weight: .medium))
+                                        }
+                                        .foregroundColor(isEnabled ? .white : .secondary)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(isEnabled ? Color.accentColor : Color.secondary.opacity(0.15))
+                                        .clipShape(Capsule())
+                                    }
+                                    
+                                    // Simge Kutusu
+                                    ZStack {
+                                        RoundedRectangle(cornerRadius: 10)
+                                            .fill(isEnabled ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.04))
+                                            .frame(width: 44, height: 44)
+                                        Image(systemName: item.icon)
+                                            .font(.system(size: 20, weight: .medium))
+                                            .foregroundColor(isEnabled ? .accentColor : .primary.opacity(0.7))
+                                    }
+                                    
+                                    // Başlık & Açıklama
+                                    Text(item.title)
+                                        .font(.system(size: 12, weight: .bold))
+                                        .foregroundColor(.primary)
+                                        .lineLimit(1)
+                                    
+                                    Text(item.subtitle)
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.secondary)
+                                        .multilineTextAlignment(.center)
+                                        .lineLimit(2)
+                                        .frame(height: 26)
+                                }
+                                .padding(12)
+                                .frame(maxWidth: .infinity)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .fill(Color(NSColor.controlBackgroundColor))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 12)
+                                                .stroke(isEnabled ? Color.accentColor.opacity(0.4) : Color.primary.opacity(0.08), lineWidth: isEnabled ? 1.5 : 1)
+                                        )
+                                        .shadow(color: isEnabled ? Color.accentColor.opacity(0.08) : Color.clear, radius: 4, y: 2)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    
+                    // Saptanmış Takım Kutusu (Finder Default Set Bar)
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Label("Saptanmış Araç Takımı", systemImage: "sparkles")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Button("Saptanmış Takımı Geri Yükle", action: restoreDefaults)
+                                .font(.system(size: 11, weight: .medium))
+                                .buttonStyle(.bordered)
+                        }
+                        
+                        // Saptanmış takım önizleme şeridi
+                        HStack(spacing: 12) {
+                            ForEach(["chevron.left.chevron.right", "square.grid.2x2", "arrow.up.arrow.down", "sidebar.right", "folder.badge.plus", "arrow.up.circle.fill", "arrow.clockwise", "arrow.up.arrow.down.circle", "gearshape"], id: \.self) { iconName in
+                                ZStack {
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .fill(Color.primary.opacity(0.05))
+                                        .frame(width: 28, height: 28)
+                                    Image(systemName: iconName)
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                            Spacer()
+                        }
+                        .padding(10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [4]))
+                                .foregroundColor(Color.primary.opacity(0.15))
+                        )
+                    }
+                    .padding(14)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(Color(NSColor.windowBackgroundColor).opacity(0.6))
+                    )
+                }
+                .padding(20)
+            }
+            
+            Divider()
+            
+            // Alt Menü / Footer (Display Mode & Done Button)
+            HStack(spacing: 14) {
+                HStack(spacing: 8) {
+                    Text("Göster:")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.secondary)
+                    
+                    Picker("", selection: $toolbarDisplayModeRaw) {
+                        Text("Yalnızca Simge").tag(ToolbarDisplayMode.iconOnly.rawValue)
+                        Text("Simge ve Metin").tag(ToolbarDisplayMode.iconAndText.rawValue)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 230)
+                }
+                
+                Spacer()
+                
+                Button("Bitti") {
+                    isPresented = false
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.regular)
+                .keyboardShortcut(.defaultAction)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+            .background(Color(NSColor.windowBackgroundColor))
+        }
+        .frame(minWidth: 720, idealWidth: 760, maxWidth: 840, minHeight: 520, idealHeight: 560, maxHeight: 680)
+    }
+}
+
 
 

@@ -285,6 +285,133 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
         return URL(string: baseURLString + fullPath + (hasTrailingSlash ? "/" : ""))
     }
 
+    // MARK: - SMB (CIFS) Yardımcıları
+    public func buildSmbAuthURLString() -> String? {
+        var rawURL = config.serverURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !rawURL.lowercased().hasPrefix("smb://") {
+            rawURL = "smb://" + rawURL.trimmingCharacters(in: CharacterSet(charactersIn: "/\\"))
+        }
+        guard let url = URL(string: rawURL), let host = url.host else {
+            return nil
+        }
+        
+        let portPart = url.port != nil ? ":\(url.port!)" : ""
+        let rawShare = config.smbShare.trimmingCharacters(in: CharacterSet(charactersIn: " /\\"))
+        let share = !rawShare.isEmpty ? rawShare : (url.path.trimmingCharacters(in: CharacterSet(charactersIn: " /")))
+        let sharePath = share.isEmpty ? "" : "/\(share)"
+        
+        if !config.username.isEmpty && !config.password.isEmpty {
+            let userEnc = config.username.addingPercentEncoding(withAllowedCharacters: .urlUserAllowed) ?? config.username
+            let passEnc = config.password.addingPercentEncoding(withAllowedCharacters: .urlPasswordAllowed) ?? config.password
+            return "smb://\(userEnc):\(passEnc)@\(host)\(portPart)\(sharePath)"
+        } else if !config.username.isEmpty {
+            let userEnc = config.username.addingPercentEncoding(withAllowedCharacters: .urlUserAllowed) ?? config.username
+            return "smb://\(userEnc)@\(host)\(portPart)\(sharePath)"
+        } else {
+            return "smb://\(host)\(portPart)\(sharePath)"
+        }
+    }
+
+    public var smbVolumeURL: URL? {
+        let rawShare = config.smbShare.trimmingCharacters(in: CharacterSet(charactersIn: " /\\"))
+        let share: String
+        if !rawShare.isEmpty {
+            share = rawShare
+        } else if let u = URL(string: config.serverURL), !u.path.trimmingCharacters(in: CharacterSet(charactersIn: " /")).isEmpty {
+            share = u.lastPathComponent
+        } else {
+            share = ""
+        }
+        
+        guard !share.isEmpty else { return nil }
+        
+        let candidate = URL(fileURLWithPath: "/Volumes/\(share)")
+        if FileManager.default.fileExists(atPath: candidate.path) {
+            return candidate
+        }
+        
+        if let mounted = FileManager.default.mountedVolumeURLs(includingResourceValuesForKeys: nil, options: []) {
+            if let match = mounted.first(where: {
+                let name = $0.lastPathComponent.lowercased()
+                let target = share.lowercased()
+                return name == target || name.hasPrefix(target + "-") || name.hasPrefix(target + " ")
+            }) {
+                return match
+            }
+        }
+        
+        return candidate
+    }
+
+    public func ensureSmbMounted(completion: @escaping (Result<URL, Error>) -> Void) {
+        if let vol = smbVolumeURL, FileManager.default.fileExists(atPath: vol.path) {
+            completion(.success(vol))
+            return
+        }
+        
+        guard let authURL = buildSmbAuthURLString() else {
+            completion(.failure(NSError(domain: "HDrive", code: 400, userInfo: [NSLocalizedDescriptionKey: "Geçersiz SMB sunucu adresi formatı."])))
+            return
+        }
+        
+        DispatchQueue.global(qos: .userInitiated).async {
+            let scriptSource = """
+            tell application "Finder"
+                try
+                    mount volume "\(authURL)"
+                    return "SUCCESS"
+                on error errMsg
+                    return errMsg
+                end try
+            end tell
+            """
+            var errInfo: NSDictionary?
+            let appleScript = NSAppleScript(source: scriptSource)
+            let resultDesc = appleScript?.executeAndReturnError(&errInfo)
+            let res = resultDesc?.stringValue ?? ""
+            
+            DispatchQueue.main.async {
+                if res == "SUCCESS" || res.isEmpty || res.contains("already") {
+                    if let vol = self.smbVolumeURL, FileManager.default.fileExists(atPath: vol.path) {
+                        completion(.success(vol))
+                    } else {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                            if let vol = self.smbVolumeURL, FileManager.default.fileExists(atPath: vol.path) {
+                                completion(.success(vol))
+                            } else {
+                                completion(.failure(NSError(domain: "HDrive", code: 500, userInfo: [NSLocalizedDescriptionKey: "SMB birimi Finder'a bağlandı ancak /Volumes altında dizin henüz görünür değil."])))
+                            }
+                        }
+                    }
+                } else {
+                    let errMsg = errInfo?[NSAppleScript.errorMessage] as? String ?? res
+                    completion(.failure(NSError(domain: "HDrive", code: 500, userInfo: [NSLocalizedDescriptionKey: "SMB bağlantı hatası: \(errMsg)"])))
+                }
+            }
+        }
+    }
+
+    public func getSmbStorageQuota() -> (total: Int64, free: Int64)? {
+        guard let vol = smbVolumeURL, FileManager.default.fileExists(atPath: vol.path) else {
+            return nil
+        }
+        do {
+            let values = try vol.resourceValues(forKeys: [.volumeTotalCapacityKey, .volumeAvailableCapacityForImportantUsageKey])
+            let total = Int64(values.volumeTotalCapacity ?? 0)
+            let free = values.volumeAvailableCapacityForImportantUsage ?? 0
+            if total > 0 {
+                return (total: total, free: free)
+            }
+        } catch {
+            if let attrs = try? FileManager.default.attributesOfFileSystem(forPath: vol.path),
+               let size = attrs[.systemSize] as? NSNumber,
+               let free = attrs[.systemFreeSize] as? NSNumber {
+                return (total: size.int64Value, free: free.int64Value)
+            }
+        }
+        return nil
+    }
+
     /// Sunucu bağlantısını test eder
     public func testConnection(completion: @escaping (Bool, String) -> Void) {
         if config.storageProtocol == .googleDrive {
@@ -322,9 +449,14 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
         }
 
         if config.storageProtocol == .smb {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                let share = self.config.smbShare.isEmpty ? "paylaşım" : self.config.smbShare
-                completion(true, "SMB Ağ Sunucusuna (\(self.config.serverURL)/\(share)) erişim hazır.")
+            ensureSmbMounted { result in
+                switch result {
+                case .success(let volURL):
+                    let share = self.config.smbShare.isEmpty ? volURL.lastPathComponent : self.config.smbShare
+                    completion(true, "✅ SMB Ağ Paylaşımına (\(share)) başarıyla bağlanıldı!")
+                case .failure(let err):
+                    completion(false, "❌ SMB Bağlantı Hatası: \(err.localizedDescription)")
+                }
             }
             return
         }
@@ -377,6 +509,66 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
     
     /// Belirtilen klasördeki dosyaları ve alt klasörleri listeler
     public func listFiles(at relativePath: String = "", completion: @escaping (Result<[RemoteFileItem], Error>) -> Void) {
+        if config.storageProtocol == .smb {
+            ensureSmbMounted { result in
+                switch result {
+                case .success(let volURL):
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        let cleanRel = relativePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                        let targetDir = cleanRel.isEmpty ? volURL : volURL.appendingPathComponent(cleanRel)
+                        
+                        guard FileManager.default.fileExists(atPath: targetDir.path) else {
+                            DispatchQueue.main.async {
+                                completion(.success([]))
+                            }
+                            return
+                        }
+                        
+                        do {
+                            let contents = try FileManager.default.contentsOfDirectory(
+                                at: targetDir,
+                                includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey, .isRegularFileKey],
+                                options: [.skipsHiddenFiles]
+                            )
+                            
+                            var items: [RemoteFileItem] = []
+                            for fileURL in contents {
+                                let resourceValues = try? fileURL.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey])
+                                let isDir = resourceValues?.isDirectory ?? false
+                                let size = Int64(resourceValues?.fileSize ?? 0)
+                                let modDate = resourceValues?.contentModificationDate
+                                
+                                let itemPath = cleanRel.isEmpty ? fileURL.lastPathComponent : "\(cleanRel)/\(fileURL.lastPathComponent)"
+                                
+                                items.append(RemoteFileItem(
+                                    id: itemPath,
+                                    name: fileURL.lastPathComponent,
+                                    href: itemPath,
+                                    isDirectory: isDir,
+                                    size: isDir ? 0 : size,
+                                    modificationDate: modDate,
+                                    contentType: isDir ? "httpd/unix-directory" : nil,
+                                    thumbnailURL: nil
+                                ))
+                            }
+                            
+                            DispatchQueue.main.async {
+                                completion(.success(items))
+                            }
+                        } catch {
+                            DispatchQueue.main.async {
+                                completion(.failure(error))
+                            }
+                        }
+                    }
+                case .failure(let err):
+                    DispatchQueue.main.async {
+                        completion(.failure(err))
+                    }
+                }
+            }
+            return
+        }
         if config.storageProtocol == .googleDrive {
             listGoogleDriveFiles(at: relativePath, completion: completion)
             return
@@ -580,6 +772,46 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
     
     /// Dosya İndirir (HTTP durum kodu kontrolü ve güvenli taşıma)
     public func downloadFile(href: String, to localDestination: URL, progress: @escaping (Double) -> Void, completion: @escaping (Error?) -> Void) {
+        if config.storageProtocol == .smb {
+            ensureSmbMounted { result in
+                switch result {
+                case .success(let volURL):
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        let cleanHref = href.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                        let srcURL = volURL.appendingPathComponent(cleanHref)
+                        
+                        guard FileManager.default.fileExists(atPath: srcURL.path) else {
+                            DispatchQueue.main.async {
+                                completion(NSError(domain: "HDrive", code: 404, userInfo: [NSLocalizedDescriptionKey: "Kaynak SMB dosyası bulunamadı: \(cleanHref)"]))
+                            }
+                            return
+                        }
+                        
+                        do {
+                            let parent = localDestination.deletingLastPathComponent()
+                            try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+                            if FileManager.default.fileExists(atPath: localDestination.path) {
+                                try FileManager.default.removeItem(at: localDestination)
+                            }
+                            try FileManager.default.copyItem(at: srcURL, to: localDestination)
+                            DispatchQueue.main.async {
+                                progress(1.0)
+                                completion(nil)
+                            }
+                        } catch {
+                            DispatchQueue.main.async {
+                                completion(error)
+                            }
+                        }
+                    }
+                case .failure(let err):
+                    DispatchQueue.main.async {
+                        completion(err)
+                    }
+                }
+            }
+            return
+        }
         if config.storageProtocol == .googleDrive {
             let fileId = href
             guard let url = URL(string: "https://www.googleapis.com/drive/v3/files/\(fileId)?alt=media&supportsAllDrives=true") else {
@@ -883,8 +1115,39 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
         task.resume()
     }
     
-    /// Dosya Yükler (Google Drive, OneDrive, WebDAV, S3)
+    /// Dosya Yükler (Google Drive, OneDrive, WebDAV, S3, SMB)
     public func uploadFile(localFileURL: URL, toRemotePath: String, completion: @escaping (Error?) -> Void) {
+        if config.storageProtocol == .smb {
+            ensureSmbMounted { result in
+                switch result {
+                case .success(let volURL):
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        let cleanRemote = toRemotePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                        let dstURL = volURL.appendingPathComponent(cleanRemote)
+                        do {
+                            let parent = dstURL.deletingLastPathComponent()
+                            try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+                            if FileManager.default.fileExists(atPath: dstURL.path) {
+                                try FileManager.default.removeItem(at: dstURL)
+                            }
+                            try FileManager.default.copyItem(at: localFileURL, to: dstURL)
+                            DispatchQueue.main.async {
+                                completion(nil)
+                            }
+                        } catch {
+                            DispatchQueue.main.async {
+                                completion(error)
+                            }
+                        }
+                    }
+                case .failure(let err):
+                    DispatchQueue.main.async {
+                        completion(err)
+                    }
+                }
+            }
+            return
+        }
         if config.storageProtocol == .googleDrive {
             uploadGoogleDriveFile(localFileURL: localFileURL, toFolderIdOrPath: toRemotePath, completion: completion)
             return
@@ -1127,6 +1390,29 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
             return
         }
         
+        if config.storageProtocol == .smb {
+            ensureSmbMounted { result in
+                switch result {
+                case .success(let volURL):
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        let cleanPath = remotePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                        let targetURL = volURL.appendingPathComponent(cleanPath)
+                        do {
+                            try FileManager.default.createDirectory(at: targetURL, withIntermediateDirectories: true)
+                            DispatchQueue.main.async { completion(nil) }
+                        } catch {
+                            DispatchQueue.main.async { completion(error) }
+                        }
+                    }
+                case .failure(let err):
+                    DispatchQueue.main.async {
+                        completion(err)
+                    }
+                }
+            }
+            return
+        }
+        
         guard let targetURL = buildURL(for: remotePath) else {
             completion(NSError(domain: "HDrive", code: 400, userInfo: [NSLocalizedDescriptionKey: "Geçersiz klasör adresi"]))
             return
@@ -1187,6 +1473,31 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
             return
         }
         
+        if config.storageProtocol == .smb {
+            ensureSmbMounted { result in
+                switch result {
+                case .success(let volURL):
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        let cleanPath = remotePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                        let targetURL = volURL.appendingPathComponent(cleanPath)
+                        do {
+                            if FileManager.default.fileExists(atPath: targetURL.path) {
+                                try FileManager.default.removeItem(at: targetURL)
+                            }
+                            DispatchQueue.main.async { completion(nil) }
+                        } catch {
+                            DispatchQueue.main.async { completion(error) }
+                        }
+                    }
+                case .failure(let err):
+                    DispatchQueue.main.async {
+                        completion(err)
+                    }
+                }
+            }
+            return
+        }
+        
         var path = remotePath
         if isDirectory && !path.hasSuffix("/") {
             path += "/"
@@ -1221,6 +1532,36 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
     
     /// Dosya veya klasör adını değiştirir / taşır (MOVE)
     public func move(from sourcePath: String, to destinationPath: String, overwrite: Bool = false, completion: @escaping (Error?) -> Void) {
+        if config.storageProtocol == .smb {
+            ensureSmbMounted { result in
+                switch result {
+                case .success(let volURL):
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        let cleanSrc = sourcePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                        let cleanDst = destinationPath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                        let srcURL = volURL.appendingPathComponent(cleanSrc)
+                        let dstURL = volURL.appendingPathComponent(cleanDst)
+                        do {
+                            if overwrite && FileManager.default.fileExists(atPath: dstURL.path) {
+                                try FileManager.default.removeItem(at: dstURL)
+                            }
+                            let parent = dstURL.deletingLastPathComponent()
+                            try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+                            try FileManager.default.moveItem(at: srcURL, to: dstURL)
+                            DispatchQueue.main.async { completion(nil) }
+                        } catch {
+                            DispatchQueue.main.async { completion(error) }
+                        }
+                    }
+                case .failure(let err):
+                    DispatchQueue.main.async {
+                        completion(err)
+                    }
+                }
+            }
+            return
+        }
+        
         guard let sourceURL = buildURL(for: sourcePath),
               let destURL = buildURL(for: destinationPath) else {
             completion(NSError(domain: "WebDAVClient", code: 400, userInfo: [NSLocalizedDescriptionKey: "Geçersiz URL"]))
@@ -1350,6 +1691,30 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
                 let q = StorageQuota(usedBytes: used, availableBytes: remaining)
                 DispatchQueue.main.async { completion(.success(q)) }
             }.resume()
+            return
+        }
+        
+        if config.storageProtocol == .smb {
+            if let quota = getSmbStorageQuota() {
+                let used = max(0, quota.total - quota.free)
+                let q = StorageQuota(usedBytes: used, availableBytes: quota.free)
+                completion(.success(q))
+            } else {
+                ensureSmbMounted { result in
+                    switch result {
+                    case .success:
+                        if let quota = self.getSmbStorageQuota() {
+                            let used = max(0, quota.total - quota.free)
+                            let q = StorageQuota(usedBytes: used, availableBytes: quota.free)
+                            completion(.success(q))
+                        } else {
+                            completion(.failure(NSError(domain: "HDrive", code: 404, userInfo: [NSLocalizedDescriptionKey: "SMB depolama kapasitesi alınamadı"])))
+                        }
+                    case .failure(let err):
+                        completion(.failure(err))
+                    }
+                }
+            }
             return
         }
         

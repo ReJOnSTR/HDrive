@@ -26,6 +26,12 @@ struct HDriveMacApp: App {
                 }
                 .keyboardShortcut(",", modifiers: .command)
             }
+            CommandMenu("Görüntü") {
+                Button("Araç Çubuğunu Özelleştir...") {
+                    NotificationCenter.default.post(name: .openToolbarCustomizer, object: nil)
+                }
+                .keyboardShortcut("t", modifiers: [.command, .option])
+            }
         }
         
         // 2. macOS Menü Çubuğu Simgesi (Menu Bar Extra)

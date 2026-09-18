@@ -42,7 +42,18 @@ public final class DriveMounter: ObservableObject {
         
         // Kimlik bilgileriyle URL oluştur
         let authURLString: String
-        if !config.username.isEmpty && !config.password.isEmpty {
+        if config.storageProtocol == .smb {
+            let client = WebDAVClient(config: config)
+            if let smbUrl = client.buildSmbAuthURLString() {
+                authURLString = smbUrl
+            } else {
+                let err = "Geçersiz SMB adresi formatı. Lütfen adresi kontrol edin."
+                self.lastError = err
+                self.statusMessage = err
+                completion(false, err)
+                return
+            }
+        } else if !config.username.isEmpty && !config.password.isEmpty {
             let encodedUser = config.username.addingPercentEncoding(withAllowedCharacters: .urlUserAllowed) ?? config.username
             let encodedPass = config.password.addingPercentEncoding(withAllowedCharacters: .urlPasswordAllowed) ?? config.password
             authURLString = "\(scheme)://\(encodedUser):\(encodedPass)@\(host)\(port)\(path)"
@@ -69,14 +80,18 @@ public final class DriveMounter: ObservableObject {
             let result = resultDesc?.stringValue ?? ""
             
             DispatchQueue.main.async {
-                if result == "SUCCESS" {
+                if result == "SUCCESS" || result.isEmpty || result.contains("already") {
                     // Finder'a başarıyla bağlandı
                     self.isMounted = true
                     self.statusMessage = "Bağlandı! Finder açılıyor..."
                     
                     // Bağlanan diski Finder'da aç
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        self.openMountedVolumeInFinder(host: host)
+                        if config.storageProtocol == .smb, let vol = WebDAVClient(config: config).smbVolumeURL, FileManager.default.fileExists(atPath: vol.path) {
+                            NSWorkspace.shared.open(vol)
+                        } else {
+                            self.openMountedVolumeInFinder(host: host)
+                        }
                     }
                     completion(true, nil)
                 } else {

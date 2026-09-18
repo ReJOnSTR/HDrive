@@ -7,6 +7,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Threading.Tasks;
 using System.Xml.Linq;
+using System.Runtime.InteropServices;
 using HDriveWin.Models;
 
 namespace HDriveWin.Services;
@@ -98,6 +99,62 @@ public class WebDAVClient
         return new Uri(result);
     }
 
+    #region Win32 SMB Authentication
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct NETRESOURCE
+    {
+        public int dwScope;
+        public int dwType;
+        public int dwDisplayType;
+        public int dwUsage;
+        [MarshalAs(UnmanagedType.LPWStr)]
+        public string? lpLocalName;
+        [MarshalAs(UnmanagedType.LPWStr)]
+        public string? lpRemoteName;
+        [MarshalAs(UnmanagedType.LPWStr)]
+        public string? lpComment;
+        [MarshalAs(UnmanagedType.LPWStr)]
+        public string? lpProvider;
+    }
+
+    [DllImport("mpr.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern int WNetAddConnection2(ref NETRESOURCE lpNetResource, [MarshalAs(UnmanagedType.LPWStr)] string? lpPassword, [MarshalAs(UnmanagedType.LPWStr)] string? lpUsername, int dwFlags);
+
+    public async Task<bool> EnsureSmbConnectedAsync()
+    {
+        if (_config.Protocol != StorageProtocol.SMB) return true;
+
+        return await Task.Run(() =>
+        {
+            try
+            {
+                var unc = GetUncPath("/");
+                if (Directory.Exists(unc)) return true;
+
+                if (!string.IsNullOrEmpty(_config.Username) || !string.IsNullOrEmpty(_config.Password))
+                {
+                    var nr = new NETRESOURCE
+                    {
+                        dwType = 1, // RESOURCETYPE_DISK
+                        lpRemoteName = unc
+                    };
+                    int ret = WNetAddConnection2(ref nr, _config.Password, _config.Username, 0);
+                    // 0: NO_ERROR, 1219: ERROR_SESSION_CREDENTIAL_CONFLICT
+                    if (ret == 0 || ret == 1219)
+                    {
+                        return Directory.Exists(unc);
+                    }
+                }
+                return Directory.Exists(unc);
+            }
+            catch
+            {
+                return false;
+            }
+        });
+    }
+    #endregion
+
     public string GetUncPath(string relativePath)
     {
         var raw = _config.ServerURL.Trim().Replace('/', '\\');
@@ -129,6 +186,7 @@ public class WebDAVClient
         {
             if (_config.Protocol == StorageProtocol.SMB)
             {
+                await EnsureSmbConnectedAsync();
                 return await Task.Run(() =>
                 {
                     try
@@ -138,7 +196,7 @@ public class WebDAVClient
                         {
                             return (true, "SMB Ağ Paylaşımına başarıyla bağlanıldı!");
                         }
-                        return (false, $"Ağ paylaşımına erişilemedi: {unc}");
+                        return (false, $"Ağ paylaşımına erişilemedi: {unc}\nLütfen sunucu adresi, paylaşım adı veya kimlik bilgilerini kontrol edin.");
                     }
                     catch (Exception ex)
                     {
@@ -182,6 +240,7 @@ public class WebDAVClient
     {
         if (_config.Protocol == StorageProtocol.SMB)
         {
+            await EnsureSmbConnectedAsync();
             return await Task.Run(() =>
             {
                 var list = new List<FileItem>();
@@ -324,6 +383,7 @@ public class WebDAVClient
 
         if (_config.Protocol == StorageProtocol.SMB)
         {
+            await EnsureSmbConnectedAsync();
             return await Task.Run(() =>
             {
                 try
@@ -445,6 +505,7 @@ public class WebDAVClient
 
         if (_config.Protocol == StorageProtocol.SMB)
         {
+            await EnsureSmbConnectedAsync();
             return await Task.Run(() =>
             {
                 try
@@ -484,6 +545,7 @@ public class WebDAVClient
     {
         if (_config.Protocol == StorageProtocol.SMB)
         {
+            await EnsureSmbConnectedAsync();
             return await Task.Run(() =>
             {
                 try
@@ -516,6 +578,7 @@ public class WebDAVClient
     {
         if (_config.Protocol == StorageProtocol.SMB)
         {
+            await EnsureSmbConnectedAsync();
             return await Task.Run(() =>
             {
                 try
@@ -577,6 +640,7 @@ public class WebDAVClient
     {
         if (_config.Protocol == StorageProtocol.SMB)
         {
+            await EnsureSmbConnectedAsync();
             return await Task.Run(() =>
             {
                 try
