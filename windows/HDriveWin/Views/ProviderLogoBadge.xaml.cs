@@ -113,8 +113,8 @@ public sealed partial class ProviderLogoBadge : UserControl
         BadgeBorder.Width = size;
         BadgeBorder.Height = size;
 
-        // İkon boyutu rozetin yaklaşık %65-%70'i oranında şık ve dengeli ölçeklenir
-        var iconSize = ShowBadge ? size * 0.65 : size;
+        // İkon boyutu rozetin yaklaşık %70'i oranında şık, net ve dengeli ölçeklenir
+        var iconSize = ShowBadge ? size * 0.70 : size;
         GoogleDriveLogo.Width = iconSize;
         GoogleDriveLogo.Height = iconSize;
         OneDriveLogo.Width = iconSize;
