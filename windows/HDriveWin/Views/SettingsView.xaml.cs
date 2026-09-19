@@ -115,25 +115,15 @@ public sealed partial class SettingsView : UserControl
                     _editingServer.Protocol = StorageProtocol.GoogleDrive;
                     _editingServer.Name = "Google Drive";
                     _editingServer.ServerURL = "https://www.googleapis.com/drive/v3";
-                    try
-                    {
-                        var cfgPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config", "HDrive", "google_credentials.json");
-                        if (File.Exists(cfgPath))
-                        {
-                            var content = File.ReadAllText(cfgPath);
-                            using var doc = System.Text.Json.JsonDocument.Parse(content);
-                            if (doc.RootElement.TryGetProperty("client_id", out var cid)) _editingServer.ClientId = cid.GetString() ?? "";
-                            if (doc.RootElement.TryGetProperty("client_secret", out var cs)) _editingServer.ClientSecret = cs.GetString() ?? "";
-                        }
-                    }
-                    catch { }
+                    _editingServer.ClientId = OAuthHelper.GetDefaultGoogleClientId();
+                    _editingServer.ClientSecret = OAuthHelper.GetDefaultGoogleClientSecret();
                     break;
 
                 case "OneDrive":
                     _editingServer.Protocol = StorageProtocol.OneDrive;
                     _editingServer.Name = "OneDrive";
                     _editingServer.ServerURL = "https://graph.microsoft.com/v1.0/me/drive";
-                    _editingServer.ClientId = "d3590ed6-52b3-4102-aeff-aad2292ab01c";
+                    _editingServer.ClientId = OAuthHelper.DefaultOneDriveClientId;
                     break;
 
                 case "S3":
@@ -158,6 +148,11 @@ public sealed partial class SettingsView : UserControl
             }
 
             SetupEditPanel();
+
+            if (tagStr == "GoogleDrive" || tagStr == "OneDrive")
+            {
+                OAuthLoginButton_Click(sender, e);
+            }
         }
     }
 
@@ -244,6 +239,10 @@ public sealed partial class SettingsView : UserControl
 
                 // Otomatik olarak ayarları kaydet ve listeyi güncelle
                 SaveAndConnectBtn_Click(sender, e);
+
+                // Giriş tamamlandıktan sonra ayarlar penceresini kapatıp gezginde dosyaları aç
+                await Task.Delay(500);
+                _parentWindow?.Close();
             }
             else
             {
@@ -308,16 +307,13 @@ public sealed partial class SettingsView : UserControl
             var target = CloudreveManager.Instance.Servers.FirstOrDefault(s => s.Id == id);
             if (target != null)
             {
-                // Google Drive veya OneDrive oturumu açılmamışsa doğrudan düzenleme/giriş paneline yönlendir
+                // Google Drive veya OneDrive oturumu açılmamışsa doğrudan yetkilendirme başlat ve tarayıcıyı aç
                 if ((target.Protocol == StorageProtocol.GoogleDrive || target.Protocol == StorageProtocol.OneDrive) && string.IsNullOrEmpty(target.Password))
                 {
                     _isNewServer = false;
                     _editingServer = target;
                     SetupEditPanel();
-                    TestResultInfoBar.Severity = InfoBarSeverity.Warning;
-                    TestResultInfoBar.Title = "Oturum Gerekli";
-                    TestResultInfoBar.Message = $"{target.ProviderName} henüz yetkilendirilmemiş. Lütfen 'Tarayıcı ile Giriş Yap' butonuna tıklayarak hesabınızı bağlayın.";
-                    TestResultInfoBar.IsOpen = true;
+                    OAuthLoginButton_Click(sender, e);
                     return;
                 }
 

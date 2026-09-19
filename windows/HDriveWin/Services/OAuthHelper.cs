@@ -13,22 +13,35 @@ namespace HDriveWin.Services;
 
 public class OAuthHelper
 {
-    public const string DefaultOneDriveClientId = "d3590ed6-52b3-4102-aeff-aad2292ab01c";
+    public const string DefaultOneDriveClientId = "232843cb-b028-4bbf-97d4-039b8a611dbd";
 
     public static string GetDefaultGoogleClientId()
     {
         try
         {
-            var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            var path = Path.Combine(userProfile, ".config", "HDrive", "google_credentials.json");
-            if (File.Exists(path))
+            var env = Environment.GetEnvironmentVariable("GOOGLE_OAUTH_CLIENT_ID");
+            if (!string.IsNullOrWhiteSpace(env)) return env.Trim();
+
+            var candidates = new[]
             {
-                var content = File.ReadAllText(path);
-                using var doc = JsonDocument.Parse(content);
-                if (doc.RootElement.TryGetProperty("client_id", out var cid))
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config", "HDrive", "google_credentials.json"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "HDrive", "google_credentials.json"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HDrive", "google_credentials.json"),
+                Path.Combine(AppContext.BaseDirectory, "google_credentials.json"),
+                Path.Combine(AppContext.BaseDirectory, "Config", "google_credentials.json")
+            };
+
+            foreach (var path in candidates)
+            {
+                if (File.Exists(path))
                 {
-                    var val = cid.GetString();
-                    if (!string.IsNullOrEmpty(val)) return val;
+                    var content = File.ReadAllText(path);
+                    using var doc = JsonDocument.Parse(content);
+                    if (doc.RootElement.TryGetProperty("client_id", out var cid))
+                    {
+                        var val = cid.GetString();
+                        if (!string.IsNullOrEmpty(val)) return val.Trim();
+                    }
                 }
             }
         }
@@ -40,16 +53,29 @@ public class OAuthHelper
     {
         try
         {
-            var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            var path = Path.Combine(userProfile, ".config", "HDrive", "google_credentials.json");
-            if (File.Exists(path))
+            var env = Environment.GetEnvironmentVariable("GOOGLE_OAUTH_CLIENT_SECRET");
+            if (!string.IsNullOrWhiteSpace(env)) return env.Trim();
+
+            var candidates = new[]
             {
-                var content = File.ReadAllText(path);
-                using var doc = JsonDocument.Parse(content);
-                if (doc.RootElement.TryGetProperty("client_secret", out var cs))
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config", "HDrive", "google_credentials.json"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "HDrive", "google_credentials.json"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HDrive", "google_credentials.json"),
+                Path.Combine(AppContext.BaseDirectory, "google_credentials.json"),
+                Path.Combine(AppContext.BaseDirectory, "Config", "google_credentials.json")
+            };
+
+            foreach (var path in candidates)
+            {
+                if (File.Exists(path))
                 {
-                    var val = cs.GetString();
-                    if (!string.IsNullOrEmpty(val)) return val;
+                    var content = File.ReadAllText(path);
+                    using var doc = JsonDocument.Parse(content);
+                    if (doc.RootElement.TryGetProperty("client_secret", out var cs))
+                    {
+                        var val = cs.GetString();
+                        if (!string.IsNullOrEmpty(val)) return val.Trim();
+                    }
                 }
             }
         }
@@ -76,8 +102,7 @@ public class OAuthHelper
 
             if (protocol == StorageProtocol.GoogleDrive)
             {
-                listener.Prefixes.Add("http://127.0.0.1:8080/oauth/callback/");
-                listener.Prefixes.Add("http://127.0.0.1:8080/oauth/");
+                listener.Prefixes.Add("http://127.0.0.1:8080/");
             }
             else
             {

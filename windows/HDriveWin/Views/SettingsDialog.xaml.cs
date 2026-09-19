@@ -81,23 +81,14 @@ public sealed partial class SettingsDialog : ContentDialog
                     _editingServer.Protocol = StorageProtocol.GoogleDrive;
                     _editingServer.Name = "Google Drive";
                     _editingServer.ServerURL = "https://www.googleapis.com/drive/v3";
-                    try
-                    {
-                        var cfgPath = System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile), ".config", "HDrive", "google_credentials.json");
-                        if (System.IO.File.Exists(cfgPath))
-                        {
-                            var content = System.IO.File.ReadAllText(cfgPath);
-                            using var doc = System.Text.Json.JsonDocument.Parse(content);
-                            if (doc.RootElement.TryGetProperty("client_id", out var cid)) _editingServer.ClientId = cid.GetString() ?? "";
-                            if (doc.RootElement.TryGetProperty("client_secret", out var cs)) _editingServer.ClientSecret = cs.GetString() ?? "";
-                        }
-                    }
-                    catch { }
+                    _editingServer.ClientId = OAuthHelper.GetDefaultGoogleClientId();
+                    _editingServer.ClientSecret = OAuthHelper.GetDefaultGoogleClientSecret();
                     break;
                 case "OneDrive":
                     _editingServer.Protocol = StorageProtocol.OneDrive;
                     _editingServer.Name = "OneDrive";
                     _editingServer.ServerURL = "https://graph.microsoft.com/v1.0/me/drive";
+                    _editingServer.ClientId = OAuthHelper.DefaultOneDriveClientId;
                     break;
                 case "S3":
                     _editingServer.Protocol = StorageProtocol.S3;
