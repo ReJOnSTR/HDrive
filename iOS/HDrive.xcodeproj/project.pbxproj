@@ -15,10 +15,10 @@
 		110100062C8C000100000006 /* WebDAVHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110200062C8C000100000006 /* WebDAVHandler.swift */; };
 		110100072C8C000100000007 /* WebDAVServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110200072C8C000100000007 /* WebDAVServer.swift */; };
 		110100082C8C000100000008 /* WebDashboardEmbeddedAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110200082C8C000100000008 /* WebDashboardEmbeddedAssets.swift */; };
-		110100092C8C000100000009 /* MainDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110200092C8C000100000009 /* MainDashboardView.swift */; };
+		110100092C8C000100000009 /* TransferSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110200092C8C000100000009 /* TransferSheetView.swift */; };
 		1101000A2C8C00010000000A /* FileBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1102000A2C8C00010000000A /* FileBrowserView.swift */; };
 		1101000B2C8C00010000000B /* FileDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1102000B2C8C00010000000B /* FileDetailView.swift */; };
-		1101000C2C8C00010000000C /* QuickConnectGuideView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1102000C2C8C00010000000C /* QuickConnectGuideView.swift */; };
+		1101000C2C8C00010000000C /* TransferManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1102000C2C8C00010000000C /* TransferManager.swift */; };
 		1101000D2C8C00010000000D /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1102000D2C8C00010000000D /* SettingsView.swift */; };
 		1101000E2C8C00010000000E /* WebAssets in Resources */ = {isa = PBXBuildFile; fileRef = 1102000E2C8C00010000000E /* WebAssets */; };
 		110100102C8C000100000010 /* WebDAVClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110200102C8C000100000010 /* WebDAVClient.swift */; };
@@ -27,8 +27,6 @@
 		110100132C8C000100000013 /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110200132C8C000100000013 /* KeychainHelper.swift */; };
 		110100142C8C000100000014 /* NetworkMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110200142C8C000100000014 /* NetworkMonitor.swift */; };
 		110100152C8C000100000015 /* SyncLogManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110200152C8C000100000015 /* SyncLogManager.swift */; };
-		110100162C8C000100000016 /* QRCodeScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110200162C8C000100000016 /* QRCodeScannerView.swift */; };
-		110100172C8C000100000017 /* ConnectedPCView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110200172C8C000100000017 /* ConnectedPCView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -41,10 +39,10 @@
 		110200062C8C000100000006 /* WebDAVHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebDAVHandler.swift; sourceTree = "<group>"; };
 		110200072C8C000100000007 /* WebDAVServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebDAVServer.swift; sourceTree = "<group>"; };
 		110200082C8C000100000008 /* WebDashboardEmbeddedAssets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebDashboardEmbeddedAssets.swift; sourceTree = "<group>"; };
-		110200092C8C000100000009 /* MainDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainDashboardView.swift; sourceTree = "<group>"; };
+		110200092C8C000100000009 /* TransferSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransferSheetView.swift; sourceTree = "<group>"; };
 		1102000A2C8C00010000000A /* FileBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileBrowserView.swift; sourceTree = "<group>"; };
 		1102000B2C8C00010000000B /* FileDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileDetailView.swift; sourceTree = "<group>"; };
-		1102000C2C8C00010000000C /* QuickConnectGuideView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickConnectGuideView.swift; sourceTree = "<group>"; };
+		1102000C2C8C00010000000C /* TransferManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransferManager.swift; sourceTree = "<group>"; };
 		1102000D2C8C00010000000D /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		1102000E2C8C00010000000E /* WebAssets */ = {isa = PBXFileReference; lastKnownFileType = folder; path = WebAssets; sourceTree = "<group>"; };
 		1102000F2C8C00010000000F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -54,8 +52,6 @@
 		110200132C8C000100000013 /* KeychainHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainHelper.swift; sourceTree = "<group>"; };
 		110200142C8C000100000014 /* NetworkMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkMonitor.swift; sourceTree = "<group>"; };
 		110200152C8C000100000015 /* SyncLogManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncLogManager.swift; sourceTree = "<group>"; };
-		110200162C8C000100000016 /* QRCodeScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRCodeScannerView.swift; sourceTree = "<group>"; };
-		110200172C8C000100000017 /* ConnectedPCView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectedPCView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -114,6 +110,7 @@
 				110200042C8C000100000004 /* NetworkUtils.swift */,
 				110200102C8C000100000010 /* WebDAVClient.swift */,
 				110200112C8C000100000011 /* CloudreveManager.swift */,
+				1102000C2C8C00010000000C /* TransferManager.swift */,
 				110200132C8C000100000013 /* KeychainHelper.swift */,
 				110200142C8C000100000014 /* NetworkMonitor.swift */,
 				110200152C8C000100000015 /* SyncLogManager.swift */,
@@ -135,14 +132,11 @@
 		110400072C8C000100000007 /* Views */ = {
 			isa = PBXGroup;
 			children = (
-				110200092C8C000100000009 /* MainDashboardView.swift */,
+				110200092C8C000100000009 /* TransferSheetView.swift */,
 				1102000A2C8C00010000000A /* FileBrowserView.swift */,
 				1102000B2C8C00010000000B /* FileDetailView.swift */,
-				1102000C2C8C00010000000C /* QuickConnectGuideView.swift */,
 				1102000D2C8C00010000000D /* SettingsView.swift */,
 				110200122C8C000100000012 /* CloudreveMobileView.swift */,
-				110200162C8C000100000016 /* QRCodeScannerView.swift */,
-				110200172C8C000100000017 /* ConnectedPCView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -231,10 +225,10 @@
 				110100062C8C000100000006 /* WebDAVHandler.swift in Sources */,
 				110100072C8C000100000007 /* WebDAVServer.swift in Sources */,
 				110100082C8C000100000008 /* WebDashboardEmbeddedAssets.swift in Sources */,
-				110100092C8C000100000009 /* MainDashboardView.swift in Sources */,
+				110100092C8C000100000009 /* TransferSheetView.swift in Sources */,
 				1101000A2C8C00010000000A /* FileBrowserView.swift in Sources */,
 				1101000B2C8C00010000000B /* FileDetailView.swift in Sources */,
-				1101000C2C8C00010000000C /* QuickConnectGuideView.swift in Sources */,
+				1101000C2C8C00010000000C /* TransferManager.swift in Sources */,
 				1101000D2C8C00010000000D /* SettingsView.swift in Sources */,
 				110100102C8C000100000010 /* WebDAVClient.swift in Sources */,
 				110100112C8C000100000011 /* CloudreveManager.swift in Sources */,
@@ -242,8 +236,6 @@
 				110100132C8C000100000013 /* KeychainHelper.swift in Sources */,
 				110100142C8C000100000014 /* NetworkMonitor.swift in Sources */,
 				110100152C8C000100000015 /* SyncLogManager.swift in Sources */,
-				110100162C8C000100000016 /* QRCodeScannerView.swift in Sources */,
-				110100172C8C000100000017 /* ConnectedPCView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

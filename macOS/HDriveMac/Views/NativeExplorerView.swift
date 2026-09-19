@@ -171,7 +171,6 @@ public enum ExplorerToolbarItemId: String, CaseIterable, Identifiable, Codable {
     case quickLook = "quickLook"             // Hızlı Bakış
     case getInfo = "getInfo"                 // Bilgi Ver
     case delete = "delete"                   // Sil
-    case mountFinder = "mountFinder"         // Finder'da Aç
     case transferQueue = "transferQueue"     // Transferler
     case settings = "settings"               // Ayarlar
     
@@ -190,7 +189,6 @@ public enum ExplorerToolbarItemId: String, CaseIterable, Identifiable, Codable {
         case .quickLook: return "Hızlı Bakış"
         case .getInfo: return "Bilgi Ver"
         case .delete: return "Sil"
-        case .mountFinder: return "Finder'da Aç"
         case .transferQueue: return "Transferler"
         case .settings: return "Ayarlar"
         }
@@ -209,7 +207,6 @@ public enum ExplorerToolbarItemId: String, CaseIterable, Identifiable, Codable {
         case .quickLook: return "Seçili dosyayı Hızlı Bakış ile önizle"
         case .getInfo: return "Seçili dosyanın boyut ve konum özelliklerini göster"
         case .delete: return "Seçili dosya veya klasörleri sil"
-        case .mountFinder: return "Mevcut bulut sürücüsünü Finder'da yerel disk olarak bağla"
         case .transferQueue: return "Aktif yükleme ve indirme kuyruğunu göster"
         case .settings: return "HDrive sunucu ve uygulama tercihlerini aç"
         }
@@ -228,7 +225,6 @@ public enum ExplorerToolbarItemId: String, CaseIterable, Identifiable, Codable {
         case .quickLook: return "eye"
         case .getInfo: return "info.circle"
         case .delete: return "trash"
-        case .mountFinder: return "macwindow"
         case .transferQueue: return "tray.and.arrow.down"
         case .settings: return "gearshape"
         }
@@ -238,7 +234,6 @@ public enum ExplorerToolbarItemId: String, CaseIterable, Identifiable, Codable {
 public struct NativeExplorerView: View {
     public static var isSearchActiveGlobal: Bool = false
     @ObservedObject var manager = CloudreveManager.shared
-    @ObservedObject var mounter = DriveMounter.shared
     @ObservedObject var opener = FileOpener.shared
     @ObservedObject var previewManager = FilePreviewManager.shared
     @ObservedObject var transferManager = TransferManager.shared
@@ -691,18 +686,7 @@ public struct NativeExplorerView: View {
                 .help("Seçili Öğeleri Sil (⌘⌫)")
                 .contextMenu { toolbarContextMenu }
             }
-            
-            if isToolbarItemEnabled(.mountFinder) {
-                Button(action: {
-                    if let s = manager.activeServer {
-                        mounter.connectAndOpenInFinder(config: s) { _, _ in }
-                    }
-                }) {
-                    Label("Finder'da Aç", systemImage: "macwindow")
-                }
-                .help("Finder'da Ağ Diski Olarak Bağla ve Aç")
-                .contextMenu { toolbarContextMenu }
-            }
+
             
             if isToolbarItemEnabled(.refresh) {
                 Button(action: { loadDirectory(at: currentPath) }) {
@@ -3127,12 +3111,7 @@ public struct NativeExplorerView: View {
             }
         }
     }
-    
-    private func openInFinder() {
-        if let server = manager.activeServer {
-            DriveMounter.shared.connectAndOpenInFinder(config: server) { _, _ in }
-        }
-    }
+
     
     // MARK: - Sistem Panosu (Kopyala, Kes, Yapıştır)
     private func copySelectedFiles() {
@@ -3996,7 +3975,6 @@ public struct HDriveSettingsView: View {
     }
     
     @ObservedObject var manager = CloudreveManager.shared
-    @ObservedObject var mounter = DriveMounter.shared
     
     @State private var currentTab: SettingsTab = .account
     @State private var connectionMode: ConnectionViewMode = .list
@@ -4641,36 +4619,7 @@ public struct HDriveSettingsView: View {
                 RoundedRectangle(cornerRadius: 10)
                     .stroke(Color.primary.opacity(0.08), lineWidth: 1)
             )
-            
-            // Finder Ağ Sürücüsü (DriveMounter) Kartı
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Finder Ağ Sürücüsü Olarak Bağla")
-                            .font(.system(size: 13, weight: .semibold))
-                        Text("Aktif sunucunuzu Finder'da doğrudan bir ağ diski olarak bağlar.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    Spacer()
-                    
-                    Button("Finder'da Bağla") {
-                        if let active = manager.activeServer {
-                            mounter.connectAndOpenInFinder(config: active) { _, _ in }
-                        }
-                    }
-                    .buttonStyle(.bordered)
-                }
-            }
-            .padding(16)
-            .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(Color(NSColor.controlBackgroundColor))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-            )
+
         }
     }
     

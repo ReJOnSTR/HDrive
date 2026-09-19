@@ -9,6 +9,7 @@ import SwiftUI
 struct HDriveApp: App {
     @StateObject private var config = ServerConfig.shared
     @StateObject private var server = WebDAVServer.shared
+    @StateObject private var transferManager = TransferManager.shared
     
     init() {
         // Gerekli başlangıç dizinlerini hazırla
@@ -31,6 +32,12 @@ struct HDriveApp: App {
                 .tabItem {
                     Label("Dosyalar", systemImage: "folder.fill")
                 }
+                
+                TransferSheetView()
+                    .tabItem {
+                        Label("Transferler", systemImage: "tray.and.arrow.down.fill")
+                    }
+                    .badge(transferManager.activeTransfersCount)
                 
                 NavigationStack {
                     SettingsView()

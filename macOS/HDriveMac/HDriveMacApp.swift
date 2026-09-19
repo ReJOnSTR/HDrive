@@ -8,7 +8,6 @@ import AppKit
 
 @main
 struct HDriveMacApp: App {
-    @StateObject private var mounter = DriveMounter.shared
     @StateObject private var cloudreveManager = CloudreveManager.shared
     
     var body: some Scene {

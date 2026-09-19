@@ -737,7 +737,7 @@ public sealed partial class MainWindow : Window
         else if (e.Key == Windows.System.VirtualKey.Space && _selectedItem != null)
         {
             e.Handled = true;
-            PreviewPaneToggle_Click(sender, new RoutedEventArgs());
+            await ShowQuickLookAsync(_selectedItem);
         }
         else if (e.Key == Windows.System.VirtualKey.F2 && _selectedItem != null)
         {
@@ -1739,6 +1739,50 @@ public sealed partial class MainWindow : Window
                 NavigateToPath(_selectedItem.Path);
             else
                 await OpenFileAsync(_selectedItem);
+        }
+    }
+
+    private async void ContextQuickLook_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selectedItem != null)
+        {
+            await ShowQuickLookAsync(_selectedItem);
+        }
+    }
+
+    private async void QuickLookButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selectedItem != null)
+        {
+            await ShowQuickLookAsync(_selectedItem);
+        }
+    }
+
+    private async Task ShowQuickLookAsync(FileItem item)
+    {
+        if (item.IsDirectory) return;
+
+        string? localPath = null;
+        try
+        {
+            var config = CloudreveManager.Instance.ActiveServer;
+            if (config != null && item.Size < 20 * 1024 * 1024)
+            {
+                var client = new WebDAVClient(config);
+                localPath = await client.DownloadFileToCacheAsync(item.Path);
+            }
+        }
+        catch { }
+
+        var dialog = new HDriveWin.Views.QuickLookDialog(item, localPath)
+        {
+            XamlRoot = this.Content.XamlRoot
+        };
+
+        await dialog.ShowAsync();
+        if (dialog.ShouldOpenNatively)
+        {
+            await HandleOpenItemAsync(item);
         }
     }
 

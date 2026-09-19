@@ -344,6 +344,7 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
     }
 
     public func ensureSmbMounted(completion: @escaping (Result<URL, Error>) -> Void) {
+        #if os(macOS)
         if let vol = smbVolumeURL, FileManager.default.fileExists(atPath: vol.path) {
             completion(.success(vol))
             return
@@ -389,6 +390,9 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
                 }
             }
         }
+        #else
+        completion(.failure(NSError(domain: "HDrive", code: 501, userInfo: [NSLocalizedDescriptionKey: "SMB bağlama iOS üzerinde desteklenmemektedir."])))
+        #endif
     }
 
     public func getSmbStorageQuota() -> (total: Int64, free: Int64)? {

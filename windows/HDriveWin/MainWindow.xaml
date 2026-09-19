@@ -220,6 +220,7 @@
                             </MenuFlyout>
                         </AppBarButton.Flyout>
                     </AppBarButton>
+                    <AppBarButton x:Name="QuickLookButton" Icon="Preview" Label="Hızlı Bakış" Click="QuickLookButton_Click" ToolTipService.ToolTip="Hızlı Bakış (Boşluk Tuşu)" />
                     <AppBarToggleButton x:Name="PreviewPaneToggle" Icon="PreviewLink" Label="Önizleme" Click="PreviewPaneToggle_Click" />
                     <AppBarButton x:Name="TransferButton" Label="Transferler" Click="TransferButton_Click">
                         <AppBarButton.Icon>
@@ -803,6 +804,11 @@
                             <MenuFlyoutItem Text="Aç (Enter)" Click="ContextOpen_Click">
                                 <MenuFlyoutItem.Icon>
                                     <FontIcon Glyph="&#xE8E5;" />
+                                </MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem Text="Hızlı Bakış (Space)" Click="ContextQuickLook_Click">
+                                <MenuFlyoutItem.Icon>
+                                    <FontIcon Glyph="&#xE890;" />
                                 </MenuFlyoutItem.Icon>
                             </MenuFlyoutItem>
                             <MenuFlyoutItem x:Name="ContextPinItem" Text="Kenar Çubuğuna Sabitle" Click="ContextPin_Click" Visibility="Collapsed">

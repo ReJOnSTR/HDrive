@@ -92,17 +92,7 @@ public final class FilePreviewManager: ObservableObject {
     
     /// Belirtilen dosya için yerel bir dosya URL'i arar (Disk, Eşitleme veya Cache)
     public func resolvedLocalURL(for file: RemoteFileItem) -> URL? {
-        let rel = file.href.hasPrefix("/") ? String(file.href.dropFirst()) : file.href
-        
-        // 1. Ağ Sürücüsü (Mount)
-        if DriveMounter.shared.isMounted, let mountPoint = DriveMounter.shared.mountPoint {
-            let candidate = mountPoint.appendingPathComponent(rel)
-            if FileManager.default.fileExists(atPath: candidate.path) {
-                return candidate
-            }
-        }
-        
-        // 2. HDriveFiles Cache (FileOpener)
+        // 1. HDriveFiles Cache (FileOpener)
         if let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first {
             let openerCache = caches.appendingPathComponent("HDriveFiles", isDirectory: true).appendingPathComponent(file.name)
             if FileManager.default.fileExists(atPath: openerCache.path) {

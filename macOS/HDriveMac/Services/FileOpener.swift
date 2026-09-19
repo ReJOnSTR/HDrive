@@ -46,23 +46,7 @@ public final class FileOpener: ObservableObject {
     public func openFileNatively(file: RemoteFileItem, client: WebDAVClient, completion: @escaping (Bool, String?) -> Void) {
         let localFileName = resolveLocalFileName(for: file, client: client)
         
-        // 1. Finder'da bağlı bir ağ diski var mı kontrol et
-        if DriveMounter.shared.isMounted, let mountPoint = DriveMounter.shared.mountPoint {
-            var subPath = file.href
-            if subPath.hasPrefix("/dav") {
-                subPath = String(subPath.dropFirst(4))
-            }
-            subPath = subPath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-            let candidateURL = mountPoint.appendingPathComponent(subPath)
-            if FileManager.default.fileExists(atPath: candidateURL.path) {
-                if NSWorkspace.shared.open(candidateURL) {
-                    completion(true, nil)
-                    return
-                }
-            }
-        }
-        
-        // 2. Önizleme önbelleğinde zaten mevcut ve boyutu geçerli mi?
+        // Önizleme önbelleğinde zaten mevcut ve boyutu geçerli mi?
         let safeName = "\(file.id.replacingOccurrences(of: "/", with: "_"))_\(localFileName)"
         let previewCandidate1 = FilePreviewManager.shared.previewCacheDir.appendingPathComponent(safeName)
         let previewCandidate2 = FilePreviewManager.shared.previewCacheDir.appendingPathComponent(localFileName)
