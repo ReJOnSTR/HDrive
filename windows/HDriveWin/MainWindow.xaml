@@ -220,7 +220,11 @@
                             </MenuFlyout>
                         </AppBarButton.Flyout>
                     </AppBarButton>
-                    <AppBarButton x:Name="QuickLookButton" Icon="Preview" Label="Hızlı Bakış" Click="QuickLookButton_Click" ToolTipService.ToolTip="Hızlı Bakış (Boşluk Tuşu)" />
+                    <AppBarButton x:Name="QuickLookButton" Label="Hızlı Bakış" Click="QuickLookButton_Click" ToolTipService.ToolTip="Hızlı Bakış (Boşluk Tuşu)">
+                        <AppBarButton.Icon>
+                            <FontIcon Glyph="&#xE890;" />
+                        </AppBarButton.Icon>
+                    </AppBarButton>
                     <AppBarToggleButton x:Name="PreviewPaneToggle" Icon="PreviewLink" Label="Önizleme" Click="PreviewPaneToggle_Click" />
                     <AppBarButton x:Name="TransferButton" Label="Transferler" Click="TransferButton_Click">
                         <AppBarButton.Icon>

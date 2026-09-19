@@ -2752,13 +2752,13 @@ public sealed partial class MainWindow : Window
 
     private void TransferButton_Click(object sender, RoutedEventArgs e)
     {
-        TransferEmptyText.Visibility = TransferManager.Instance.Items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        TransferEmptyState.Visibility = TransferManager.Instance.Items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void TransferClearCompleted_Click(object sender, RoutedEventArgs e)
     {
         TransferManager.Instance.ClearCompleted();
-        TransferEmptyText.Visibility = TransferManager.Instance.Items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        TransferEmptyState.Visibility = TransferManager.Instance.Items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void TransferCancel_Click(object sender, RoutedEventArgs e)
