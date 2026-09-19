@@ -791,7 +791,7 @@ public sealed partial class MainWindow : Window
             if (config == null) return;
             var client = new WebDAVClient(config);
 
-            var localPath = await client.DownloadFileToCacheAsync(item.Path);
+            var localPath = await client.DownloadFileToCacheAsync(item.Path, item.Name);
             LoadingRing.IsActive = false;
 
             if (!string.IsNullOrEmpty(localPath) && File.Exists(localPath))
@@ -1483,11 +1483,15 @@ public sealed partial class MainWindow : Window
         var ext = item.Extension?.TrimStart('.').ToLowerInvariant() ?? "";
         bool isText = new[] { "txt", "md", "json", "xml", "csv", "log", "cs", "py", "js", "ts", "html", "css", "yml", "yaml", "sql", "ini", "sh", "bat" }.Contains(ext);
 
+        var safePrefix = (item.Path ?? "").Trim('/').Replace('/', '_').Replace('\\', '_');
+        if (safePrefix.Length > 32) safePrefix = safePrefix.Substring(0, 32);
+        var cachedFileName = $"{safePrefix}_{item.Name}";
+        var cacheDir = Path.Combine(Path.GetTempPath(), "HDriveCache");
+        var cachedFile = Path.Combine(cacheDir, cachedFileName);
+
         if (item.IsImage)
         {
-            var cacheDir = Path.Combine(Path.GetTempPath(), "HDriveCache");
-            var cachedFile = Path.Combine(cacheDir, Path.GetFileName(item.Path));
-            if (File.Exists(cachedFile))
+            if (File.Exists(cachedFile) && new FileInfo(cachedFile).Length > 0)
             {
                 try
                 {
@@ -1505,7 +1509,7 @@ public sealed partial class MainWindow : Window
                 _ = Task.Run(async () =>
                 {
                     var client = new WebDAVClient(CloudreveManager.Instance.ActiveServer);
-                    var downloaded = await client.DownloadFileToCacheAsync(item.Path);
+                    var downloaded = await client.DownloadFileToCacheAsync(item.Path, item.Name);
                     if (!string.IsNullOrEmpty(downloaded) && File.Exists(downloaded))
                     {
                         DispatcherQueue.TryEnqueue(() =>
@@ -1530,9 +1534,7 @@ public sealed partial class MainWindow : Window
         }
         else if (isText && item.Size < 5 * 1024 * 1024)
         {
-            var cacheDir = Path.Combine(Path.GetTempPath(), "HDriveCache");
-            var cachedFile = Path.Combine(cacheDir, Path.GetFileName(item.Path));
-            if (File.Exists(cachedFile))
+            if (File.Exists(cachedFile) && new FileInfo(cachedFile).Length > 0)
             {
                 try
                 {
@@ -1549,7 +1551,7 @@ public sealed partial class MainWindow : Window
                 _ = Task.Run(async () =>
                 {
                     var client = new WebDAVClient(CloudreveManager.Instance.ActiveServer);
-                    var downloaded = await client.DownloadFileToCacheAsync(item.Path);
+                    var downloaded = await client.DownloadFileToCacheAsync(item.Path, item.Name);
                     if (!string.IsNullOrEmpty(downloaded) && File.Exists(downloaded))
                     {
                         DispatcherQueue.TryEnqueue(() =>
@@ -1661,6 +1663,20 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private async void SwitchToRemoteServer(string serverId)
+    {
+        var target = CloudreveManager.Instance.Servers.FirstOrDefault(s => s.Id == serverId);
+        if (target != null)
+        {
+            CloudreveManager.Instance.SetActiveServer(target);
+            UpdateSidebar();
+            UpdateTabHeaders();
+            UpdateBreadcrumbs("");
+            _ = RefreshStorageQuotaAsync();
+            await LoadDirectoryAsync("");
+        }
+    }
+
     private async void NavView_ItemInvoked(NavigationView sender, NavigationViewItemInvokedEventArgs args)
     {
         if (args.IsSettingsInvoked)
@@ -1674,6 +1690,15 @@ public sealed partial class MainWindow : Window
                 if (tag == "cloud")
                 {
                     NavigateToPath("");
+                }
+                else if (tag.StartsWith("server:"))
+                {
+                    var serverId = tag.Substring("server:".Length);
+                    SwitchToRemoteServer(serverId);
+                }
+                else if (tag == "add_server")
+                {
+                    OpenSettingsWindow();
                 }
                 else if (tag.StartsWith("pinned:"))
                 {
@@ -1697,6 +1722,7 @@ public sealed partial class MainWindow : Window
         _settingsWindow = new SettingsWindow();
         _settingsWindow.SettingsSaved += async (s, e) =>
         {
+            UpdateSidebar();
             UpdateTabHeaders();
             UpdateBreadcrumbs(_currentPath);
             await LoadDirectoryAsync(_currentPath);
@@ -1704,6 +1730,7 @@ public sealed partial class MainWindow : Window
         _settingsWindow.Closed += async (s, e) =>
         {
             _settingsWindow = null;
+            UpdateSidebar();
             UpdateTabHeaders();
             UpdateBreadcrumbs(_currentPath);
             await LoadDirectoryAsync(_currentPath);
@@ -1790,7 +1817,7 @@ public sealed partial class MainWindow : Window
             if (config != null && item.Size < 20 * 1024 * 1024)
             {
                 var client = new WebDAVClient(config);
-                localPath = await client.DownloadFileToCacheAsync(item.Path);
+                localPath = await client.DownloadFileToCacheAsync(item.Path, item.Name);
             }
         }
         catch { }
@@ -2121,7 +2148,7 @@ public sealed partial class MainWindow : Window
                 }
                 else
                 {
-                    var local = await client.DownloadFileToCacheAsync(item.Path);
+                    var local = await client.DownloadFileToCacheAsync(item.Path, item.Name);
                     if (!string.IsNullOrEmpty(local)) localPaths.Add(local);
                 }
             }
@@ -2183,7 +2210,7 @@ public sealed partial class MainWindow : Window
                 }
                 else
                 {
-                    var local = await client.DownloadFileToCacheAsync(item.Path);
+                    var local = await client.DownloadFileToCacheAsync(item.Path, item.Name);
                     if (!string.IsNullOrEmpty(local)) localPaths.Add(local);
                 }
             }
@@ -2301,7 +2328,7 @@ public sealed partial class MainWindow : Window
                 }
                 else
                 {
-                    var local = await client.DownloadFileToCacheAsync(item.Path);
+                    var local = await client.DownloadFileToCacheAsync(item.Path, item.Name);
                     if (!string.IsNullOrEmpty(local) && File.Exists(local))
                     {
                         await client.UploadFileAsync(local, _currentPath);
@@ -2634,7 +2661,7 @@ public sealed partial class MainWindow : Window
                 }
                 else if (!item.IsDirectory)
                 {
-                    localPath = await client.DownloadFileToCacheAsync(item.Path);
+                    localPath = await client.DownloadFileToCacheAsync(item.Path, item.Name);
                 }
                 else
                 {
@@ -2830,7 +2857,7 @@ public sealed partial class MainWindow : Window
         {
             _pinnedFolders = new();
         }
-        UpdateFavoritesSidebar();
+        UpdateSidebar();
     }
 
     private void SavePinnedFolders()
@@ -2847,12 +2874,23 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void UpdateFavoritesSidebar()
+    private void UpdateSidebar()
     {
-        // Önceki sabit klasör öğelerini temizle
+        // 1. TÜM DOSYALAR (Aktif Sürücü Kökü)
+        var activeServer = CloudreveManager.Instance.ActiveServer;
+        if (AllFilesNavItem != null)
+        {
+            AllFilesNavItem.Content = activeServer != null ? activeServer.Name : "Tüm Dosyalar";
+            AllFilesNavItem.Icon = new FontIcon 
+            { 
+                Glyph = activeServer?.GlyphIcon ?? "\uE753",
+                Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 0, 120, 212))
+            };
+        }
+
+        // 2. Dinamik olarak eklenen öğeleri temizle (AllFilesNavItem hariç)
         var itemsToRemove = NavView.MenuItems
-            .OfType<NavigationViewItem>()
-            .Where(item => item.Tag is string tag && tag.StartsWith("pinned:"))
+            .Where(x => !ReferenceEquals(x, AllFilesNavItem))
             .ToList();
 
         foreach (var item in itemsToRemove)
@@ -2860,32 +2898,117 @@ public sealed partial class MainWindow : Window
             NavView.MenuItems.Remove(item);
         }
 
-        // Sabitlenen klasörleri ekle
-        foreach (var pinned in _pinnedFolders)
+        // 3. HESAPLAR & BULUT SERVİSLERİ
+        var servers = CloudreveManager.Instance.Servers;
+        if (servers.Count > 0)
         {
-            var navItem = new NavigationViewItem
+            NavView.MenuItems.Add(new NavigationViewItemHeader { Content = "Hesaplar & Servisler" });
+
+            foreach (var server in servers)
             {
-                Content = pinned.Name,
-                Tag = $"pinned:{pinned.Path}",
-                Icon = new FontIcon 
-                { 
-                    Glyph = "\uE8B7", 
-                    Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 234, 163, 0)) 
+                var isCurrentActive = (activeServer?.Id == server.Id);
+
+                string glyph;
+                Windows.UI.Color iconColor;
+                switch (server.Protocol)
+                {
+                    case StorageProtocol.GoogleDrive:
+                        glyph = "\uE8B9";
+                        iconColor = Windows.UI.Color.FromArgb(255, 66, 133, 244);
+                        break;
+                    case StorageProtocol.OneDrive:
+                        glyph = "\uE753";
+                        iconColor = Windows.UI.Color.FromArgb(255, 0, 120, 212);
+                        break;
+                    case StorageProtocol.S3:
+                        glyph = "\uEDA2";
+                        iconColor = Windows.UI.Color.FromArgb(255, 255, 153, 0);
+                        break;
+                    case StorageProtocol.SMB:
+                        glyph = "\uE7F4";
+                        iconColor = Windows.UI.Color.FromArgb(255, 16, 124, 65);
+                        break;
+                    default:
+                        glyph = "\uE753";
+                        iconColor = Windows.UI.Color.FromArgb(255, 92, 107, 192);
+                        break;
                 }
-            };
 
-            var flyout = new MenuFlyout();
-            var unpinItem = new MenuFlyoutItem
+                var serverItem = new NavigationViewItem
+                {
+                    Content = isCurrentActive ? $"✓ {server.Name}" : server.Name,
+                    Tag = $"server:{server.Id}",
+                    Icon = new FontIcon 
+                    { 
+                        Glyph = glyph, 
+                        Foreground = new SolidColorBrush(iconColor) 
+                    }
+                };
+
+                var flyout = new MenuFlyout();
+                var sId = server.Id;
+                var switchItem = new MenuFlyoutItem { Text = "Bu Sürücüye Bağlan", Icon = new FontIcon { Glyph = "\uE895" } };
+                switchItem.Click += (s, e) => SwitchToRemoteServer(sId);
+                flyout.Items.Add(switchItem);
+
+                var editItem = new MenuFlyoutItem { Text = "Ayarları Düzenle", Icon = new FontIcon { Glyph = "\uE70F" } };
+                editItem.Click += (s, e) => OpenSettingsWindow();
+                flyout.Items.Add(editItem);
+
+                serverItem.ContextFlyout = flyout;
+                NavView.MenuItems.Add(serverItem);
+
+                if (isCurrentActive)
+                {
+                    NavView.SelectedItem = serverItem;
+                }
+            }
+        }
+
+        // Yeni Hesap Ekle
+        var addServerItem = new NavigationViewItem
+        {
+            Content = "Yeni Hesap Ekle...",
+            Tag = "add_server",
+            Icon = new FontIcon 
+            { 
+                Glyph = "\uE710", 
+                Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 0, 120, 212)) 
+            }
+        };
+        NavView.MenuItems.Add(addServerItem);
+
+        // 4. FAVORİLER (Sabit Klasörler)
+        if (_pinnedFolders.Count > 0)
+        {
+            NavView.MenuItems.Add(new NavigationViewItemHeader { Content = "Favoriler" });
+
+            foreach (var pinned in _pinnedFolders)
             {
-                Text = "Kenar Çubuğundan Kaldır",
-                Icon = new FontIcon { Glyph = "\uE77A" }
-            };
-            var pinnedPath = pinned.Path;
-            unpinItem.Click += (s, e) => UnpinFolder(pinnedPath);
-            flyout.Items.Add(unpinItem);
-            navItem.ContextFlyout = flyout;
+                var navItem = new NavigationViewItem
+                {
+                    Content = pinned.Name,
+                    Tag = $"pinned:{pinned.Path}",
+                    Icon = new FontIcon 
+                    { 
+                        Glyph = "\uE8B7", 
+                        Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 234, 163, 0)) 
+                    }
+                };
 
-            NavView.MenuItems.Add(navItem);
+                var flyout = new MenuFlyout();
+                var unpinItem = new MenuFlyoutItem
+                {
+                    Text = "Kenar Çubuğundan Kaldır",
+                    Icon = new FontIcon { Glyph = "\uE77A" }
+                };
+                var pinnedPath = pinned.Path;
+                unpinItem.Click += (s, e) => UnpinFolder(pinnedPath);
+                flyout.Items.Add(unpinItem);
+                navItem.ContextFlyout = flyout;
+
+                NavView.MenuItems.Add(navItem);
+            }
         }
     }
 
@@ -2898,7 +3021,7 @@ public sealed partial class MainWindow : Window
         {
             _pinnedFolders.Add(new PinnedFolder(name, cleanPath));
             SavePinnedFolders();
-            UpdateFavoritesSidebar();
+            UpdateSidebar();
         }
     }
 
@@ -2907,7 +3030,7 @@ public sealed partial class MainWindow : Window
         var cleanPath = path.Trim('/');
         _pinnedFolders.RemoveAll(p => p.Path.Equals(cleanPath, StringComparison.OrdinalIgnoreCase));
         SavePinnedFolders();
-        UpdateFavoritesSidebar();
+        UpdateSidebar();
     }
 
     private bool IsFolderPinned(string path)

@@ -50,6 +50,10 @@ public sealed partial class QuickLookDialog : ContentDialog
         }
 
         var ext = Path.GetExtension(localFilePath).ToLowerInvariant();
+        if (string.IsNullOrEmpty(ext))
+        {
+            ext = Path.GetExtension(Item.Name).ToLowerInvariant();
+        }
 
         // 1. Resim Dosyaları
         if (ext is ".png" or ".jpg" or ".jpeg" or ".bmp" or ".gif" or ".webp" or ".ico")

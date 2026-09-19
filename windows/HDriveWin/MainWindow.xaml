@@ -67,7 +67,6 @@
                         <FontIcon Glyph="&#xE753;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItemHeader x:Name="FavoritesHeader" Content="Favoriler" />
             </NavigationView.MenuItems>
 
             <NavigationView.PaneFooter>
@@ -755,24 +754,29 @@
                                            TextWrapping="Wrap" />
                             </StackPanel>
 
-                            <!-- 2. Dolu Durum (Öğe Seçildiğinde - Tam Önizleme Odaklı) -->
+                            <!-- 2. Dolu Durum (Öğe Seçildiğinde - Zengin Önizleme ve Bilgi) -->
                             <Grid x:Name="PreviewContentState" Visibility="Collapsed">
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="*" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
                                 </Grid.RowDefinitions>
 
-                                <!-- Dosya Adı Başlığı -->
-                                <Border Grid.Row="0" Padding="12,8" Background="{ThemeResource LayerFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
-                                    <TextBlock x:Name="PreviewFileName" Text="Dosya Adı" FontWeight="SemiBold" FontSize="13" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" HorizontalAlignment="Left" />
+                                <!-- 0: Dosya Adı ve Tür Başlığı -->
+                                <Border Grid.Row="0" Padding="12,10" Background="{ThemeResource LayerFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
+                                    <StackPanel Spacing="3">
+                                        <TextBlock x:Name="PreviewFileName" Text="Dosya Adı" FontWeight="SemiBold" FontSize="13" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock x:Name="PreviewTypeBadge" Text="Tür" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    </StackPanel>
                                 </Border>
 
-                                <!-- Canlı Önizleme Alanı (Tam Ekran / Tam Yükseklik) -->
+                                <!-- 1: Canlı Önizleme Alanı -->
                                 <Grid Grid.Row="1" Margin="8">
                                     <!-- İkon Görünümü -->
-                                    <StackPanel x:Name="PreviewIconContainer" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="6">
-                                        <Image x:Name="PreviewIconImage" Width="96" Height="96" Stretch="Uniform" Visibility="Collapsed" />
-                                        <FontIcon x:Name="PreviewIcon" Glyph="&#xE8A5;" FontSize="80" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" HorizontalAlignment="Center" />
+                                    <StackPanel x:Name="PreviewIconContainer" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8">
+                                        <Image x:Name="PreviewIconImage" Width="80" Height="80" Stretch="Uniform" Visibility="Collapsed" />
+                                        <FontIcon x:Name="PreviewIcon" Glyph="&#xE8A5;" FontSize="64" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" HorizontalAlignment="Center" />
                                     </StackPanel>
                                     
                                     <!-- Resim Önizlemesi (Kaydırılabilir) -->
@@ -780,23 +784,47 @@
                                         <Image x:Name="PreviewImage" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed" />
                                     </ScrollViewer>
 
-                                    <!-- Metin / Kod / Belge Dosyası Canlı Önizlemesi (Kaydırılabilir) -->
+                                    <!-- Metin / Kod / Belge Dosyası Canlı Önizlemesi -->
                                     <Border Background="{ThemeResource LayerFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="4" Padding="8">
                                         <ScrollViewer x:Name="PreviewTextScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" Visibility="Collapsed">
-                                            <TextBlock x:Name="PreviewTextContent" FontFamily="Consolas, Cascadia Code, Courier New" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                                            <TextBlock x:Name="PreviewTextContent" FontFamily="Consolas, Cascadia Code, Courier New" FontSize="11" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
                                         </ScrollViewer>
                                     </Border>
                                 </Grid>
 
-                                <!-- Gizli Alanlar (C# Kod Bağlantılarının Bozulmaması İçin) -->
-                                <StackPanel Visibility="Collapsed">
-                                    <TextBlock x:Name="PreviewTypeBadge" />
-                                    <TextBlock x:Name="PreviewExtensionText" />
-                                    <TextBlock x:Name="PreviewSizeText" />
-                                    <TextBlock x:Name="PreviewDateText" />
-                                    <TextBlock x:Name="PreviewPathText" />
-                                    <Button x:Name="PreviewOpenButton" Click="PreviewOpenButton_Click" />
-                                    <Button x:Name="PreviewDownloadButton" Click="PreviewDownloadButton_Click" />
+                                <!-- 2: Dosya Ayrıntıları (Metadata) -->
+                                <Border Grid.Row="2" Margin="8,4" Padding="10,8" Background="{ThemeResource LayerFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6">
+                                    <StackPanel Spacing="6">
+                                        <Grid>
+                                            <TextBlock Text="Boyut:" FontSize="11.5" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                            <TextBlock x:Name="PreviewSizeText" Text="-- MB" FontSize="11.5" FontWeight="SemiBold" HorizontalAlignment="Right" />
+                                        </Grid>
+                                        <Grid>
+                                            <TextBlock Text="Değiştirilme:" FontSize="11.5" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                            <TextBlock x:Name="PreviewDateText" Text="--" FontSize="11.5" HorizontalAlignment="Right" />
+                                        </Grid>
+                                        <Grid>
+                                            <TextBlock Text="Uzantı:" FontSize="11.5" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                            <TextBlock x:Name="PreviewExtensionText" Text="--" FontSize="11.5" HorizontalAlignment="Right" />
+                                        </Grid>
+                                        <TextBlock x:Name="PreviewPathText" Visibility="Collapsed" />
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- 3: İşlem Butonları (Aç & İndir) -->
+                                <StackPanel Grid.Row="3" Margin="8,4,8,8" Spacing="6">
+                                    <Button x:Name="PreviewOpenButton" Click="PreviewOpenButton_Click" HorizontalAlignment="Stretch" Style="{ThemeResource AccentButtonStyle}">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <FontIcon Glyph="&#xE8E5;" FontSize="12" />
+                                            <TextBlock Text="Varsayılan Uygulamayla Aç" FontSize="12" />
+                                        </StackPanel>
+                                    </Button>
+                                    <Button x:Name="PreviewDownloadButton" Click="PreviewDownloadButton_Click" HorizontalAlignment="Stretch">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <FontIcon Glyph="&#xE896;" FontSize="12" />
+                                            <TextBlock Text="İndir / Dışa Aktar" FontSize="12" />
+                                        </StackPanel>
+                                    </Button>
                                 </StackPanel>
                             </Grid>
                         </Grid>

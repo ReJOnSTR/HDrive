@@ -424,12 +424,35 @@ public class WebDAVClient
         return items;
     }
 
-    public async Task<string?> DownloadFileToCacheAsync(string remotePath)
+    public async Task<string?> DownloadFileToCacheAsync(string remotePath, string? preferredFileName = null)
     {
-        var filename = Path.GetFileName(remotePath);
+        string filename;
+        if (!string.IsNullOrWhiteSpace(preferredFileName))
+        {
+            filename = preferredFileName.Trim();
+        }
+        else
+        {
+            filename = Path.GetFileName(remotePath.TrimEnd('/'));
+        }
+
+        if (string.IsNullOrEmpty(filename))
+        {
+            filename = "file_" + Guid.NewGuid().ToString("N").Substring(0, 8);
+        }
+
+        var safePrefix = (remotePath ?? "").Trim('/').Replace('/', '_').Replace('\\', '_');
+        if (safePrefix.Length > 32) safePrefix = safePrefix.Substring(0, 32);
+        var cachedFileName = $"{safePrefix}_{filename}";
+
         var cacheDir = Path.Combine(Path.GetTempPath(), "HDriveCache");
         Directory.CreateDirectory(cacheDir);
-        var localPath = Path.Combine(cacheDir, filename);
+        var localPath = Path.Combine(cacheDir, cachedFileName);
+
+        if (File.Exists(localPath) && new FileInfo(localPath).Length > 0)
+        {
+            return localPath;
+        }
 
         if (_config.Protocol == StorageProtocol.SMB)
         {
@@ -454,8 +477,37 @@ public class WebDAVClient
             try
             {
                 var cleanId = (remotePath ?? "").Trim().Trim('/');
-                var url = $"https://www.googleapis.com/drive/v3/files/{cleanId}?alt=media&supportsAllDrives=true";
+                var ext = Path.GetExtension(filename).ToLowerInvariant();
+                string url;
+                if (string.IsNullOrEmpty(ext))
+                {
+                    filename += ".docx";
+                    cachedFileName += ".docx";
+                    localPath = Path.Combine(cacheDir, cachedFileName);
+                    var exportMime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+                    url = $"https://www.googleapis.com/drive/v3/files/{cleanId}/export?mimeType={Uri.EscapeDataString(exportMime)}";
+                }
+                else
+                {
+                    url = $"https://www.googleapis.com/drive/v3/files/{cleanId}?alt=media&supportsAllDrives=true";
+                }
+
                 var response = await _httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
+
+                if (!response.IsSuccessStatusCode && (int)response.StatusCode == 403)
+                {
+                    var exportMime = "application/pdf";
+                    if (filename.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase))
+                        exportMime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+                    else if (filename.EndsWith(".pptx", StringComparison.OrdinalIgnoreCase))
+                        exportMime = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+                    else if (filename.EndsWith(".docx", StringComparison.OrdinalIgnoreCase))
+                        exportMime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+                    url = $"https://www.googleapis.com/drive/v3/files/{cleanId}/export?mimeType={Uri.EscapeDataString(exportMime)}";
+                    response = await _httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
+                }
+
                 response.EnsureSuccessStatusCode();
 
                 using var stream = await response.Content.ReadAsStreamAsync();
@@ -464,8 +516,9 @@ public class WebDAVClient
 
                 return localPath;
             }
-            catch
+            catch (Exception ex)
             {
+                Debug.WriteLine($"GoogleDrive download error: {ex.Message}");
                 return null;
             }
         }
@@ -485,8 +538,9 @@ public class WebDAVClient
 
                 return localPath;
             }
-            catch
+            catch (Exception ex)
             {
+                Debug.WriteLine($"OneDrive download error: {ex.Message}");
                 return null;
             }
         }
@@ -504,8 +558,9 @@ public class WebDAVClient
 
             return localPath;
         }
-        catch
+        catch (Exception ex)
         {
+            Debug.WriteLine($"WebDAV download error: {ex.Message}");
             return null;
         }
     }
