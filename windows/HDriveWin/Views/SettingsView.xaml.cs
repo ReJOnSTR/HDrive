@@ -148,11 +148,6 @@ public sealed partial class SettingsView : UserControl
             }
 
             SetupEditPanel();
-
-            if (tagStr == "GoogleDrive" || tagStr == "OneDrive")
-            {
-                OAuthLoginButton_Click(sender, e);
-            }
         }
     }
 
@@ -171,39 +166,36 @@ public sealed partial class SettingsView : UserControl
 
         var isOAuth = (_editingServer.Protocol == StorageProtocol.GoogleDrive || _editingServer.Protocol == StorageProtocol.OneDrive);
         OAuthLoginCard.Visibility = isOAuth ? Visibility.Visible : Visibility.Collapsed;
+        TraditionalCredentialsPanel.Visibility = isOAuth ? Visibility.Collapsed : Visibility.Visible;
+
         if (isOAuth)
         {
+            OAuthCardBadge.Protocol = _editingServer.Protocol;
             OAuthCardTitle.Text = $"{_editingServer.ProviderName} Hesabınızı Bağlayın";
             OAuthLoginButtonText.Text = string.IsNullOrEmpty(_editingServer.Password) 
                 ? $"{_editingServer.ProviderName} ile Giriş Yap" 
                 : $"{_editingServer.ProviderName} Hesabını Yeniden Bağla";
             OAuthStatusBadge.Visibility = !string.IsNullOrEmpty(_editingServer.Password) ? Visibility.Visible : Visibility.Collapsed;
-        }
-
-        OAuthFieldsGrid.Visibility = isOAuth ? Visibility.Visible : Visibility.Collapsed;
-        ClientIdBox.Text = _editingServer.ClientId ?? "";
-        ClientSecretBox.Password = _editingServer.ClientSecret ?? "";
-
-        S3FieldsGrid.Visibility = (_editingServer.Protocol == StorageProtocol.S3) ? Visibility.Visible : Visibility.Collapsed;
-        BucketBox.Text = _editingServer.BucketName ?? "";
-        RegionBox.Text = string.IsNullOrEmpty(_editingServer.Region) ? "us-east-1" : _editingServer.Region;
-
-        SmbShareBox.Visibility = (_editingServer.Protocol == StorageProtocol.SMB) ? Visibility.Visible : Visibility.Collapsed;
-        SmbShareBox.Text = _editingServer.SmbShareName ?? "";
-
-        if (isOAuth)
-        {
-            CloudInfoTipBorder.Visibility = Visibility.Visible;
-            CloudInfoTipText.Text = "💡 'Tarayıcı ile Giriş Yap' butonuna basarak tek tıkla resmi onay ekranından bağlanabilirsiniz.";
-        }
-        else if (_editingServer.Protocol == StorageProtocol.S3)
-        {
-            CloudInfoTipBorder.Visibility = Visibility.Visible;
-            CloudInfoTipText.Text = "💡 Amazon S3 veya MinIO için Access Key (Kullanıcı Adı) ve Secret Key (Şifre) giriniz.";
+            OAuthStatusText.Text = "Oturum Açık & Bağlantı Hazır";
         }
         else
         {
-            CloudInfoTipBorder.Visibility = Visibility.Collapsed;
+            S3FieldsGrid.Visibility = (_editingServer.Protocol == StorageProtocol.S3) ? Visibility.Visible : Visibility.Collapsed;
+            BucketBox.Text = _editingServer.BucketName ?? "";
+            RegionBox.Text = string.IsNullOrEmpty(_editingServer.Region) ? "us-east-1" : _editingServer.Region;
+
+            SmbShareBox.Visibility = (_editingServer.Protocol == StorageProtocol.SMB) ? Visibility.Visible : Visibility.Collapsed;
+            SmbShareBox.Text = _editingServer.SmbShareName ?? "";
+
+            if (_editingServer.Protocol == StorageProtocol.S3)
+            {
+                CloudInfoTipBorder.Visibility = Visibility.Visible;
+                CloudInfoTipText.Text = "💡 Amazon S3 veya MinIO için Access Key (Kullanıcı Adı) ve Secret Key (Şifre) giriniz.";
+            }
+            else
+            {
+                CloudInfoTipBorder.Visibility = Visibility.Collapsed;
+            }
         }
 
         TestResultInfoBar.IsOpen = false;
@@ -221,12 +213,11 @@ public sealed partial class SettingsView : UserControl
         {
             var (success, token, msg) = await OAuthHelper.StartOAuthLoginAsync(
                 _editingServer.Protocol, 
-                ClientIdBox.Text.Trim(), 
-                ClientSecretBox.Password);
+                _editingServer.ClientId, 
+                _editingServer.ClientSecret);
 
             if (success && !string.IsNullOrEmpty(token))
             {
-                PasswordBox.Password = token;
                 _editingServer.Password = token;
 
                 OAuthStatusBadge.Visibility = Visibility.Visible;
@@ -307,20 +298,31 @@ public sealed partial class SettingsView : UserControl
             var target = CloudreveManager.Instance.Servers.FirstOrDefault(s => s.Id == id);
             if (target != null)
             {
-                // Google Drive veya OneDrive oturumu açılmamışsa doğrudan yetkilendirme başlat ve tarayıcıyı aç
+                // Eğer bu sunucu halihazırda bağlıysa, macOS gibi BAĞLANTIYI KES
+                if (CloudreveManager.Instance.ActiveServer?.Id == target.Id)
+                {
+                    CloudreveManager.Instance.DisconnectActiveServer();
+                    FooterStatusText.Text = $"{target.Name} bağlantısı kesildi.";
+                    ServersListView.ItemsSource = null;
+                    ServersListView.ItemsSource = CloudreveManager.Instance.Servers;
+                    SettingsSaved?.Invoke(this, EventArgs.Empty);
+                    return;
+                }
+
+                // Bağlan: Google Drive veya OneDrive oturumu açılmamışsa kurulum formunu aç (kullanıcı butona basacak)
                 if ((target.Protocol == StorageProtocol.GoogleDrive || target.Protocol == StorageProtocol.OneDrive) && string.IsNullOrEmpty(target.Password))
                 {
                     _isNewServer = false;
                     _editingServer = target;
                     SetupEditPanel();
-                    OAuthLoginButton_Click(sender, e);
                     return;
                 }
 
                 CloudreveManager.Instance.SetActiveServer(target);
-                FooterStatusText.Text = "Aktif sürücü değiştirildi.";
+                FooterStatusText.Text = $"{target.Name} bağlandı.";
+                ServersListView.ItemsSource = null;
+                ServersListView.ItemsSource = CloudreveManager.Instance.Servers;
                 SettingsSaved?.Invoke(this, EventArgs.Empty);
-                _parentWindow?.Close();
             }
         }
     }
@@ -328,23 +330,23 @@ public sealed partial class SettingsView : UserControl
     private void SaveAndConnectBtn_Click(object sender, RoutedEventArgs e)
     {
         _editingServer.Name = ServerNameBox.Text.Trim();
-        _editingServer.ServerURL = ServerUrlBox.Text.Trim();
-        _editingServer.Username = UsernameBox.Text.Trim();
-        _editingServer.Password = PasswordBox.Password;
 
-        if (_editingServer.Protocol == StorageProtocol.GoogleDrive || _editingServer.Protocol == StorageProtocol.OneDrive)
+        var isOAuth = (_editingServer.Protocol == StorageProtocol.GoogleDrive || _editingServer.Protocol == StorageProtocol.OneDrive);
+        if (!isOAuth)
         {
-            _editingServer.ClientId = ClientIdBox.Text.Trim();
-            _editingServer.ClientSecret = ClientSecretBox.Password;
-        }
-        else if (_editingServer.Protocol == StorageProtocol.S3)
-        {
-            _editingServer.BucketName = BucketBox.Text.Trim();
-            _editingServer.Region = RegionBox.Text.Trim();
-        }
-        else if (_editingServer.Protocol == StorageProtocol.SMB)
-        {
-            _editingServer.SmbShareName = SmbShareBox.Text.Trim();
+            _editingServer.ServerURL = ServerUrlBox.Text.Trim();
+            _editingServer.Username = UsernameBox.Text.Trim();
+            _editingServer.Password = PasswordBox.Password;
+
+            if (_editingServer.Protocol == StorageProtocol.S3)
+            {
+                _editingServer.BucketName = BucketBox.Text.Trim();
+                _editingServer.Region = RegionBox.Text.Trim();
+            }
+            else if (_editingServer.Protocol == StorageProtocol.SMB)
+            {
+                _editingServer.SmbShareName = SmbShareBox.Text.Trim();
+            }
         }
 
         if (string.IsNullOrWhiteSpace(_editingServer.Name))

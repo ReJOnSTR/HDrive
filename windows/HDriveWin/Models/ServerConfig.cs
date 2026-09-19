@@ -45,4 +45,17 @@ public class ServerConfig
     };
 
     public string Subtitle => $"{ProviderName} • {(string.IsNullOrEmpty(ServerURL) ? "Yerel / Bulut" : ServerURL)}";
+
+    public bool IsConnected => Services.CloudreveManager.Instance.ActiveServer?.Id == Id;
+    public string ConnectionStatusText => IsConnected ? "Bağlı" : "Bağlı Değil";
+    public string ConnectionActionText => IsConnected ? "Bağlantıyı Kes" : "Bağlan";
+    public Microsoft.UI.Xaml.Media.SolidColorBrush StatusDotBrush => new(IsConnected 
+        ? Windows.UI.Color.FromArgb(255, 16, 124, 65) 
+        : Windows.UI.Color.FromArgb(255, 138, 136, 134));
+    public Microsoft.UI.Xaml.Media.SolidColorBrush StatusTextBrush => new(IsConnected 
+        ? Windows.UI.Color.FromArgb(255, 16, 124, 65) 
+        : Windows.UI.Color.FromArgb(255, 138, 136, 134));
+    public Microsoft.UI.Xaml.Media.SolidColorBrush StatusBgBrush => new(IsConnected 
+        ? Windows.UI.Color.FromArgb(30, 16, 124, 65) 
+        : Windows.UI.Color.FromArgb(20, 138, 136, 134));
 }
