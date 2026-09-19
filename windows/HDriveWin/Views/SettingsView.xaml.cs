@@ -1,7 +1,6 @@
 using System;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
@@ -10,15 +9,21 @@ using HDriveWin.Services;
 
 namespace HDriveWin.Views;
 
-public sealed partial class SettingsWindow : Window
+public sealed partial class SettingsView : UserControl
 {
+    private readonly Window? _parentWindow;
     public event EventHandler? SettingsSaved;
 
     private ServerConfig _editingServer;
     private bool _isNewServer;
 
-    public SettingsWindow()
+    public SettingsView() : this(null)
     {
+    }
+
+    public SettingsView(Window? parentWindow)
+    {
+        _parentWindow = parentWindow;
         this.InitializeComponent();
 
         _editingServer = CloudreveManager.Instance.ActiveServer ?? new ServerConfig();
@@ -32,68 +37,6 @@ public sealed partial class SettingsWindow : Window
         }
 
         LoadViewSettings();
-        SetupWindowGeometry();
-        SetupTitleBar();
-    }
-
-    private void SetupWindowGeometry()
-    {
-        try
-        {
-            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
-            var windowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
-            var appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(windowId);
-
-            if (appWindow != null)
-            {
-                const int width = 860;
-                const int height = 680;
-                appWindow.Resize(new Windows.Graphics.SizeInt32(width, height));
-
-                var displayArea = Microsoft.UI.Windowing.DisplayArea.GetFromWindowId(windowId, Microsoft.UI.Windowing.DisplayAreaFallback.Primary);
-                if (displayArea != null)
-                {
-                    var centeredX = Math.Max(0, (displayArea.WorkArea.Width - width) / 2);
-                    var centeredY = Math.Max(0, (displayArea.WorkArea.Height - height) / 2);
-                    appWindow.Move(new Windows.Graphics.PointInt32(centeredX, centeredY));
-                }
-            }
-        }
-        catch { }
-
-        try
-        {
-            this.SystemBackdrop = new MicaBackdrop();
-        }
-        catch { }
-    }
-
-    private void SetupTitleBar()
-    {
-        try
-        {
-            ExtendsContentIntoTitleBar = true;
-            if (CustomDragRegion != null)
-            {
-                SetTitleBar(CustomDragRegion);
-            }
-        }
-        catch { }
-
-        try
-        {
-            var baseDir = AppContext.BaseDirectory;
-            var iconPath = Path.Combine(baseDir, "app.ico");
-            if (File.Exists(iconPath))
-            {
-                AppWindow?.SetIcon(iconPath);
-            }
-            else
-            {
-                AppWindow?.SetIcon("app.ico");
-            }
-        }
-        catch { }
     }
 
     #region Tab Navigation
@@ -300,7 +243,7 @@ public sealed partial class SettingsWindow : Window
             CloudreveManager.Instance.SetActiveServer(serverId);
             FooterStatusText.Text = "Aktif sürücü değiştirildi.";
             SettingsSaved?.Invoke(this, EventArgs.Empty);
-            this.Close();
+            _parentWindow?.Close();
         }
     }
 
@@ -473,12 +416,12 @@ public sealed partial class SettingsWindow : Window
     {
         SaveViewSettings();
         SettingsSaved?.Invoke(this, EventArgs.Empty);
-        this.Close();
+        _parentWindow?.Close();
     }
 
     private void CancelButton_Click(object sender, RoutedEventArgs e)
     {
-        this.Close();
+        _parentWindow?.Close();
     }
 
     private void ApplyButton_Click(object sender, RoutedEventArgs e)
@@ -488,4 +431,88 @@ public sealed partial class SettingsWindow : Window
         FooterStatusText.Text = "Ayarlar başarıyla uygulandı.";
     }
     #endregion
+}
+
+/// <summary>
+/// Standalone native Windows 11 window hosting SettingsView with custom titlebar, Mica backdrop, and geometry
+/// </summary>
+public sealed class SettingsWindow : Window
+{
+    private readonly SettingsView _view;
+
+    public event EventHandler? SettingsSaved
+    {
+        add => _view.SettingsSaved += value;
+        remove => _view.SettingsSaved -= value;
+    }
+
+    public SettingsWindow()
+    {
+        this.Title = "HDrive - Ayarlar";
+        _view = new SettingsView(this);
+        this.Content = _view;
+
+        SetupWindowGeometry();
+        SetupTitleBar();
+    }
+
+    private void SetupWindowGeometry()
+    {
+        try
+        {
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            var windowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
+            var appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(windowId);
+
+            if (appWindow != null)
+            {
+                const int width = 860;
+                const int height = 680;
+                appWindow.Resize(new Windows.Graphics.SizeInt32(width, height));
+
+                var displayArea = Microsoft.UI.Windowing.DisplayArea.GetFromWindowId(windowId, Microsoft.UI.Windowing.DisplayAreaFallback.Primary);
+                if (displayArea != null)
+                {
+                    var centeredX = Math.Max(0, (displayArea.WorkArea.Width - width) / 2);
+                    var centeredY = Math.Max(0, (displayArea.WorkArea.Height - height) / 2);
+                    appWindow.Move(new Windows.Graphics.PointInt32(centeredX, centeredY));
+                }
+            }
+        }
+        catch { }
+
+        try
+        {
+            this.SystemBackdrop = new MicaBackdrop();
+        }
+        catch { }
+    }
+
+    private void SetupTitleBar()
+    {
+        try
+        {
+            ExtendsContentIntoTitleBar = true;
+            if (_view.CustomDragRegion != null)
+            {
+                SetTitleBar(_view.CustomDragRegion);
+            }
+        }
+        catch { }
+
+        try
+        {
+            var baseDir = AppContext.BaseDirectory;
+            var iconPath = Path.Combine(baseDir, "app.ico");
+            if (File.Exists(iconPath))
+            {
+                AppWindow?.SetIcon(iconPath);
+            }
+            else
+            {
+                AppWindow?.SetIcon("app.ico");
+            }
+        }
+        catch { }
+    }
 }

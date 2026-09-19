@@ -1,24 +1,12 @@
-<Window
-    x:Class="HDriveWin.Views.SettingsWindow"
+<UserControl
+    x:Class="HDriveWin.Views.SettingsView"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:models="using:HDriveWin.Models"
     xmlns:views="using:HDriveWin.Views"
-    mc:Ignorable="d"
-    Title="HDrive - Ayarlar">
-
-    <Window.Resources>
-        <Style x:Key="CardButtonStyle" TargetType="Button">
-            <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
-            <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="CornerRadius" Value="8" />
-            <Setter Property="HorizontalAlignment" Value="Stretch" />
-            <Setter Property="HorizontalContentAlignment" Value="Left" />
-        </Style>
-    </Window.Resources>
+    mc:Ignorable="d">
 
     <!-- Windows Yerel Klasör Ayarları / Özellikler Penceresi Düzeni -->
     <Grid Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
@@ -525,4 +513,4 @@
         </Border>
 
     </Grid>
-</Window>
+</UserControl>
