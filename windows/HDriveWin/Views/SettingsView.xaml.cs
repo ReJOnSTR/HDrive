@@ -14,6 +14,8 @@ public sealed partial class SettingsView : UserControl
     private readonly Window? _parentWindow;
     public event EventHandler? SettingsSaved;
 
+    public Grid? DragRegion => CustomDragRegion;
+
     private ServerConfig _editingServer;
     private bool _isNewServer;
 
@@ -205,7 +207,7 @@ public sealed partial class SettingsView : UserControl
 
     private void EditServer_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is Button btn && btn.Tag is string serverId)
+        if (sender is FrameworkElement fe && fe.Tag is string serverId)
         {
             var s = CloudreveManager.Instance.Servers.FirstOrDefault(x => x.Id == serverId);
             if (s != null)
@@ -219,31 +221,39 @@ public sealed partial class SettingsView : UserControl
 
     private void DeleteServer_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is Button btn && btn.Tag is string serverId)
+        if (sender is FrameworkElement fe && fe.Tag is string id)
         {
-            CloudreveManager.Instance.RemoveServer(serverId);
-            ServersListView.ItemsSource = null;
-            ServersListView.ItemsSource = CloudreveManager.Instance.Servers;
-
-            if (CloudreveManager.Instance.Servers.Count == 0)
+            var target = CloudreveManager.Instance.Servers.FirstOrDefault(s => s.Id == id);
+            if (target != null)
             {
-                AccountListPanel.Visibility = Visibility.Collapsed;
-                AccountSelectProviderPanel.Visibility = Visibility.Visible;
-            }
+                CloudreveManager.Instance.DeleteServer(target);
+                ServersListView.ItemsSource = null;
+                ServersListView.ItemsSource = CloudreveManager.Instance.Servers;
 
-            FooterStatusText.Text = "Bağlantı silindi.";
-            SettingsSaved?.Invoke(this, EventArgs.Empty);
+                if (CloudreveManager.Instance.Servers.Count == 0)
+                {
+                    AccountListPanel.Visibility = Visibility.Collapsed;
+                    AccountSelectProviderPanel.Visibility = Visibility.Visible;
+                }
+
+                FooterStatusText.Text = "Bağlantı silindi.";
+                SettingsSaved?.Invoke(this, EventArgs.Empty);
+            }
         }
     }
 
     private void ConnectServer_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is Button btn && btn.Tag is string serverId)
+        if (sender is FrameworkElement fe && fe.Tag is string id)
         {
-            CloudreveManager.Instance.SetActiveServer(serverId);
-            FooterStatusText.Text = "Aktif sürücü değiştirildi.";
-            SettingsSaved?.Invoke(this, EventArgs.Empty);
-            _parentWindow?.Close();
+            var target = CloudreveManager.Instance.Servers.FirstOrDefault(s => s.Id == id);
+            if (target != null)
+            {
+                CloudreveManager.Instance.SetActiveServer(target);
+                FooterStatusText.Text = "Aktif sürücü değiştirildi.";
+                SettingsSaved?.Invoke(this, EventArgs.Empty);
+                _parentWindow?.Close();
+            }
         }
     }
 
@@ -274,16 +284,8 @@ public sealed partial class SettingsView : UserControl
             _editingServer.Name = _editingServer.ProviderName;
         }
 
-        if (_isNewServer)
-        {
-            CloudreveManager.Instance.AddServer(_editingServer);
-        }
-        else
-        {
-            CloudreveManager.Instance.UpdateServer(_editingServer);
-        }
-
-        CloudreveManager.Instance.SetActiveServer(_editingServer.Id);
+        CloudreveManager.Instance.SaveServer(_editingServer);
+        CloudreveManager.Instance.SetActiveServer(_editingServer);
 
         ServersListView.ItemsSource = null;
         ServersListView.ItemsSource = CloudreveManager.Instance.Servers;
@@ -299,14 +301,13 @@ public sealed partial class SettingsView : UserControl
     private async void TestButton_Click(object sender, RoutedEventArgs e)
     {
         TestButton.IsEnabled = false;
-        TestResultInfoBar.IsOpen = true;
-        TestResultInfoBar.Severity = InfoBarSeverity.Informational;
-        TestResultInfoBar.Message = "Sunucu bağlantısı sınanıyor...";
+        TestResultInfoBar.IsOpen = false;
 
         try
         {
             var testConfig = new ServerConfig
             {
+                Name = ServerNameBox.Text.Trim(),
                 ServerURL = ServerUrlBox.Text.Trim(),
                 Username = UsernameBox.Text.Trim(),
                 Password = PasswordBox.Password,
@@ -319,23 +320,19 @@ public sealed partial class SettingsView : UserControl
             };
 
             var client = new WebDAVClient(testConfig);
-            var success = await client.TestConnectionAsync();
+            var (success, msg) = await client.TestConnectionAsync();
 
-            if (success)
-            {
-                TestResultInfoBar.Severity = InfoBarSeverity.Success;
-                TestResultInfoBar.Message = "Bağlantı başarılı! Sunucu yanıt veriyor.";
-            }
-            else
-            {
-                TestResultInfoBar.Severity = InfoBarSeverity.Error;
-                TestResultInfoBar.Message = "Bağlantı kurulamadı. Lütfen sunucu adresini ve kimlik bilgilerinizi kontrol edin.";
-            }
+            TestResultInfoBar.Severity = success ? InfoBarSeverity.Success : InfoBarSeverity.Error;
+            TestResultInfoBar.Title = success ? "Bağlantı Başarılı" : "Bağlantı Hatası";
+            TestResultInfoBar.Message = msg;
+            TestResultInfoBar.IsOpen = true;
         }
         catch (Exception ex)
         {
             TestResultInfoBar.Severity = InfoBarSeverity.Error;
-            TestResultInfoBar.Message = $"Bağlantı hatası: {ex.Message}";
+            TestResultInfoBar.Title = "Bağlantı Hatası";
+            TestResultInfoBar.Message = ex.Message;
+            TestResultInfoBar.IsOpen = true;
         }
         finally
         {
@@ -493,9 +490,9 @@ public sealed class SettingsWindow : Window
         try
         {
             ExtendsContentIntoTitleBar = true;
-            if (_view.CustomDragRegion != null)
+            if (_view.DragRegion != null)
             {
-                SetTitleBar(_view.CustomDragRegion);
+                SetTitleBar(_view.DragRegion);
             }
         }
         catch { }
