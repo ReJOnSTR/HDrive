@@ -1684,16 +1684,37 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async Task OpenSettingsDialogAsync()
+    private SettingsWindow? _settingsWindow;
+
+    private void OpenSettingsWindow()
     {
-        var dialog = new SettingsDialog
+        if (_settingsWindow != null)
         {
-            XamlRoot = this.Content.XamlRoot
+            _settingsWindow.Activate();
+            return;
+        }
+
+        _settingsWindow = new SettingsWindow();
+        _settingsWindow.SettingsSaved += async (s, e) =>
+        {
+            UpdateTabHeaders();
+            UpdateBreadcrumbs(_currentPath);
+            await LoadDirectoryAsync(_currentPath);
         };
-        await dialog.ShowAsync();
-        UpdateTabHeaders();
-        UpdateBreadcrumbs(_currentPath);
-        await LoadDirectoryAsync(_currentPath);
+        _settingsWindow.Closed += async (s, e) =>
+        {
+            _settingsWindow = null;
+            UpdateTabHeaders();
+            UpdateBreadcrumbs(_currentPath);
+            await LoadDirectoryAsync(_currentPath);
+        };
+        _settingsWindow.Activate();
+    }
+
+    private Task OpenSettingsDialogAsync()
+    {
+        OpenSettingsWindow();
+        return Task.CompletedTask;
     }
 
     private void FileItem_RightTapped(object sender, RightTappedRoutedEventArgs e)

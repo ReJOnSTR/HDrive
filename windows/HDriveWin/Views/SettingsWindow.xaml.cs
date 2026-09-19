@@ -1,0 +1,491 @@
+using System;
+using System.IO;
+using System.Linq;
+using System.Runtime.InteropServices;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
+using HDriveWin.Models;
+using HDriveWin.Services;
+
+namespace HDriveWin.Views;
+
+public sealed partial class SettingsWindow : Window
+{
+    public event EventHandler? SettingsSaved;
+
+    private ServerConfig _editingServer;
+    private bool _isNewServer;
+
+    public SettingsWindow()
+    {
+        this.InitializeComponent();
+
+        _editingServer = CloudreveManager.Instance.ActiveServer ?? new ServerConfig();
+        ServersListView.ItemsSource = CloudreveManager.Instance.Servers;
+
+        if (CloudreveManager.Instance.Servers.Count == 0)
+        {
+            AccountListPanel.Visibility = Visibility.Collapsed;
+            AccountSelectProviderPanel.Visibility = Visibility.Visible;
+            AccountEditPanel.Visibility = Visibility.Collapsed;
+        }
+
+        LoadViewSettings();
+        SetupWindowGeometry();
+        SetupTitleBar();
+    }
+
+    private void SetupWindowGeometry()
+    {
+        try
+        {
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            var windowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
+            var appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(windowId);
+
+            if (appWindow != null)
+            {
+                const int width = 860;
+                const int height = 680;
+                appWindow.Resize(new Windows.Graphics.SizeInt32(width, height));
+
+                var displayArea = Microsoft.UI.Windowing.DisplayArea.GetFromWindowId(windowId, Microsoft.UI.Windowing.DisplayAreaFallback.Primary);
+                if (displayArea != null)
+                {
+                    var centeredX = Math.Max(0, (displayArea.WorkArea.Width - width) / 2);
+                    var centeredY = Math.Max(0, (displayArea.WorkArea.Height - height) / 2);
+                    appWindow.Move(new Windows.Graphics.PointInt32(centeredX, centeredY));
+                }
+            }
+        }
+        catch { }
+
+        try
+        {
+            this.SystemBackdrop = new MicaBackdrop();
+        }
+        catch { }
+    }
+
+    private void SetupTitleBar()
+    {
+        try
+        {
+            ExtendsContentIntoTitleBar = true;
+            if (CustomDragRegion != null)
+            {
+                SetTitleBar(CustomDragRegion);
+            }
+        }
+        catch { }
+
+        try
+        {
+            var baseDir = AppContext.BaseDirectory;
+            var iconPath = Path.Combine(baseDir, "app.ico");
+            if (File.Exists(iconPath))
+            {
+                AppWindow?.SetIcon(iconPath);
+            }
+            else
+            {
+                AppWindow?.SetIcon("app.ico");
+            }
+        }
+        catch { }
+    }
+
+    #region Tab Navigation
+    private void TabBtn_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button btn || btn.Tag is not string tag) return;
+
+        PanelAccount.Visibility = (tag == "Account") ? Visibility.Visible : Visibility.Collapsed;
+        PanelView.Visibility = (tag == "View") ? Visibility.Visible : Visibility.Collapsed;
+        PanelAbout.Visibility = (tag == "About") ? Visibility.Visible : Visibility.Collapsed;
+
+        var selectedBrush = (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"];
+        var transparentBrush = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+
+        TabBtnAccount.Background = (tag == "Account") ? selectedBrush : transparentBrush;
+        TabBtnView.Background = (tag == "View") ? selectedBrush : transparentBrush;
+        TabBtnAbout.Background = (tag == "About") ? selectedBrush : transparentBrush;
+
+        if (tag == "Account")
+        {
+            AccountListPanel.Visibility = Visibility.Visible;
+            AccountSelectProviderPanel.Visibility = Visibility.Collapsed;
+            AccountEditPanel.Visibility = Visibility.Collapsed;
+        }
+    }
+    #endregion
+
+    #region Account & Provider Management
+    private void AddConnectionButton_Click(object sender, RoutedEventArgs e)
+    {
+        AccountListPanel.Visibility = Visibility.Collapsed;
+        AccountSelectProviderPanel.Visibility = Visibility.Visible;
+        AccountEditPanel.Visibility = Visibility.Collapsed;
+    }
+
+    private void BackToConnections_Click(object sender, RoutedEventArgs e)
+    {
+        AccountListPanel.Visibility = Visibility.Visible;
+        AccountSelectProviderPanel.Visibility = Visibility.Collapsed;
+        AccountEditPanel.Visibility = Visibility.Collapsed;
+    }
+
+    private void BackFromEdit_Click(object sender, RoutedEventArgs e)
+    {
+        if (_isNewServer)
+        {
+            AccountListPanel.Visibility = Visibility.Collapsed;
+            AccountSelectProviderPanel.Visibility = Visibility.Visible;
+            AccountEditPanel.Visibility = Visibility.Collapsed;
+        }
+        else
+        {
+            AccountListPanel.Visibility = Visibility.Visible;
+            AccountSelectProviderPanel.Visibility = Visibility.Collapsed;
+            AccountEditPanel.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private void CancelEditBtn_Click(object sender, RoutedEventArgs e)
+    {
+        BackFromEdit_Click(sender, e);
+    }
+
+    private void ProviderTile_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button btn && btn.Tag is string tagStr)
+        {
+            _isNewServer = true;
+            _editingServer = new ServerConfig();
+
+            switch (tagStr)
+            {
+                case "GoogleDrive":
+                    _editingServer.Protocol = StorageProtocol.GoogleDrive;
+                    _editingServer.Name = "Google Drive";
+                    _editingServer.ServerURL = "https://www.googleapis.com/drive/v3";
+                    try
+                    {
+                        var cfgPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config", "HDrive", "google_credentials.json");
+                        if (File.Exists(cfgPath))
+                        {
+                            var content = File.ReadAllText(cfgPath);
+                            using var doc = System.Text.Json.JsonDocument.Parse(content);
+                            if (doc.RootElement.TryGetProperty("client_id", out var cid)) _editingServer.ClientId = cid.GetString() ?? "";
+                            if (doc.RootElement.TryGetProperty("client_secret", out var cs)) _editingServer.ClientSecret = cs.GetString() ?? "";
+                        }
+                    }
+                    catch { }
+                    break;
+
+                case "OneDrive":
+                    _editingServer.Protocol = StorageProtocol.OneDrive;
+                    _editingServer.Name = "OneDrive";
+                    _editingServer.ServerURL = "https://graph.microsoft.com/v1.0/me/drive";
+                    _editingServer.ClientId = "d3590ed6-52b3-4102-aeff-aad2292ab01c";
+                    break;
+
+                case "S3":
+                    _editingServer.Protocol = StorageProtocol.S3;
+                    _editingServer.Name = "Amazon S3";
+                    _editingServer.ServerURL = "https://s3.amazonaws.com";
+                    _editingServer.Region = "us-east-1";
+                    break;
+
+                case "SMB":
+                    _editingServer.Protocol = StorageProtocol.SMB;
+                    _editingServer.Name = "Windows Paylaşımı";
+                    _editingServer.ServerURL = "smb://192.168.1.100";
+                    break;
+
+                case "WebDAV":
+                default:
+                    _editingServer.Protocol = StorageProtocol.WebDAV;
+                    _editingServer.Name = "WebDAV Deposu";
+                    _editingServer.ServerURL = "";
+                    break;
+            }
+
+            SetupEditPanel();
+        }
+    }
+
+    private void SetupEditPanel()
+    {
+        AccountListPanel.Visibility = Visibility.Collapsed;
+        AccountSelectProviderPanel.Visibility = Visibility.Collapsed;
+        AccountEditPanel.Visibility = Visibility.Visible;
+
+        EditProviderLogoBadge.Protocol = _editingServer.Protocol;
+        EditProviderTitleText.Text = _isNewServer ? $"{_editingServer.ProviderName} Kurulumu" : $"{_editingServer.Name} Düzenle";
+
+        ServerNameBox.Text = _editingServer.Name ?? "";
+        ServerUrlBox.Text = _editingServer.ServerURL ?? "";
+        UsernameBox.Text = _editingServer.Username ?? "";
+        PasswordBox.Password = _editingServer.Password ?? "";
+
+        OAuthFieldsGrid.Visibility = (_editingServer.Protocol == StorageProtocol.GoogleDrive || _editingServer.Protocol == StorageProtocol.OneDrive) 
+            ? Visibility.Visible : Visibility.Collapsed;
+        ClientIdBox.Text = _editingServer.ClientId ?? "";
+        ClientSecretBox.Password = _editingServer.ClientSecret ?? "";
+
+        S3FieldsGrid.Visibility = (_editingServer.Protocol == StorageProtocol.S3) ? Visibility.Visible : Visibility.Collapsed;
+        BucketBox.Text = _editingServer.BucketName ?? "";
+        RegionBox.Text = string.IsNullOrEmpty(_editingServer.Region) ? "us-east-1" : _editingServer.Region;
+
+        SmbShareBox.Visibility = (_editingServer.Protocol == StorageProtocol.SMB) ? Visibility.Visible : Visibility.Collapsed;
+        SmbShareBox.Text = _editingServer.SmbShareName ?? "";
+
+        if (_editingServer.Protocol == StorageProtocol.GoogleDrive || _editingServer.Protocol == StorageProtocol.OneDrive)
+        {
+            CloudInfoTipBorder.Visibility = Visibility.Visible;
+            CloudInfoTipText.Text = "💡 Bu servis tarayıcı kimlik doğrulaması (OAuth2) veya doğrudan Access Token ile bağlanır.";
+        }
+        else if (_editingServer.Protocol == StorageProtocol.S3)
+        {
+            CloudInfoTipBorder.Visibility = Visibility.Visible;
+            CloudInfoTipText.Text = "💡 Amazon S3 veya MinIO için Access Key (Kullanıcı Adı) ve Secret Key (Şifre) giriniz.";
+        }
+        else
+        {
+            CloudInfoTipBorder.Visibility = Visibility.Collapsed;
+        }
+
+        TestResultInfoBar.IsOpen = false;
+    }
+
+    private void EditServer_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button btn && btn.Tag is string serverId)
+        {
+            var s = CloudreveManager.Instance.Servers.FirstOrDefault(x => x.Id == serverId);
+            if (s != null)
+            {
+                _isNewServer = false;
+                _editingServer = s;
+                SetupEditPanel();
+            }
+        }
+    }
+
+    private void DeleteServer_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button btn && btn.Tag is string serverId)
+        {
+            CloudreveManager.Instance.RemoveServer(serverId);
+            ServersListView.ItemsSource = null;
+            ServersListView.ItemsSource = CloudreveManager.Instance.Servers;
+
+            if (CloudreveManager.Instance.Servers.Count == 0)
+            {
+                AccountListPanel.Visibility = Visibility.Collapsed;
+                AccountSelectProviderPanel.Visibility = Visibility.Visible;
+            }
+
+            FooterStatusText.Text = "Bağlantı silindi.";
+            SettingsSaved?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    private void ConnectServer_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button btn && btn.Tag is string serverId)
+        {
+            CloudreveManager.Instance.SetActiveServer(serverId);
+            FooterStatusText.Text = "Aktif sürücü değiştirildi.";
+            SettingsSaved?.Invoke(this, EventArgs.Empty);
+            this.Close();
+        }
+    }
+
+    private void SaveAndConnectBtn_Click(object sender, RoutedEventArgs e)
+    {
+        _editingServer.Name = ServerNameBox.Text.Trim();
+        _editingServer.ServerURL = ServerUrlBox.Text.Trim();
+        _editingServer.Username = UsernameBox.Text.Trim();
+        _editingServer.Password = PasswordBox.Password;
+
+        if (_editingServer.Protocol == StorageProtocol.GoogleDrive || _editingServer.Protocol == StorageProtocol.OneDrive)
+        {
+            _editingServer.ClientId = ClientIdBox.Text.Trim();
+            _editingServer.ClientSecret = ClientSecretBox.Password;
+        }
+        else if (_editingServer.Protocol == StorageProtocol.S3)
+        {
+            _editingServer.BucketName = BucketBox.Text.Trim();
+            _editingServer.Region = RegionBox.Text.Trim();
+        }
+        else if (_editingServer.Protocol == StorageProtocol.SMB)
+        {
+            _editingServer.SmbShareName = SmbShareBox.Text.Trim();
+        }
+
+        if (string.IsNullOrWhiteSpace(_editingServer.Name))
+        {
+            _editingServer.Name = _editingServer.ProviderName;
+        }
+
+        if (_isNewServer)
+        {
+            CloudreveManager.Instance.AddServer(_editingServer);
+        }
+        else
+        {
+            CloudreveManager.Instance.UpdateServer(_editingServer);
+        }
+
+        CloudreveManager.Instance.SetActiveServer(_editingServer.Id);
+
+        ServersListView.ItemsSource = null;
+        ServersListView.ItemsSource = CloudreveManager.Instance.Servers;
+
+        AccountListPanel.Visibility = Visibility.Visible;
+        AccountSelectProviderPanel.Visibility = Visibility.Collapsed;
+        AccountEditPanel.Visibility = Visibility.Collapsed;
+
+        FooterStatusText.Text = $"{_editingServer.Name} kaydedildi ve bağlandı.";
+        SettingsSaved?.Invoke(this, EventArgs.Empty);
+    }
+
+    private async void TestButton_Click(object sender, RoutedEventArgs e)
+    {
+        TestButton.IsEnabled = false;
+        TestResultInfoBar.IsOpen = true;
+        TestResultInfoBar.Severity = InfoBarSeverity.Informational;
+        TestResultInfoBar.Message = "Sunucu bağlantısı sınanıyor...";
+
+        try
+        {
+            var testConfig = new ServerConfig
+            {
+                ServerURL = ServerUrlBox.Text.Trim(),
+                Username = UsernameBox.Text.Trim(),
+                Password = PasswordBox.Password,
+                Protocol = _editingServer.Protocol,
+                ClientId = ClientIdBox.Text.Trim(),
+                ClientSecret = ClientSecretBox.Password,
+                BucketName = BucketBox.Text.Trim(),
+                Region = RegionBox.Text.Trim(),
+                SmbShareName = SmbShareBox.Text.Trim()
+            };
+
+            var client = new WebDAVClient(testConfig);
+            var success = await client.TestConnectionAsync();
+
+            if (success)
+            {
+                TestResultInfoBar.Severity = InfoBarSeverity.Success;
+                TestResultInfoBar.Message = "Bağlantı başarılı! Sunucu yanıt veriyor.";
+            }
+            else
+            {
+                TestResultInfoBar.Severity = InfoBarSeverity.Error;
+                TestResultInfoBar.Message = "Bağlantı kurulamadı. Lütfen sunucu adresini ve kimlik bilgilerinizi kontrol edin.";
+            }
+        }
+        catch (Exception ex)
+        {
+            TestResultInfoBar.Severity = InfoBarSeverity.Error;
+            TestResultInfoBar.Message = $"Bağlantı hatası: {ex.Message}";
+        }
+        finally
+        {
+            TestButton.IsEnabled = true;
+        }
+    }
+    #endregion
+
+    #region View Settings & Persistence
+    private string GetViewSettingsFilePath()
+    {
+        var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HDrive");
+        Directory.CreateDirectory(dir);
+        return Path.Combine(dir, "view_settings.json");
+    }
+
+    private void LoadViewSettings()
+    {
+        try
+        {
+            var filePath = GetViewSettingsFilePath();
+            if (File.Exists(filePath))
+            {
+                var json = File.ReadAllText(filePath).Trim();
+                var vSettings = System.Text.Json.JsonSerializer.Deserialize<MainWindow.ViewSettingsModel>(json);
+                if (vSettings != null)
+                {
+                    PreviewPaneToggleSwitch.IsOn = vSettings.ShowPreviewPane;
+                    DefaultViewComboBox.SelectedIndex = vSettings.ViewMode switch
+                    {
+                        MainWindow.ExplorerViewMode.Medium => 1,
+                        MainWindow.ExplorerViewMode.Details => 2,
+                        _ => 0
+                    };
+                    return;
+                }
+            }
+        }
+        catch { }
+
+        DefaultViewComboBox.SelectedIndex = 0;
+        PreviewPaneToggleSwitch.IsOn = false;
+    }
+
+    private void SaveViewSettings()
+    {
+        try
+        {
+            var filePath = GetViewSettingsFilePath();
+            MainWindow.ViewSettingsModel vSettings;
+            if (File.Exists(filePath))
+            {
+                var json = File.ReadAllText(filePath).Trim();
+                vSettings = System.Text.Json.JsonSerializer.Deserialize<MainWindow.ViewSettingsModel>(json) ?? new MainWindow.ViewSettingsModel();
+            }
+            else
+            {
+                vSettings = new MainWindow.ViewSettingsModel();
+            }
+
+            vSettings.ShowPreviewPane = PreviewPaneToggleSwitch.IsOn;
+            vSettings.ViewMode = DefaultViewComboBox.SelectedIndex switch
+            {
+                1 => MainWindow.ExplorerViewMode.Medium,
+                2 => MainWindow.ExplorerViewMode.Details,
+                _ => MainWindow.ExplorerViewMode.Large
+            };
+
+            var outJson = System.Text.Json.JsonSerializer.Serialize(vSettings, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(filePath, outJson);
+        }
+        catch { }
+    }
+    #endregion
+
+    #region Classic Windows Folder Settings Footer Buttons (Tamam, İptal, Uygula)
+    private void OkButton_Click(object sender, RoutedEventArgs e)
+    {
+        SaveViewSettings();
+        SettingsSaved?.Invoke(this, EventArgs.Empty);
+        this.Close();
+    }
+
+    private void CancelButton_Click(object sender, RoutedEventArgs e)
+    {
+        this.Close();
+    }
+
+    private void ApplyButton_Click(object sender, RoutedEventArgs e)
+    {
+        SaveViewSettings();
+        SettingsSaved?.Invoke(this, EventArgs.Empty);
+        FooterStatusText.Text = "Ayarlar başarıyla uygulandı.";
+    }
+    #endregion
+}

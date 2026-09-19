@@ -1,0 +1,528 @@
+<Window
+    x:Class="HDriveWin.Views.SettingsWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:models="using:HDriveWin.Models"
+    xmlns:views="using:HDriveWin.Views"
+    mc:Ignorable="d"
+    Title="HDrive - Ayarlar">
+
+    <Window.Resources>
+        <Style x:Key="CardButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
+            <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+        </Style>
+    </Window.Resources>
+
+    <!-- Windows Yerel Klasör Ayarları / Özellikler Penceresi Düzeni -->
+    <Grid Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+        <Grid.RowDefinitions>
+            <!-- 0: Özel Başlık Çubuğu (Windows 11 Başlık ve Sürükleme Alanı) -->
+            <RowDefinition Height="40" />
+            <!-- 1: Üst Başlık Bilgisi ve Sekmeler -->
+            <RowDefinition Height="Auto" />
+            <!-- 2: Ana İçerik / Ayarlar Form Alanı -->
+            <RowDefinition Height="*" />
+            <!-- 3: Klasik Windows Yerel Ayarlar / Özellikler Alt Çubuğu (Footer) -->
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- 0: Özel Başlık Çubuğu -->
+        <Grid Grid.Row="0" Background="Transparent">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            
+            <StackPanel Orientation="Horizontal" Spacing="8" Margin="16,0,0,0" VerticalAlignment="Center">
+                <FontIcon Glyph="&#xE713;" FontSize="14" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                <TextBlock Text="HDrive - Ayarlar" FontSize="12.5" FontWeight="Normal" VerticalAlignment="Center" />
+            </StackPanel>
+
+            <Grid x:Name="CustomDragRegion" Grid.Column="1" Background="Transparent" MinWidth="188" 
+                  HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
+        </Grid>
+
+        <!-- 1: Üst Başlık & Windows 11 Sekme Seçimi -->
+        <StackPanel Grid.Row="1" Margin="24,6,24,14" Spacing="12">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Border Grid.Column="0" Width="40" Height="40" CornerRadius="10" 
+                        Background="{ThemeResource AccentFillColorDefaultBrush}" 
+                        VerticalAlignment="Center" Margin="0,0,14,0">
+                    <FontIcon Glyph="&#xE713;" FontSize="20" Foreground="White" 
+                              HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Border>
+                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                    <TextBlock Text="HDrive Tercihleri ve Sunucu Yapılandırması" FontSize="16" FontWeight="SemiBold" />
+                    <TextBlock Text="Bulut hesaplarınızı, depolama servislerinizi ve masaüstü görünüm ayarlarınızı yapılandırın." 
+                               FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                </StackPanel>
+            </Grid>
+
+            <!-- Segmented Sekmeler -->
+            <Border Background="{ThemeResource LayerFillColorDefaultBrush}" 
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" 
+                    BorderThickness="1" CornerRadius="8" Padding="4">
+                <Grid ColumnSpacing="6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <Button x:Name="TabBtnAccount" Grid.Column="0" Click="TabBtn_Click" Tag="Account"
+                            Style="{ThemeResource SubtleButtonStyle}" HorizontalAlignment="Stretch" Padding="14,9"
+                            CornerRadius="6"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
+                            <FontIcon Glyph="&#xE774;" FontSize="14" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                            <TextBlock Text="Bağlantılarım" FontSize="13" FontWeight="SemiBold" />
+                        </StackPanel>
+                    </Button>
+
+                    <Button x:Name="TabBtnView" Grid.Column="1" Click="TabBtn_Click" Tag="View"
+                            Style="{ThemeResource SubtleButtonStyle}" HorizontalAlignment="Stretch" Padding="14,9"
+                            CornerRadius="6">
+                        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
+                            <FontIcon Glyph="&#xE790;" FontSize="14" />
+                            <TextBlock Text="Görünüm" FontSize="13" />
+                        </StackPanel>
+                    </Button>
+
+                    <Button x:Name="TabBtnAbout" Grid.Column="2" Click="TabBtn_Click" Tag="About"
+                            Style="{ThemeResource SubtleButtonStyle}" HorizontalAlignment="Stretch" Padding="14,9"
+                            CornerRadius="6">
+                        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
+                            <FontIcon Glyph="&#xE946;" FontSize="14" />
+                            <TextBlock Text="Hakkında" FontSize="13" />
+                        </StackPanel>
+                    </Button>
+                </Grid>
+            </Border>
+        </StackPanel>
+
+        <!-- 2: Ana İçerik / Sekme Sayfaları -->
+        <ScrollViewer Grid.Row="2" 
+                      VerticalScrollBarVisibility="Auto" 
+                      HorizontalScrollBarVisibility="Disabled"
+                      Padding="24,0,24,12">
+            <Grid>
+
+                <!-- 1. SEKME: BAĞLANTILARIM / BULUT DEPOLAMA -->
+                <StackPanel x:Name="PanelAccount" Spacing="16" Visibility="Visible">
+
+                    <!-- 1.A: KAYITLI BAĞLANTILAR LİSTESİ -->
+                    <StackPanel x:Name="AccountListPanel" Spacing="14" Visibility="Visible">
+                        <Grid Margin="0,0,0,4">
+                            <StackPanel VerticalAlignment="Center" Spacing="2">
+                                <TextBlock Text="Bulut Hesaplarım" FontSize="14.5" FontWeight="SemiBold" />
+                                <TextBlock Text="Aktif sürücüyü seçin veya yeni bir sağlayıcı ekleyin." 
+                                           FontSize="11.5" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            </StackPanel>
+                            <Button Click="AddConnectionButton_Click" HorizontalAlignment="Right" 
+                                    Style="{ThemeResource AccentButtonStyle}" Padding="14,7" CornerRadius="6">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <FontIcon Glyph="&#xE710;" FontSize="12" />
+                                    <TextBlock Text="Yeni Bağlantı Ekle" FontSize="12.5" FontWeight="SemiBold" />
+                                </StackPanel>
+                            </Button>
+                        </Grid>
+
+                        <ListView x:Name="ServersListView" SelectionMode="None">
+                            <ListView.ItemContainerStyle>
+                                <Style TargetType="ListViewItem">
+                                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                    <Setter Property="Padding" Value="0" />
+                                    <Setter Property="Margin" Value="0,4" />
+                                </Style>
+                            </ListView.ItemContainerStyle>
+                            <ListView.ItemTemplate>
+                                <DataTemplate x:DataType="models:ServerConfig">
+                                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                            BorderThickness="1" CornerRadius="8" Padding="16,12">
+                                        <Grid ColumnSpacing="14">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+
+                                            <!-- Sağlayıcı Rozeti -->
+                                            <views:ProviderLogoBadge Grid.Column="0" Protocol="{x:Bind Protocol}" BadgeSize="42" 
+                                                                     VerticalAlignment="Center" />
+
+                                            <!-- Başlık & Açıklama (Taşmaz, düzgün sarılır) -->
+                                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3">
+                                                <TextBlock Text="{x:Bind Name}" FontWeight="SemiBold" FontSize="14" 
+                                                           TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                                                <TextBlock Text="{x:Bind Subtitle}" FontSize="12" 
+                                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" 
+                                                           TextWrapping="Wrap" MaxLines="2" />
+                                            </StackPanel>
+
+                                            <!-- Butonlar (Geniş ve taşmayan sağ alan) -->
+                                            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                                <Button Tag="{x:Bind Id}" Click="ConnectServer_Click" Content="Bağlan" 
+                                                        Style="{ThemeResource SubtleButtonStyle}" FontSize="12" Padding="14,6" CornerRadius="6" />
+                                                <Button Tag="{x:Bind Id}" Click="EditServer_Click" Style="{ThemeResource SubtleButtonStyle}" Padding="8" CornerRadius="6"
+                                                        ToolTipService.ToolTip="Düzenle">
+                                                    <FontIcon Glyph="&#xE70F;" FontSize="12" />
+                                                </Button>
+                                                <Button Tag="{x:Bind Id}" Click="DeleteServer_Click" Style="{ThemeResource SubtleButtonStyle}" Padding="8" CornerRadius="6"
+                                                        ToolTipService.ToolTip="Sil">
+                                                    <FontIcon Glyph="&#xE74D;" FontSize="12" Foreground="#C42B1C" />
+                                                </Button>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                    </StackPanel>
+
+                    <!-- 1.B: BULUT SAĞLAYICI SEÇİM GALERİSİ -->
+                    <StackPanel x:Name="AccountSelectProviderPanel" Spacing="14" Visibility="Collapsed">
+                        <Grid>
+                            <Button Click="BackToConnections_Click" Style="{ThemeResource SubtleButtonStyle}" HorizontalAlignment="Left"
+                                    Padding="10,6" CornerRadius="6">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <FontIcon Glyph="&#xE72B;" FontSize="12" />
+                                    <TextBlock Text="Bağlantılarıma Dön" FontSize="12" />
+                                </StackPanel>
+                            </Button>
+                        </Grid>
+
+                        <StackPanel Spacing="3" Margin="0,2,0,2">
+                            <TextBlock Text="Bulut Depolama Servisi Seçin" FontSize="15.5" FontWeight="SemiBold" />
+                            <TextBlock Text="Bağlanmak istediğiniz servisi seçerek doğrudan hızlı kurulum yapın." 
+                                       FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        </StackPanel>
+
+                        <!-- 2 Sütunlu Sağlayıcı Izgarası -->
+                        <Grid Margin="0,6,0,0" RowSpacing="12" ColumnSpacing="14">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+
+                            <!-- Google Drive -->
+                            <Button Grid.Row="0" Grid.Column="0" Tag="GoogleDrive" Click="ProviderTile_Click" 
+                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="14,12"
+                                    Style="{ThemeResource CardButtonStyle}">
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <views:ProviderLogoBadge ProviderTag="GoogleDrive" BadgeSize="42" VerticalAlignment="Center" />
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3">
+                                        <TextBlock Text="Google Drive" FontWeight="SemiBold" FontSize="13.5" />
+                                        <TextBlock Text="Google Workspace ve Kişisel Drive" FontSize="11.5" 
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" 
+                                                   TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </Grid>
+                            </Button>
+
+                            <!-- OneDrive -->
+                            <Button Grid.Row="0" Grid.Column="1" Tag="OneDrive" Click="ProviderTile_Click" 
+                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="14,12"
+                                    Style="{ThemeResource CardButtonStyle}">
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <views:ProviderLogoBadge ProviderTag="OneDrive" BadgeSize="42" VerticalAlignment="Center" />
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3">
+                                        <TextBlock Text="Microsoft OneDrive" FontWeight="SemiBold" FontSize="13.5" />
+                                        <TextBlock Text="Microsoft 365 ve SharePoint" FontSize="11.5" 
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" 
+                                                   TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </Grid>
+                            </Button>
+
+                            <!-- WebDAV -->
+                            <Button Grid.Row="1" Grid.Column="0" Tag="WebDAV" Click="ProviderTile_Click" 
+                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="14,12"
+                                    Style="{ThemeResource CardButtonStyle}">
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <views:ProviderLogoBadge ProviderTag="WebDAV" BadgeSize="42" VerticalAlignment="Center" />
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3">
+                                        <TextBlock Text="WebDAV Sunucusu" FontWeight="SemiBold" FontSize="13.5" />
+                                        <TextBlock Text="Nextcloud, Cloudreve, Kendi Sunucunuz" FontSize="11.5" 
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" 
+                                                   TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </Grid>
+                            </Button>
+
+                            <!-- Amazon S3 -->
+                            <Button Grid.Row="1" Grid.Column="1" Tag="S3" Click="ProviderTile_Click" 
+                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="14,12"
+                                    Style="{ThemeResource CardButtonStyle}">
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <views:ProviderLogoBadge ProviderTag="S3" BadgeSize="42" VerticalAlignment="Center" />
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3">
+                                        <TextBlock Text="Amazon S3 / MinIO" FontWeight="SemiBold" FontSize="13.5" />
+                                        <TextBlock Text="AWS S3, Cloudflare R2, MinIO Depolama" FontSize="11.5" 
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" 
+                                                   TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </Grid>
+                            </Button>
+
+                            <!-- SMB -->
+                            <Button Grid.Row="2" Grid.Column="0" Tag="SMB" Click="ProviderTile_Click" 
+                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="14,12"
+                                    Style="{ThemeResource CardButtonStyle}">
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <views:ProviderLogoBadge ProviderTag="SMB" BadgeSize="42" VerticalAlignment="Center" />
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3">
+                                        <TextBlock Text="Windows Paylaşımı (SMB)" FontWeight="SemiBold" FontSize="13.5" />
+                                        <TextBlock Text="Yerel Ağ, Samba, Windows Paylaşımı" FontSize="11.5" 
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" 
+                                                   TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </Grid>
+                            </Button>
+                        </Grid>
+                    </StackPanel>
+
+                    <!-- 1.C: BAĞLANTI DÜZENLEME & PARAMETRELER FORMU -->
+                    <StackPanel x:Name="AccountEditPanel" Spacing="14" Visibility="Collapsed">
+                        <Grid>
+                            <Button Click="BackFromEdit_Click" Style="{ThemeResource SubtleButtonStyle}" HorizontalAlignment="Left"
+                                    Padding="10,6" CornerRadius="6">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <FontIcon Glyph="&#xE72B;" FontSize="12" />
+                                    <TextBlock Text="Geri" FontSize="12" />
+                                </StackPanel>
+                            </Button>
+                            <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                <views:ProviderLogoBadge x:Name="EditProviderLogoBadge" BadgeSize="30" />
+                                <TextBlock x:Name="EditProviderTitleText" Text="Bağlantı Ayarları" FontWeight="SemiBold" 
+                                           FontSize="14" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Grid>
+
+                        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1" CornerRadius="10" Padding="22,20">
+                            <StackPanel Spacing="14">
+                                <TextBox x:Name="ServerNameBox" Header="Hesap / Sürücü Adı" PlaceholderText="Örn: Kişisel Drive" />
+
+                                <TextBox x:Name="ServerUrlBox" Header="Sunucu Adresi / Uç Nokta" 
+                                         PlaceholderText="https://bulut.alanadi.com/dav veya S3 Uç Noktası" />
+
+                                <!-- OAuth Alanları (Google Drive, OneDrive) -->
+                                <Grid x:Name="OAuthFieldsGrid" ColumnSpacing="12" Visibility="Collapsed">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox x:Name="ClientIdBox" Header="OAuth Client ID" PlaceholderText="Google/Azure Client ID" Grid.Column="0" />
+                                    <PasswordBox x:Name="ClientSecretBox" Header="Client Secret (Opsiyonel)" PasswordRevealMode="Peek" PlaceholderText="İstemci gizli anahtarı" Grid.Column="1" />
+                                </Grid>
+
+                                <!-- S3 Alanları -->
+                                <Grid x:Name="S3FieldsGrid" ColumnSpacing="12" Visibility="Collapsed">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox x:Name="BucketBox" Header="Bucket Adı" PlaceholderText="depo-bucket-adi" Grid.Column="0" />
+                                    <TextBox x:Name="RegionBox" Header="Bölge (Region)" PlaceholderText="us-east-1, auto" Text="us-east-1" Grid.Column="1" />
+                                </Grid>
+
+                                <!-- SMB Alanları -->
+                                <TextBox x:Name="SmbShareBox" Header="Paylaşım Adı (Share)" PlaceholderText="Public, Data vb." Visibility="Collapsed" />
+                                
+                                <!-- Kullanıcı Adı ve Şifre -->
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox x:Name="UsernameBox" Grid.Column="0" Header="Kullanıcı Adı veya E-posta" 
+                                             PlaceholderText="admin@example.com veya AKIA..." />
+                                    <PasswordBox x:Name="PasswordBox" Grid.Column="1" Header="Şifre veya Yetki Tokenı" 
+                                                 PasswordRevealMode="Peek"
+                                                 PlaceholderText="Şifreniz veya erişim anahtarınız" />
+                                </Grid>
+
+                                <!-- Bilgi İpucu Kutusu -->
+                                <Border x:Name="CloudInfoTipBorder" Background="{ThemeResource SubtleFillColorSecondaryBrush}" 
+                                        CornerRadius="6" Padding="12,10" Visibility="Collapsed">
+                                    <TextBlock x:Name="CloudInfoTipText" Text="💡 Bilgi: Bu servis doğrudan API veya yerel köprü üzerinden bağlanabilir." 
+                                               FontSize="11.5" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                                </Border>
+
+                                <!-- Bağlantı Testi ve Bilgi Barı -->
+                                <StackPanel Spacing="10" Margin="0,4,0,0">
+                                    <InfoBar x:Name="TestResultInfoBar" IsOpen="False" Severity="Informational" />
+                                    <Button x:Name="TestButton" Click="TestButton_Click" HorizontalAlignment="Left"
+                                            Padding="14,7" CornerRadius="6">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <FontIcon Glyph="&#xE768;" FontSize="13" />
+                                            <TextBlock Text="Bağlantıyı Test Et" FontSize="12.5" />
+                                        </StackPanel>
+                                    </Button>
+                                </StackPanel>
+
+                                <!-- Form Aksiyon Butonları -->
+                                <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Right" Margin="0,12,0,0">
+                                    <Button Content="İptal" Click="CancelEditBtn_Click" Style="{ThemeResource SubtleButtonStyle}" 
+                                            Padding="18,8" CornerRadius="6" FontSize="12.5" />
+                                    <Button Content="Kaydet ve Bağlan" Click="SaveAndConnectBtn_Click" Style="{ThemeResource AccentButtonStyle}" 
+                                            Padding="18,8" CornerRadius="6" FontWeight="SemiBold" FontSize="12.5" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                </StackPanel>
+
+                <!-- 2. SEKME: GÖRÜNÜM & GEZGİN -->
+                <StackPanel x:Name="PanelView" Spacing="14" Visibility="Collapsed">
+                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1" CornerRadius="8" Padding="18,16">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Spacing="3" VerticalAlignment="Center">
+                                <TextBlock Text="Varsayılan Liste Düzeni" FontWeight="SemiBold" FontSize="14" />
+                                <TextBlock Text="Klasörlere girildiğinde uygulanacak varsayılan görünüm modu." 
+                                           FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            </StackPanel>
+                            <ComboBox x:Name="DefaultViewComboBox" Grid.Column="1" Width="180" VerticalAlignment="Center">
+                                <ComboBoxItem Content="Büyük Simgeler" Tag="Large" />
+                                <ComboBoxItem Content="Orta Simgeler" Tag="Medium" />
+                                <ComboBoxItem Content="Ayrıntılar" Tag="Details" />
+                            </ComboBox>
+                        </Grid>
+                    </Border>
+
+                    <!-- Önizleme Bölmesi Kartı -->
+                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1" CornerRadius="8" Padding="18,16">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Spacing="3" VerticalAlignment="Center">
+                                <TextBlock Text="Sağ Önizleme Bölmesi" FontWeight="SemiBold" FontSize="14" />
+                                <TextBlock Text="Gezginin sağ tarafında dosya detaylarını ve canlı önizlemeyi göster." 
+                                           FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            </StackPanel>
+                            <ToggleSwitch x:Name="PreviewPaneToggleSwitch" Grid.Column="1" OnContent="" OffContent="" VerticalAlignment="Center" Margin="12,0,0,0" />
+                        </Grid>
+                    </Border>
+
+                    <!-- Windows 11 Gezgin Davranışları Kartı -->
+                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1" CornerRadius="8" Padding="18,16">
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="Windows 11 Gezgin Entegrasyonu" FontWeight="SemiBold" FontSize="14" />
+                            <TextBlock Text="• F2 veya gecikmeli tıklama ile doğrudan yerinde yeniden adlandırma aktiftir." FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                            <TextBlock Text="• Boşluk tuşu (Space) ile macOS benzeri Hızlı Bakış (Quick Look) penceresi açılır." FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                            <TextBlock Text="• Ctrl+C / Ctrl+V gerçek dosya kopyalama ve masaüstüne yapıştırmayı destekler." FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                            <TextBlock Text="• Boş alana fareyle tıklayıp sürükleyerek çoklu dosya seçebilirsiniz." FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- 3. SEKME: HAKKINDA -->
+                <StackPanel x:Name="PanelAbout" Spacing="14" Visibility="Collapsed">
+                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1" CornerRadius="10" Padding="36,28">
+                        <StackPanel Spacing="14" HorizontalAlignment="Center">
+                            <Border Width="68" Height="68" CornerRadius="16" 
+                                    Background="{ThemeResource AccentFillColorDefaultBrush}" 
+                                    HorizontalAlignment="Center">
+                                <FontIcon Glyph="&#xED25;" FontSize="34" Foreground="White" 
+                                          HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                            <TextBlock Text="HDrive for Windows" FontSize="20" FontWeight="Bold" HorizontalAlignment="Center" />
+                            <Border Background="{ThemeResource SubtleFillColorSecondaryBrush}" CornerRadius="10" Padding="10,3" HorizontalAlignment="Center">
+                                <TextBlock Text="Sürüm 1.3.1 (WinUI 3 x64)" FontSize="12" FontWeight="SemiBold" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                            </Border>
+                            <TextBlock Text="Google Drive, Microsoft OneDrive, WebDAV, Amazon S3 ve SMB için Yüksek Performanslı Masaüstü İstemcisi" 
+                                       FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}" 
+                                       TextAlignment="Center" MaxWidth="540" TextWrapping="Wrap" />
+                            <TextBlock Text="Tüm hakları saklıdır © 2026 HDrive Team" 
+                                       FontSize="11.5" Foreground="{ThemeResource TextFillColorTertiaryBrush}" 
+                                       HorizontalAlignment="Center" Margin="0,10,0,0" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+            </Grid>
+        </ScrollViewer>
+
+        <!-- 3: Klasik Windows Yerel Klasör Ayarları / Özellikler Gibi Alt Çubuk (Footer) -->
+        <Border Grid.Row="3" 
+                Background="{ThemeResource LayerFillColorDefaultBrush}" 
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" 
+                BorderThickness="0,1,0,0" 
+                Padding="24,14">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <TextBlock x:Name="FooterStatusText" Text="Ayarlar hazır." 
+                           FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" 
+                           VerticalAlignment="Center" />
+
+                <!-- Standart Windows Yerel Ayarlar / Özellikler Butonları (Tamam, İptal, Uygula) -->
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right">
+                    <Button x:Name="OkButton" Content="Tamam" Click="OkButton_Click" 
+                            Style="{ThemeResource AccentButtonStyle}" MinWidth="96" Padding="14,6" CornerRadius="6" />
+                    <Button x:Name="CancelButton" Content="İptal" Click="CancelButton_Click" 
+                            MinWidth="96" Padding="14,6" CornerRadius="6" />
+                    <Button x:Name="ApplyButton" Content="Uygula" Click="ApplyButton_Click" 
+                            MinWidth="96" Padding="14,6" CornerRadius="6" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+    </Grid>
+</Window>
