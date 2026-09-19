@@ -167,7 +167,6 @@ public sealed partial class SettingsView : UserControl
         AccountSelectProviderPanel.Visibility = Visibility.Collapsed;
         AccountEditPanel.Visibility = Visibility.Visible;
 
-        EditProviderLogoBadge.Protocol = _editingServer.Protocol;
         EditProviderTitleText.Text = _isNewServer ? $"{_editingServer.ProviderName} Kurulumu" : $"{_editingServer.Name} Düzenle";
 
         ServerNameBox.Text = _editingServer.Name ?? "";
@@ -175,8 +174,18 @@ public sealed partial class SettingsView : UserControl
         UsernameBox.Text = _editingServer.Username ?? "";
         PasswordBox.Password = _editingServer.Password ?? "";
 
-        OAuthFieldsGrid.Visibility = (_editingServer.Protocol == StorageProtocol.GoogleDrive || _editingServer.Protocol == StorageProtocol.OneDrive) 
-            ? Visibility.Visible : Visibility.Collapsed;
+        var isOAuth = (_editingServer.Protocol == StorageProtocol.GoogleDrive || _editingServer.Protocol == StorageProtocol.OneDrive);
+        OAuthLoginCard.Visibility = isOAuth ? Visibility.Visible : Visibility.Collapsed;
+        if (isOAuth)
+        {
+            OAuthCardTitle.Text = $"{_editingServer.ProviderName} Hesabınızı Bağlayın";
+            OAuthLoginButtonText.Text = string.IsNullOrEmpty(_editingServer.Password) 
+                ? $"{_editingServer.ProviderName} ile Giriş Yap" 
+                : $"{_editingServer.ProviderName} Hesabını Yeniden Bağla";
+            OAuthStatusBadge.Visibility = !string.IsNullOrEmpty(_editingServer.Password) ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        OAuthFieldsGrid.Visibility = isOAuth ? Visibility.Visible : Visibility.Collapsed;
         ClientIdBox.Text = _editingServer.ClientId ?? "";
         ClientSecretBox.Password = _editingServer.ClientSecret ?? "";
 
@@ -187,10 +196,10 @@ public sealed partial class SettingsView : UserControl
         SmbShareBox.Visibility = (_editingServer.Protocol == StorageProtocol.SMB) ? Visibility.Visible : Visibility.Collapsed;
         SmbShareBox.Text = _editingServer.SmbShareName ?? "";
 
-        if (_editingServer.Protocol == StorageProtocol.GoogleDrive || _editingServer.Protocol == StorageProtocol.OneDrive)
+        if (isOAuth)
         {
             CloudInfoTipBorder.Visibility = Visibility.Visible;
-            CloudInfoTipText.Text = "💡 Bu servis tarayıcı kimlik doğrulaması (OAuth2) veya doğrudan Access Token ile bağlanır.";
+            CloudInfoTipText.Text = "💡 'Tarayıcı ile Giriş Yap' butonuna basarak tek tıkla resmi onay ekranından bağlanabilirsiniz.";
         }
         else if (_editingServer.Protocol == StorageProtocol.S3)
         {
@@ -203,6 +212,56 @@ public sealed partial class SettingsView : UserControl
         }
 
         TestResultInfoBar.IsOpen = false;
+    }
+
+    private async void OAuthLoginButton_Click(object sender, RoutedEventArgs e)
+    {
+        OAuthLoginButton.IsEnabled = false;
+        TestResultInfoBar.IsOpen = true;
+        TestResultInfoBar.Severity = InfoBarSeverity.Informational;
+        TestResultInfoBar.Title = "Yetkilendirme Başlatıldı";
+        TestResultInfoBar.Message = "Tarayıcınızda giriş ekranı açıldı. Lütfen hesabınızı onaylayın...";
+
+        try
+        {
+            var (success, token, msg) = await OAuthHelper.StartOAuthLoginAsync(
+                _editingServer.Protocol, 
+                ClientIdBox.Text.Trim(), 
+                ClientSecretBox.Password);
+
+            if (success && !string.IsNullOrEmpty(token))
+            {
+                PasswordBox.Password = token;
+                _editingServer.Password = token;
+
+                OAuthStatusBadge.Visibility = Visibility.Visible;
+                OAuthStatusText.Text = "Oturum Açık & Bağlantı Hazır";
+                OAuthLoginButtonText.Text = $"{_editingServer.ProviderName} Hesabını Yeniden Bağla";
+
+                TestResultInfoBar.Severity = InfoBarSeverity.Success;
+                TestResultInfoBar.Title = "Giriş Başarılı";
+                TestResultInfoBar.Message = $"✅ {msg} Oturum tokenı kaydedildi.";
+
+                // Otomatik olarak ayarları kaydet ve listeyi güncelle
+                SaveAndConnectBtn_Click(sender, e);
+            }
+            else
+            {
+                TestResultInfoBar.Severity = InfoBarSeverity.Error;
+                TestResultInfoBar.Title = "Giriş Başarısız";
+                TestResultInfoBar.Message = msg;
+            }
+        }
+        catch (Exception ex)
+        {
+            TestResultInfoBar.Severity = InfoBarSeverity.Error;
+            TestResultInfoBar.Title = "Yetkilendirme Hatası";
+            TestResultInfoBar.Message = ex.Message;
+        }
+        finally
+        {
+            OAuthLoginButton.IsEnabled = true;
+        }
     }
 
     private void EditServer_Click(object sender, RoutedEventArgs e)
@@ -249,6 +308,19 @@ public sealed partial class SettingsView : UserControl
             var target = CloudreveManager.Instance.Servers.FirstOrDefault(s => s.Id == id);
             if (target != null)
             {
+                // Google Drive veya OneDrive oturumu açılmamışsa doğrudan düzenleme/giriş paneline yönlendir
+                if ((target.Protocol == StorageProtocol.GoogleDrive || target.Protocol == StorageProtocol.OneDrive) && string.IsNullOrEmpty(target.Password))
+                {
+                    _isNewServer = false;
+                    _editingServer = target;
+                    SetupEditPanel();
+                    TestResultInfoBar.Severity = InfoBarSeverity.Warning;
+                    TestResultInfoBar.Title = "Oturum Gerekli";
+                    TestResultInfoBar.Message = $"{target.ProviderName} henüz yetkilendirilmemiş. Lütfen 'Tarayıcı ile Giriş Yap' butonuna tıklayarak hesabınızı bağlayın.";
+                    TestResultInfoBar.IsOpen = true;
+                    return;
+                }
+
                 CloudreveManager.Instance.SetActiveServer(target);
                 FooterStatusText.Text = "Aktif sürücü değiştirildi.";
                 SettingsSaved?.Invoke(this, EventArgs.Empty);

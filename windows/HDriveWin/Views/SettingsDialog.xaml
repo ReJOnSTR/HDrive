@@ -314,11 +314,8 @@
                                     <TextBlock Text="Geri" FontSize="12" />
                                 </StackPanel>
                             </Button>
-                            <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right" VerticalAlignment="Center">
-                                <views:ProviderLogoBadge x:Name="EditProviderLogoBadge" BadgeSize="30" />
-                                <TextBlock x:Name="EditProviderTitleText" Text="Bağlantı Ayarları" FontWeight="SemiBold" 
-                                           FontSize="14" VerticalAlignment="Center" />
-                            </StackPanel>
+                            <TextBlock x:Name="EditProviderTitleText" Text="Bağlantı Ayarları" FontWeight="SemiBold" 
+                                       FontSize="14" HorizontalAlignment="Right" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
                         </Grid>
 
                         <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"

@@ -187,7 +187,6 @@ public sealed partial class SettingsDialog : ContentDialog
 
     private void LoadServerIntoForm(ServerConfig s)
     {
-        EditProviderLogoBadge.Protocol = s.Protocol;
         EditProviderTitleText.Text = $"{s.ProviderName} Yapılandırması";
         ServerNameBox.Text = s.Name;
         ServerUrlBox.Text = s.ServerURL;

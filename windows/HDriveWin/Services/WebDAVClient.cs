@@ -2,9 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 using System.Xml.Linq;
 using System.Runtime.InteropServices;
@@ -217,6 +219,44 @@ public class WebDAVClient
                 return (false, $"S3 sunucu yanıtı: {(int)s3Resp.StatusCode}");
             }
 
+            if (_config.Protocol == StorageProtocol.GoogleDrive)
+            {
+                if (string.IsNullOrEmpty(_config.Password))
+                {
+                    return (false, "Google Drive erişim tokenı bulunamadı. Lütfen 'Tarayıcı ile Giriş Yap' butonuna tıklayarak hesabınızı bağlayın.");
+                }
+                var gReq = new HttpRequestMessage(HttpMethod.Get, "https://www.googleapis.com/drive/v3/files?pageSize=1&supportsAllDrives=true");
+                var gResp = await _httpClient.SendAsync(gReq);
+                if (gResp.IsSuccessStatusCode)
+                {
+                    return (true, "Google Drive bağlantısı başarılı!");
+                }
+                if ((int)gResp.StatusCode == 401)
+                {
+                    return (false, "Google Drive oturumunun süresi dolmuş. Lütfen 'Tarayıcı ile Giriş Yap' butonuna tıklayarak yeniden bağlanın.");
+                }
+                return (false, $"Google Drive yanıtı: HTTP {(int)gResp.StatusCode} {gResp.ReasonPhrase}");
+            }
+
+            if (_config.Protocol == StorageProtocol.OneDrive)
+            {
+                if (string.IsNullOrEmpty(_config.Password))
+                {
+                    return (false, "OneDrive erişim tokenı bulunamadı. Lütfen 'Tarayıcı ile Giriş Yap' butonuna tıklayarak hesabınızı bağlayın.");
+                }
+                var odReq = new HttpRequestMessage(HttpMethod.Get, "https://graph.microsoft.com/v1.0/me/drive/root/children?$top=1");
+                var odResp = await _httpClient.SendAsync(odReq);
+                if (odResp.IsSuccessStatusCode)
+                {
+                    return (true, "Microsoft OneDrive bağlantısı başarılı!");
+                }
+                if ((int)odResp.StatusCode == 401)
+                {
+                    return (false, "OneDrive oturumunun süresi dolmuş. Lütfen 'Tarayıcı ile Giriş Yap' butonuna tıklayarak yeniden bağlanın.");
+                }
+                return (false, $"OneDrive yanıtı: HTTP {(int)odResp.StatusCode} {odResp.ReasonPhrase}");
+            }
+
             var request = new HttpRequestMessage(new HttpMethod("PROPFIND"), BuildUri("/"))
             {
                 Headers = { { "Depth", "0" } }
@@ -238,6 +278,16 @@ public class WebDAVClient
 
     public async Task<List<FileItem>> ListDirectoryAsync(string relativePath)
     {
+        if (_config.Protocol == StorageProtocol.GoogleDrive)
+        {
+            return await ListGoogleDriveDirectoryAsync(relativePath);
+        }
+
+        if (_config.Protocol == StorageProtocol.OneDrive)
+        {
+            return await ListOneDriveDirectoryAsync(relativePath);
+        }
+
         if (_config.Protocol == StorageProtocol.SMB)
         {
             await EnsureSmbConnectedAsync();
@@ -399,6 +449,48 @@ public class WebDAVClient
             });
         }
 
+        if (_config.Protocol == StorageProtocol.GoogleDrive)
+        {
+            try
+            {
+                var cleanId = (remotePath ?? "").Trim().Trim('/');
+                var url = $"https://www.googleapis.com/drive/v3/files/{cleanId}?alt=media&supportsAllDrives=true";
+                var response = await _httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
+                response.EnsureSuccessStatusCode();
+
+                using var stream = await response.Content.ReadAsStreamAsync();
+                using var fileStream = new FileStream(localPath, FileMode.Create, FileAccess.Write, FileShare.None);
+                await stream.CopyToAsync(fileStream);
+
+                return localPath;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        if (_config.Protocol == StorageProtocol.OneDrive)
+        {
+            try
+            {
+                var cleanId = (remotePath ?? "").Trim().Trim('/');
+                var url = $"https://graph.microsoft.com/v1.0/me/drive/items/{cleanId}/content";
+                var response = await _httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
+                response.EnsureSuccessStatusCode();
+
+                using var stream = await response.Content.ReadAsStreamAsync();
+                using var fileStream = new FileStream(localPath, FileMode.Create, FileAccess.Write, FileShare.None);
+                await stream.CopyToAsync(fileStream);
+
+                return localPath;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
         var uri = BuildUri(remotePath);
 
         try
@@ -526,6 +618,48 @@ public class WebDAVClient
             });
         }
 
+        if (_config.Protocol == StorageProtocol.GoogleDrive)
+        {
+            try
+            {
+                var parentId = string.IsNullOrEmpty(remoteDirectoryPath) || remoteDirectoryPath == "/" ? "root" : remoteDirectoryPath.Trim('/');
+                var metadata = new { name = filename, parents = new[] { parentId } };
+                var metaJson = JsonSerializer.Serialize(metadata);
+
+                using var multipart = new MultipartFormDataContent();
+                var stringContent = new StringContent(metaJson, Encoding.UTF8, "application/json");
+                multipart.Add(stringContent, "metadata");
+
+                using var fileStream = File.OpenRead(localFilePath);
+                var streamContent = new StreamContent(fileStream);
+                multipart.Add(streamContent, "file", filename);
+
+                var resp = await _httpClient.PostAsync("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true", multipart);
+                return resp.IsSuccessStatusCode;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        if (_config.Protocol == StorageProtocol.OneDrive)
+        {
+            try
+            {
+                var targetFolder = string.IsNullOrEmpty(remoteDirectoryPath) || remoteDirectoryPath == "/" ? "root" : $"items/{remoteDirectoryPath.Trim('/')}";
+                var url = $"https://graph.microsoft.com/v1.0/me/drive/{targetFolder}:/{Uri.EscapeDataString(filename)}:/content";
+                using var fileStream = File.OpenRead(localFilePath);
+                using var content = new StreamContent(fileStream);
+                var resp = await _httpClient.PutAsync(url, content);
+                return resp.IsSuccessStatusCode;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         var uri = BuildUri(remotePath);
 
         try
@@ -559,6 +693,48 @@ public class WebDAVClient
                     return false;
                 }
             });
+        }
+
+        if (_config.Protocol == StorageProtocol.GoogleDrive)
+        {
+            try
+            {
+                var folderName = Path.GetFileName(remotePath.TrimEnd('/'));
+                var parentId = Path.GetDirectoryName(remotePath.TrimEnd('/'))?.Replace('\\', '/').Trim('/');
+                if (string.IsNullOrEmpty(parentId) || parentId == ".") parentId = "root";
+
+                var metadata = new { name = folderName, mimeType = "application/vnd.google-apps.folder", parents = new[] { parentId } };
+                var json = JsonSerializer.Serialize(metadata);
+                using var content = new StringContent(json, Encoding.UTF8, "application/json");
+                var resp = await _httpClient.PostAsync("https://www.googleapis.com/drive/v3/files?supportsAllDrives=true", content);
+                return resp.IsSuccessStatusCode;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        if (_config.Protocol == StorageProtocol.OneDrive)
+        {
+            try
+            {
+                var folderName = Path.GetFileName(remotePath.TrimEnd('/'));
+                var parentId = Path.GetDirectoryName(remotePath.TrimEnd('/'))?.Replace('\\', '/').Trim('/');
+                string url = (string.IsNullOrEmpty(parentId) || parentId == "root" || parentId == ".")
+                    ? "https://graph.microsoft.com/v1.0/me/drive/root/children"
+                    : $"https://graph.microsoft.com/v1.0/me/drive/items/{parentId}/children";
+
+                var body = new { name = folderName, folder = new { } };
+                var json = JsonSerializer.Serialize(body);
+                using var content = new StringContent(json, Encoding.UTF8, "application/json");
+                var resp = await _httpClient.PostAsync(url, content);
+                return resp.IsSuccessStatusCode;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         var uri = BuildUri(remotePath);
@@ -601,6 +777,34 @@ public class WebDAVClient
                     return false;
                 }
             });
+        }
+
+        if (_config.Protocol == StorageProtocol.GoogleDrive)
+        {
+            try
+            {
+                var cleanId = (remotePath ?? "").Trim().Trim('/');
+                var resp = await _httpClient.DeleteAsync($"https://www.googleapis.com/drive/v3/files/{cleanId}?supportsAllDrives=true");
+                return resp.IsSuccessStatusCode || resp.StatusCode == System.Net.HttpStatusCode.NotFound;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        if (_config.Protocol == StorageProtocol.OneDrive)
+        {
+            try
+            {
+                var cleanId = (remotePath ?? "").Trim().Trim('/');
+                var resp = await _httpClient.DeleteAsync($"https://graph.microsoft.com/v1.0/me/drive/items/{cleanId}");
+                return resp.IsSuccessStatusCode || resp.StatusCode == System.Net.HttpStatusCode.NotFound;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         var path = remotePath;
@@ -723,4 +927,147 @@ public class WebDAVClient
         catch { }
         return null;
     }
+
+    #region Google Drive & OneDrive REST Helpers
+    private async Task<List<FileItem>> ListGoogleDriveDirectoryAsync(string folderIdOrPath)
+    {
+        var list = new List<FileItem>();
+        var clean = (folderIdOrPath ?? "").Trim().Trim('/');
+        var parentId = (string.IsNullOrEmpty(clean) || clean == ".") ? "root" : clean;
+
+        var query = Uri.EscapeDataString($"'{parentId}' in parents and trashed = false");
+        var url = $"https://www.googleapis.com/drive/v3/files?q={query}&fields=files(id,name,mimeType,size,modifiedTime)&pageSize=1000&supportsAllDrives=true";
+
+        try
+        {
+            var req = new HttpRequestMessage(HttpMethod.Get, url);
+            var resp = await _httpClient.SendAsync(req);
+            if (!resp.IsSuccessStatusCode) return list;
+
+            var json = await resp.Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("files", out var files))
+            {
+                foreach (var f in files.EnumerateArray())
+                {
+                    var id = f.GetProperty("id").GetString() ?? "";
+                    var name = f.GetProperty("name").GetString() ?? "";
+                    var mime = f.TryGetProperty("mimeType", out var mp) ? mp.GetString() ?? "" : "";
+                    var isDir = mime == "application/vnd.google-apps.folder";
+
+                    long size = 0;
+                    if (f.TryGetProperty("size", out var sp))
+                    {
+                        if (sp.ValueKind == JsonValueKind.Number) size = sp.GetInt64();
+                        else if (sp.ValueKind == JsonValueKind.String && long.TryParse(sp.GetString(), out var ps)) size = ps;
+                    }
+
+                    DateTime modDate = DateTime.MinValue;
+                    if (f.TryGetProperty("modifiedTime", out var mt) && DateTime.TryParse(mt.GetString(), out var pd))
+                    {
+                        modDate = pd;
+                    }
+
+                    list.Add(new FileItem
+                    {
+                        Name = name,
+                        Path = id,
+                        IsDirectory = isDir,
+                        Size = size,
+                        ModifiedDate = modDate
+                    });
+                }
+            }
+        }
+        catch { }
+
+        list.Sort((a, b) =>
+        {
+            if (a.IsDirectory != b.IsDirectory) return a.IsDirectory ? -1 : 1;
+            return string.Compare(a.Name, b.Name, StringComparison.CurrentCultureIgnoreCase);
+        });
+        return list;
+    }
+
+    private async Task<List<FileItem>> ListOneDriveDirectoryAsync(string folderIdOrPath)
+    {
+        var list = new List<FileItem>();
+        var clean = (folderIdOrPath ?? "").Trim().Trim('/');
+
+        string url;
+        if (string.IsNullOrEmpty(clean) || clean == "root" || clean == ".")
+        {
+            url = "https://graph.microsoft.com/v1.0/me/drive/root/children?$top=1000";
+        }
+        else if (clean.Contains("/"))
+        {
+            var enc = Uri.EscapeDataString(clean);
+            url = $"https://graph.microsoft.com/v1.0/me/drive/root:/{enc}:/children?$top=1000";
+        }
+        else
+        {
+            url = $"https://graph.microsoft.com/v1.0/me/drive/items/{clean}/children?$top=1000";
+        }
+
+        try
+        {
+            var req = new HttpRequestMessage(HttpMethod.Get, url);
+            var resp = await _httpClient.SendAsync(req);
+            if (!resp.IsSuccessStatusCode)
+            {
+                if ((int)resp.StatusCode == 404 && !string.IsNullOrEmpty(clean))
+                {
+                    var encFallback = Uri.EscapeDataString(clean);
+                    url = $"https://graph.microsoft.com/v1.0/me/drive/root:/{encFallback}:/children?$top=1000";
+                    req = new HttpRequestMessage(HttpMethod.Get, url);
+                    resp = await _httpClient.SendAsync(req);
+                    if (!resp.IsSuccessStatusCode) return list;
+                }
+                else return list;
+            }
+
+            var json = await resp.Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("value", out var values))
+            {
+                foreach (var item in values.EnumerateArray())
+                {
+                    var id = item.GetProperty("id").GetString() ?? "";
+                    var name = item.GetProperty("name").GetString() ?? "";
+                    var isDir = item.TryGetProperty("folder", out _);
+
+                    long size = 0;
+                    if (item.TryGetProperty("size", out var sp))
+                    {
+                        if (sp.ValueKind == JsonValueKind.Number) size = sp.GetInt64();
+                        else if (sp.ValueKind == JsonValueKind.String && long.TryParse(sp.GetString(), out var ps)) size = ps;
+                    }
+
+                    DateTime modDate = DateTime.MinValue;
+                    if (item.TryGetProperty("lastModifiedDateTime", out var mt) && DateTime.TryParse(mt.GetString(), out var pd))
+                    {
+                        modDate = pd;
+                    }
+
+                    list.Add(new FileItem
+                    {
+                        Name = name,
+                        Path = id,
+                        IsDirectory = isDir,
+                        Size = size,
+                        ModifiedDate = modDate
+                    });
+                }
+            }
+        }
+        catch { }
+
+        list.Sort((a, b) =>
+        {
+            if (a.IsDirectory != b.IsDirectory) return a.IsDirectory ? -1 : 1;
+            return string.Compare(a.Name, b.Name, StringComparison.CurrentCultureIgnoreCase);
+        });
+        return list;
+    }
+    #endregion
 }

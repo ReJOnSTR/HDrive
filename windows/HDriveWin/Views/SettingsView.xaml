@@ -316,12 +316,37 @@
                                     <TextBlock Text="Geri" FontSize="12" />
                                 </StackPanel>
                             </Button>
-                            <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right" VerticalAlignment="Center">
-                                <views:ProviderLogoBadge x:Name="EditProviderLogoBadge" BadgeSize="30" />
-                                <TextBlock x:Name="EditProviderTitleText" Text="Bağlantı Ayarları" FontWeight="SemiBold" 
-                                           FontSize="14" VerticalAlignment="Center" />
-                            </StackPanel>
+                            <TextBlock x:Name="EditProviderTitleText" Text="Bağlantı Ayarları" FontWeight="SemiBold" 
+                                       FontSize="14" HorizontalAlignment="Right" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
                         </Grid>
+
+                        <!-- OAuth Tek Tıkla Giriş Kartı (Google Drive / OneDrive için) -->
+                        <Border x:Name="OAuthLoginCard" Background="{ThemeResource LayerFillColorDefaultBrush}" 
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" 
+                                BorderThickness="1" CornerRadius="10" Padding="20,18" Visibility="Collapsed">
+                            <StackPanel Spacing="10" HorizontalAlignment="Center">
+                                <TextBlock x:Name="OAuthCardTitle" Text="Hesabınızı Tek Tıkla Bağlayın" FontWeight="SemiBold" FontSize="14.5" HorizontalAlignment="Center" />
+                                <TextBlock x:Name="OAuthCardDescription" Text="Tarayıcınızda açılacak resmi giriş ekranında hesabınızı onaylayın. HDrive otomatik olarak bağlanacaktır." 
+                                           FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextAlignment="Center" TextWrapping="Wrap" MaxWidth="520" />
+                                
+                                <!-- Oturum Durumu Rozeti -->
+                                <Border x:Name="OAuthStatusBadge" Background="#1A107C41" CornerRadius="12" Padding="12,5" HorizontalAlignment="Center" Visibility="Collapsed">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <FontIcon Glyph="&#xE73E;" FontSize="12" Foreground="#107C41" />
+                                        <TextBlock x:Name="OAuthStatusText" Text="Oturum Açık &amp; Bağlantı Hazır" FontSize="12" FontWeight="SemiBold" Foreground="#107C41" />
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- Tarayıcı ile Giriş Yap Butonu -->
+                                <Button x:Name="OAuthLoginButton" Click="OAuthLoginButton_Click" Style="{ThemeResource AccentButtonStyle}" 
+                                        Padding="22,10" CornerRadius="6" HorizontalAlignment="Center">
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <FontIcon x:Name="OAuthLoginButtonIcon" Glyph="&#xE774;" FontSize="14" />
+                                        <TextBlock x:Name="OAuthLoginButtonText" Text="Tarayıcı ile Giriş Yap" FontSize="13" FontWeight="SemiBold" />
+                                    </StackPanel>
+                                </Button>
+                            </StackPanel>
+                        </Border>
 
                         <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
