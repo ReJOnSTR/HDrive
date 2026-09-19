@@ -1508,7 +1508,9 @@ public sealed partial class MainWindow : Window
             {
                 _ = Task.Run(async () =>
                 {
-                    var client = new WebDAVClient(CloudreveManager.Instance.ActiveServer);
+                    var srv = CloudreveManager.Instance.ActiveServer;
+                    if (srv == null) return;
+                    var client = new WebDAVClient(srv);
                     var downloaded = await client.DownloadFileToCacheAsync(item.Path, item.Name);
                     if (!string.IsNullOrEmpty(downloaded) && File.Exists(downloaded))
                     {
@@ -1550,7 +1552,9 @@ public sealed partial class MainWindow : Window
             {
                 _ = Task.Run(async () =>
                 {
-                    var client = new WebDAVClient(CloudreveManager.Instance.ActiveServer);
+                    var srv = CloudreveManager.Instance.ActiveServer;
+                    if (srv == null) return;
+                    var client = new WebDAVClient(srv);
                     var downloaded = await client.DownloadFileToCacheAsync(item.Path, item.Name);
                     if (!string.IsNullOrEmpty(downloaded) && File.Exists(downloaded))
                     {
@@ -1615,7 +1619,9 @@ public sealed partial class MainWindow : Window
             var folderName = inputTextBox.Text.Trim();
             var targetPath = _currentPath.TrimEnd('/') + "/" + folderName;
 
-            var client = new WebDAVClient(CloudreveManager.Instance.ActiveServer);
+            var srv = CloudreveManager.Instance.ActiveServer;
+            if (srv == null) return;
+            var client = new WebDAVClient(srv);
             var success = await client.CreateFolderAsync(targetPath);
             if (success)
             {
@@ -2649,6 +2655,7 @@ public sealed partial class MainWindow : Window
             Directory.CreateDirectory(cacheDir);
 
             var config = CloudreveManager.Instance.ActiveServer;
+            if (config == null) return;
             var client = new WebDAVClient(config);
 
             foreach (var item in selectedItems)
@@ -2729,7 +2736,9 @@ public sealed partial class MainWindow : Window
                 if (items.Count > 0)
                 {
                     LoadingRing.IsActive = true;
-                    var client = new WebDAVClient(CloudreveManager.Instance.ActiveServer);
+                    var srv = CloudreveManager.Instance.ActiveServer;
+                    if (srv == null) return;
+                    var client = new WebDAVClient(srv);
                     int uploadedCount = 0;
 
                     foreach (var item in items)

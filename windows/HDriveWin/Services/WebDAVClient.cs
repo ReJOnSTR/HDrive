@@ -10,6 +10,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using System.Xml.Linq;
 using System.Runtime.InteropServices;
+using System.Diagnostics;
 using HDriveWin.Models;
 
 namespace HDriveWin.Services;
@@ -461,7 +462,7 @@ public class WebDAVClient
             {
                 try
                 {
-                    var unc = GetUncPath(remotePath);
+                    var unc = GetUncPath(remotePath ?? "");
                     File.Copy(unc, localPath, true);
                     return localPath;
                 }
@@ -545,7 +546,7 @@ public class WebDAVClient
             }
         }
 
-        var uri = BuildUri(remotePath);
+        var uri = BuildUri(remotePath ?? "");
 
         try
         {
