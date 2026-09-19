@@ -18,20 +18,29 @@ public sealed partial class QuickLookDialog : ContentDialog
         InitializeComponent();
         Item = item;
 
-        Title = $"Hızlı Bakış - {item.Name}";
+        Title = "";
+        PreviewHeaderFileName.Text = item.Name;
+        PreviewHeaderMeta.Text = $"{item.TypeDescription} • {item.FormattedSize}";
         PreviewFileName.Text = item.Name;
         PreviewFileType.Text = item.TypeDescription;
-        PreviewFileSize.Text = $"Boyut: {item.FormattedSize}";
-        PreviewFileDate.Text = $"Değiştirilme: {item.FormattedDate}";
+        PreviewFileSize.Text = item.FormattedSize;
+        PreviewFileDate.Text = item.FormattedDate;
+        PreviewLocationText.Text = string.IsNullOrEmpty(item.Path) ? "" : item.Path;
 
         PreviewGenericGlyph.Glyph = item.GlyphIcon;
         PreviewGenericGlyph.Foreground = item.IconBrush;
+        HeaderIconGlyph.Glyph = item.GlyphIcon;
+        HeaderIconGlyph.Foreground = item.IconBrush;
 
         if (item.IconImage != null)
         {
             PreviewGenericIconImage.Source = item.IconImage;
             PreviewGenericIconImage.Visibility = Visibility.Visible;
             PreviewGenericGlyph.Visibility = Visibility.Collapsed;
+
+            HeaderIconImage.Source = item.IconImage;
+            HeaderIconImage.Visibility = Visibility.Visible;
+            HeaderIconGlyph.Visibility = Visibility.Collapsed;
         }
 
         PrimaryButtonClick += (s, e) =>

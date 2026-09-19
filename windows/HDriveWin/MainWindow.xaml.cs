@@ -695,9 +695,6 @@ public sealed partial class MainWindow : Window
         PreviewTypeBadge.Text = "Çoklu Seçim";
         long totalSize = selectedItems.Where(i => !i.IsDirectory).Sum(i => i.Size);
         PreviewSizeText.Text = FormatByteSize(totalSize);
-        PreviewDateText.Text = "--";
-        PreviewExtensionText.Text = "Karma";
-        PreviewPathText.Text = $"{selectedItems.Count} dosya/klasör seçili";
 
         if (PreviewTextScroll != null) PreviewTextScroll.Visibility = Visibility.Collapsed;
         if (PreviewImage != null) PreviewImage.Visibility = Visibility.Collapsed;
@@ -708,10 +705,6 @@ public sealed partial class MainWindow : Window
             PreviewIcon.Visibility = Visibility.Visible;
             PreviewIcon.Glyph = "\uE8B3";
         }
-
-        PreviewOpenButton.Content = $"{selectedItems.Count} Öğeyi Aç";
-        PreviewDownloadButton.Content = $"{selectedItems.Count} Öğeyi İndir...";
-        PreviewDownloadButton.Visibility = Visibility.Visible;
     }
 
     private async void FileList_KeyDown(object sender, KeyRoutedEventArgs e)
@@ -1448,9 +1441,6 @@ public sealed partial class MainWindow : Window
         PreviewFileName.Text = item.Name;
         PreviewTypeBadge.Text = item.TypeDescription;
         PreviewSizeText.Text = item.FormattedSize;
-        PreviewDateText.Text = item.FormattedDate;
-        PreviewExtensionText.Text = string.IsNullOrEmpty(item.Extension) ? (item.IsDirectory ? "Klasör" : "Bilinmeyen") : item.Extension;
-        PreviewPathText.Text = item.Path;
 
         if (PreviewTextScroll != null) PreviewTextScroll.Visibility = Visibility.Collapsed;
         if (PreviewImage != null) PreviewImage.Visibility = Visibility.Collapsed;
@@ -1472,13 +1462,8 @@ public sealed partial class MainWindow : Window
 
         if (item.IsDirectory)
         {
-            PreviewOpenButton.Content = "Klasöre Git";
-            PreviewDownloadButton.Visibility = Visibility.Collapsed;
             return;
         }
-
-        PreviewOpenButton.Content = item.IsPdf ? "PDF'i Aç / Önizle" : "Varsayılan Uygulamayla Aç";
-        PreviewDownloadButton.Visibility = Visibility.Visible;
 
         var ext = item.Extension?.TrimStart('.').ToLowerInvariant() ?? "";
         bool isText = new[] { "txt", "md", "json", "xml", "csv", "log", "cs", "py", "js", "ts", "html", "css", "yml", "yaml", "sql", "ini", "sh", "bat" }.Contains(ext);
@@ -1579,21 +1564,6 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async void PreviewOpenButton_Click(object sender, RoutedEventArgs e)
-    {
-        if (_selectedItem != null)
-        {
-            await HandleOpenItemAsync(_selectedItem);
-        }
-    }
-
-    private async void PreviewDownloadButton_Click(object sender, RoutedEventArgs e)
-    {
-        if (_selectedItem != null && !_selectedItem.IsDirectory)
-        {
-            await OpenFileAsync(_selectedItem);
-        }
-    }
 
     private async void RefreshButton_Click(object sender, RoutedEventArgs e)
     {

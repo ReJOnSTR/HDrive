@@ -5,62 +5,124 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
-    Title="Hızlı Bakış"
     PrimaryButtonText="Uygulamada Aç"
     CloseButtonText="Kapat"
-    DefaultButton="Close">
+    DefaultButton="Close"
+    MaxWidth="820"
+    MaxHeight="680">
 
-    <Grid Width="520" Height="400" RowDefinitions="*,Auto" Margin="0,8,0,0">
-        <!-- Önizleme Ana Alanı -->
-        <Border Grid.Row="0"
+    <ContentDialog.Resources>
+        <x:Double x:Key="ContentDialogMaxWidth">800</x:Double>
+        <x:Double x:Key="ContentDialogMinWidth">640</x:Double>
+    </ContentDialog.Resources>
+
+    <!-- macOS Quick Look Stili Geniş ve Ferah Düzen (680 x 480) -->
+    <Grid Width="680" Height="480" RowDefinitions="Auto,*,Auto" Margin="0,-12,0,0">
+        <!-- 0: Üst Başlık Çubuğu (Taşmaz, Özel İkon ve Rozet) -->
+        <Border Grid.Row="0" Margin="0,0,0,10" Padding="2,2,2,8" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
+            <Grid ColumnSpacing="10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <!-- Dosya Küçük İkonu -->
+                <Border Grid.Column="0" Width="34" Height="34" CornerRadius="8" Background="{ThemeResource LayerFillColorDefaultBrush}" VerticalAlignment="Center">
+                    <Grid>
+                        <Image x:Name="HeaderIconImage" Width="24" Height="24" Stretch="Uniform" Visibility="Collapsed" />
+                        <FontIcon x:Name="HeaderIconGlyph" FontSize="18" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Grid>
+                </Border>
+
+                <!-- Dosya Adı & Türü (Asla Taşmaz, Karakter Kırpması Aktif) -->
+                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                    <TextBlock x:Name="PreviewHeaderFileName" Text="Dosya Adı" FontSize="14" FontWeight="SemiBold" 
+                               TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                    <TextBlock x:Name="PreviewHeaderMeta" Text="Tür • Boyut" FontSize="11.5" 
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                </StackPanel>
+
+                <!-- Kısayol Rozeti -->
+                <Border Grid.Column="2" Background="{ThemeResource SubtleFillColorSecondaryBrush}" CornerRadius="6" Padding="8,4" VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
+                        <FontIcon Glyph="&#xE755;" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                        <TextBlock Text="Space ile Kapat" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Border>
+
+        <!-- 1: Önizleme Ana Tuvali (Geniş, Ferah, Yuvarlatılmış) -->
+        <Border Grid.Row="1"
                 Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                 BorderThickness="1"
-                CornerRadius="8"
-                Padding="16"
+                CornerRadius="10"
+                Padding="14"
                 HorizontalAlignment="Stretch"
                 VerticalAlignment="Stretch">
             <Grid>
-                <!-- Resim Önizleme -->
-                <Image x:Name="PreviewImage" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed" />
+                <!-- Resim Önizleme (Kaydırılabilir) -->
+                <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+                    <Image x:Name="PreviewImage" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed" />
+                </ScrollViewer>
 
                 <!-- Metin / Kod Önizleme -->
                 <ScrollViewer x:Name="PreviewTextScroll" Visibility="Collapsed" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
-                    <TextBlock x:Name="PreviewTextContent" FontFamily="Consolas, Cascadia Code, Courier New" FontSize="12" LineHeight="18" TextWrapping="Wrap" />
+                    <TextBlock x:Name="PreviewTextContent" FontFamily="Consolas, Cascadia Code, Courier New" FontSize="12" LineHeight="18" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
                 </ScrollViewer>
 
-                <!-- Jenerik / Büyük İkonlu Önizleme -->
+                <!-- Jenerik / Büyük İkonlu Önizleme (macOS Finder Tarzı) -->
                 <StackPanel x:Name="PreviewGenericStack" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="16" Visibility="Visible">
-                    <Border Width="80" Height="80" CornerRadius="12" Background="{ThemeResource LayerFillColorDefaultBrush}" HorizontalAlignment="Center">
+                    <Border Width="88" Height="88" CornerRadius="16" Background="{ThemeResource LayerFillColorDefaultBrush}" 
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" HorizontalAlignment="Center">
                         <Grid>
                             <Image x:Name="PreviewGenericIconImage" Width="64" Height="64" Stretch="Uniform" Visibility="Collapsed" />
-                            <FontIcon x:Name="PreviewGenericGlyph" FontSize="44" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            <FontIcon x:Name="PreviewGenericGlyph" FontSize="48" HorizontalAlignment="Center" VerticalAlignment="Center" />
                         </Grid>
                     </Border>
-                    <StackPanel Spacing="4" HorizontalAlignment="Center">
-                        <TextBlock x:Name="PreviewFileName" FontSize="16" FontWeight="SemiBold" TextAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="440" />
-                        <TextBlock x:Name="PreviewFileType" FontSize="12.5" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextAlignment="Center" />
+                    <StackPanel Spacing="4" HorizontalAlignment="Center" MaxWidth="520">
+                        <TextBlock x:Name="PreviewFileName" FontSize="15.5" FontWeight="SemiBold" TextAlignment="Center" 
+                                   TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" MaxWidth="500" />
+                        <TextBlock x:Name="PreviewFileType" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" 
+                                   TextAlignment="Center" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" MaxWidth="500" />
                     </StackPanel>
                 </StackPanel>
 
                 <!-- Yükleniyor Göstergesi -->
-                <ProgressRing x:Name="PreviewLoadingRing" Width="36" Height="36" IsActive="False" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                <ProgressRing x:Name="PreviewLoadingRing" Width="38" Height="38" IsActive="False" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Center" />
             </Grid>
         </Border>
 
-        <!-- Alt Bilgi Şeridi -->
-        <Border Grid.Row="1" Margin="0,12,0,0"
+        <!-- 2: Alt Bilgi Şeridi (Taşmasız, Hizalı) -->
+        <Border Grid.Row="2" Margin="0,10,0,0"
                 Background="{ThemeResource LayerFillColorAltBrush}"
                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                 BorderThickness="1"
-                CornerRadius="6"
+                CornerRadius="8"
                 Padding="12,8">
-            <Grid ColumnDefinitions="*,Auto">
-                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
-                    <TextBlock x:Name="PreviewFileSize" FontSize="11.5" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                    <TextBlock x:Name="PreviewFileDate" FontSize="11.5" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            <Grid ColumnSpacing="16">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal" Spacing="5">
+                        <FontIcon Glyph="&#xEC4E;" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center" />
+                        <TextBlock x:Name="PreviewFileSize" FontSize="11.5" Foreground="{ThemeResource TextFillColorSecondaryBrush}" 
+                                   TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="5">
+                        <FontIcon Glyph="&#xEC92;" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center" />
+                        <TextBlock x:Name="PreviewFileDate" FontSize="11.5" Foreground="{ThemeResource TextFillColorSecondaryBrush}" 
+                                   TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" VerticalAlignment="Center" />
+                    </StackPanel>
                 </StackPanel>
-                <TextBlock Grid.Column="1" Text="Boşluk Tuşu (Space)" FontSize="10.5" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center" />
+
+                <TextBlock x:Name="PreviewLocationText" Grid.Column="1" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}" 
+                           TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" VerticalAlignment="Center" MaxWidth="260" />
             </Grid>
         </Border>
     </Grid>
