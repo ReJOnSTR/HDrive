@@ -382,8 +382,8 @@ public sealed partial class SettingsView : UserControl
                 Username = UsernameBox.Text.Trim(),
                 Password = PasswordBox.Password,
                 Protocol = _editingServer.Protocol,
-                ClientId = ClientIdBox.Text.Trim(),
-                ClientSecret = ClientSecretBox.Password,
+                ClientId = _editingServer.ClientId ?? "",
+                ClientSecret = _editingServer.ClientSecret ?? "",
                 BucketName = BucketBox.Text.Trim(),
                 Region = RegionBox.Text.Trim(),
                 SmbShareName = SmbShareBox.Text.Trim()

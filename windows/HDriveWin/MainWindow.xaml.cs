@@ -1511,7 +1511,7 @@ public sealed partial class MainWindow : Window
                     var srv = CloudreveManager.Instance.ActiveServer;
                     if (srv == null) return;
                     var client = new WebDAVClient(srv);
-                    var downloaded = await client.DownloadFileToCacheAsync(item.Path, item.Name);
+                    var downloaded = await client.DownloadFileToCacheAsync(item.Path ?? "", item.Name);
                     if (!string.IsNullOrEmpty(downloaded) && File.Exists(downloaded))
                     {
                         DispatcherQueue.TryEnqueue(() =>
@@ -1555,7 +1555,7 @@ public sealed partial class MainWindow : Window
                     var srv = CloudreveManager.Instance.ActiveServer;
                     if (srv == null) return;
                     var client = new WebDAVClient(srv);
-                    var downloaded = await client.DownloadFileToCacheAsync(item.Path, item.Name);
+                    var downloaded = await client.DownloadFileToCacheAsync(item.Path ?? "", item.Name);
                     if (!string.IsNullOrEmpty(downloaded) && File.Exists(downloaded))
                     {
                         DispatcherQueue.TryEnqueue(() =>
