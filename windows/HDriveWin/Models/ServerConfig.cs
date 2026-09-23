@@ -24,7 +24,9 @@ public class ServerConfig
     public string SmbShareName { get; set; } = "";
     public string ClientId { get; set; } = "";
     public string ClientSecret { get; set; } = "";
+    public string RefreshToken { get; set; } = "";
     public bool AutoSyncEnabled { get; set; } = true;
+    public bool IsConnected { get; set; } = true;
 
     public string ProviderName => Protocol switch
     {
@@ -46,7 +48,7 @@ public class ServerConfig
 
     public string Subtitle => $"{ProviderName} • {(string.IsNullOrEmpty(ServerURL) ? "Yerel / Bulut" : ServerURL)}";
 
-    public bool IsConnected => Services.CloudreveManager.Instance.ActiveServer?.Id == Id;
+    public bool IsActive => Services.CloudreveManager.Instance.ActiveServer?.Id == Id;
     public string ConnectionStatusText => IsConnected ? "Bağlı" : "Bağlı Değil";
     public string ConnectionActionText => IsConnected ? "Bağlantıyı Kes" : "Bağlan";
     public Microsoft.UI.Xaml.Media.SolidColorBrush StatusDotBrush => new(IsConnected 

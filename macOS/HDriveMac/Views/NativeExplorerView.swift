@@ -3873,7 +3873,7 @@ public class GoogleOAuthHelper {
         listener = nil
     }
     
-    public func exchangeCodeForToken(code: String, clientId: String, clientSecret: String, completion: @escaping (Result<String, Error>) -> Void) {
+    public func exchangeCodeForToken(code: String, clientId: String, clientSecret: String, completion: @escaping (Result<(accessToken: String, refreshToken: String), Error>) -> Void) {
         guard let url = URL(string: "https://oauth2.googleapis.com/token") else {
             completion(.failure(NSError(domain: "HDrive", code: 400, userInfo: [NSLocalizedDescriptionKey: "Geçersiz token URL'si"])))
             return
@@ -3901,13 +3901,37 @@ public class GoogleOAuthHelper {
                 return
             }
             if let token = json["access_token"] as? String {
-                DispatchQueue.main.async { completion(.success(token)) }
+                let rt = (json["refresh_token"] as? String) ?? ""
+                DispatchQueue.main.async { completion(.success((token, rt))) }
             } else {
                 let err = (json["error_description"] as? String) ?? (json["error"] as? String) ?? "Token alınamadı"
                 DispatchQueue.main.async {
                     completion(.failure(NSError(domain: "HDrive", code: 400, userInfo: [NSLocalizedDescriptionKey: err])))
                 }
             }
+        }.resume()
+    }
+    
+    public static func refreshToken(refreshToken: String, clientId: String, clientSecret: String, completion: @escaping (Result<String, Error>) -> Void) {
+        guard let url = URL(string: "https://oauth2.googleapis.com/token") else {
+            completion(.failure(NSError(domain: "HDrive", code: 400, userInfo: [NSLocalizedDescriptionKey: "Geçersiz URL"])))
+            return
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        let cId = clientId.isEmpty ? GoogleOAuthHelper.defaultClientId : clientId
+        let cSec = clientSecret.isEmpty ? GoogleOAuthHelper.defaultClientSecret : clientSecret
+        let body = "client_id=\(cId)&client_secret=\(cSec)&refresh_token=\(refreshToken)&grant_type=refresh_token"
+        req.httpBody = body.data(using: .utf8)
+        URLSession.shared.dataTask(with: req) { data, _, err in
+            if let err = err { completion(.failure(err)); return }
+            guard let data = data, let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let token = json["access_token"] as? String else {
+                completion(.failure(NSError(domain: "HDrive", code: 400, userInfo: [NSLocalizedDescriptionKey: "Token yenilenemedi"])))
+                return
+            }
+            completion(.success(token))
         }.resume()
     }
 }
@@ -3990,6 +4014,7 @@ public struct HDriveSettingsView: View {
     @State private var smbShare: String = ""
     @State private var clientId: String = ""
     @State private var clientSecret: String = ""
+    @State private var refreshToken: String = ""
     @State private var manualCodeInput: String = ""
     @State private var showAdvancedApiSettings: Bool = false
     
@@ -4675,6 +4700,7 @@ public struct HDriveSettingsView: View {
         smbShare = server.smbShare
         clientId = server.clientId
         clientSecret = server.clientSecret
+        refreshToken = server.refreshToken
         
         if storageProtocol == .googleDrive && clientId.isEmpty {
             clientId = GoogleOAuthHelper.defaultClientId
@@ -4697,6 +4723,7 @@ public struct HDriveSettingsView: View {
         password = ""
         clientId = ""
         clientSecret = ""
+        refreshToken = ""
         
         switch proto {
         case .googleDrive:
@@ -4749,8 +4776,11 @@ public struct HDriveSettingsView: View {
         GoogleOAuthHelper.shared.exchangeCodeForToken(code: raw, clientId: cId, clientSecret: cSec) { result in
             self.isTesting = false
             switch result {
-            case .success(let token):
-                self.password = token
+            case .success(let tokens):
+                self.password = tokens.accessToken
+                if !tokens.refreshToken.isEmpty {
+                    self.refreshToken = tokens.refreshToken
+                }
                 self.isTestSuccess = true
                 self.testResult = "✅ Google Drive oturumu başarıyla açıldı ve bağlandı!"
                 self.saveAndConnect()
@@ -4804,8 +4834,11 @@ public struct HDriveSettingsView: View {
                 GoogleOAuthHelper.shared.exchangeCodeForToken(code: code, clientId: effClientId, clientSecret: effClientSecret) { result in
                     self.isTesting = false
                     switch result {
-                    case .success(let token):
-                        self.password = token
+                    case .success(let tokens):
+                        self.password = tokens.accessToken
+                        if !tokens.refreshToken.isEmpty {
+                            self.refreshToken = tokens.refreshToken
+                        }
                         self.isTestSuccess = true
                         self.testResult = "✅ Google Drive oturumu başarıyla açıldı ve bağlandı!"
                         self.saveAndConnect()
@@ -4834,8 +4867,11 @@ public struct HDriveSettingsView: View {
                     self.exchangeOneDriveCode(raw: code) { result in
                         self.isTesting = false
                         switch result {
-                        case .success(let token):
-                            self.password = token
+                        case .success(let tokens):
+                            self.password = tokens.accessToken
+                            if !tokens.refreshToken.isEmpty {
+                                self.refreshToken = tokens.refreshToken
+                            }
                             self.isTestSuccess = true
                             self.testResult = "✅ Microsoft OneDrive oturumu başarıyla açıldı ve bağlandı!"
                             self.saveAndConnect()
@@ -4881,8 +4917,11 @@ public struct HDriveSettingsView: View {
         exchangeOneDriveCode(raw: codeOrUrl) { result in
             self.isTesting = false
             switch result {
-            case .success(let token):
-                self.password = token
+            case .success(let tokens):
+                self.password = tokens.accessToken
+                if !tokens.refreshToken.isEmpty {
+                    self.refreshToken = tokens.refreshToken
+                }
                 self.isTestSuccess = true
                 self.testResult = "✅ Microsoft OneDrive oturumu başarıyla açıldı ve bağlandı!"
                 self.saveAndConnect()
@@ -4893,7 +4932,7 @@ public struct HDriveSettingsView: View {
         }
     }
     
-    private func exchangeOneDriveCode(raw: String, completion: @escaping (Result<String, Error>) -> Void) {
+    private func exchangeOneDriveCode(raw: String, completion: @escaping (Result<(accessToken: String, refreshToken: String), Error>) -> Void) {
         var code = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         let isNativeClient = code.contains("nativeclient")
         if let range = code.range(of: "code=") {
@@ -4930,7 +4969,8 @@ public struct HDriveSettingsView: View {
                 return
             }
             if let token = json["access_token"] as? String {
-                DispatchQueue.main.async { completion(.success(token)) }
+                let rt = (json["refresh_token"] as? String) ?? ""
+                DispatchQueue.main.async { completion(.success((token, rt))) }
             } else {
                 let err = (json["error_description"] as? String) ?? (json["error"] as? String) ?? "OneDrive tokenı alınamadı"
                 DispatchQueue.main.async {
@@ -4946,8 +4986,11 @@ public struct HDriveSettingsView: View {
             exchangeOneDriveCode(raw: password) { result in
                 self.isTesting = false
                 switch result {
-                case .success(let token):
-                    self.password = token
+                case .success(let tokens):
+                    self.password = tokens.accessToken
+                    if !tokens.refreshToken.isEmpty {
+                        self.refreshToken = tokens.refreshToken
+                    }
                     self.performSaveAndConnect()
                 case .failure(let err):
                     self.isTestSuccess = false
@@ -4978,6 +5021,7 @@ public struct HDriveSettingsView: View {
         cfg.smbShare = smbShare.trimmingCharacters(in: .whitespacesAndNewlines)
         cfg.clientId = clientId.trimmingCharacters(in: .whitespacesAndNewlines)
         cfg.clientSecret = clientSecret.trimmingCharacters(in: .whitespacesAndNewlines)
+        cfg.refreshToken = refreshToken
         
         manager.saveServer(cfg)
         manager.setActiveServer(cfg)
@@ -4992,8 +5036,11 @@ public struct HDriveSettingsView: View {
         if storageProtocol == .oneDrive && (password.contains("code=") || password.hasPrefix("https://") || password.hasPrefix("M.")) {
             exchangeOneDriveCode(raw: password) { result in
                 switch result {
-                case .success(let token):
-                    self.password = token
+                case .success(let tokens):
+                    self.password = tokens.accessToken
+                    if !tokens.refreshToken.isEmpty {
+                        self.refreshToken = tokens.refreshToken
+                    }
                     self.performTestConnection()
                 case .failure(let err):
                     self.isTesting = false

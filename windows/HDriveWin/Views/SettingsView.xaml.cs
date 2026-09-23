@@ -211,7 +211,7 @@ public sealed partial class SettingsView : UserControl
 
         try
         {
-            var (success, token, msg) = await OAuthHelper.StartOAuthLoginAsync(
+            var (success, token, refreshToken, msg) = await OAuthHelper.StartOAuthLoginAsync(
                 _editingServer.Protocol, 
                 _editingServer.ClientId, 
                 _editingServer.ClientSecret);
@@ -219,6 +219,11 @@ public sealed partial class SettingsView : UserControl
             if (success && !string.IsNullOrEmpty(token))
             {
                 _editingServer.Password = token;
+                if (!string.IsNullOrEmpty(refreshToken))
+                {
+                    _editingServer.RefreshToken = refreshToken;
+                }
+                _editingServer.IsConnected = true;
 
                 OAuthStatusBadge.Visibility = Visibility.Visible;
                 OAuthStatusText.Text = "Oturum Açık & Bağlantı Hazır";
@@ -298,10 +303,10 @@ public sealed partial class SettingsView : UserControl
             var target = CloudreveManager.Instance.Servers.FirstOrDefault(s => s.Id == id);
             if (target != null)
             {
-                // Eğer bu sunucu halihazırda bağlıysa, macOS gibi BAĞLANTIYI KES
-                if (CloudreveManager.Instance.ActiveServer?.Id == target.Id)
+                // Eğer bu sunucu halihazırda bağlıysa, kullanıcı buton ile BAĞLANTIYI KESER
+                if (target.IsConnected)
                 {
-                    CloudreveManager.Instance.DisconnectActiveServer();
+                    CloudreveManager.Instance.DisconnectServer(target);
                     FooterStatusText.Text = $"{target.Name} bağlantısı kesildi.";
                     ServersListView.ItemsSource = null;
                     ServersListView.ItemsSource = CloudreveManager.Instance.Servers;

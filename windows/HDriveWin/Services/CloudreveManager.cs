@@ -40,9 +40,20 @@ public class CloudreveManager
 
     public void SaveServer(ServerConfig config)
     {
+        config.IsConnected = true;
+
         if (!string.IsNullOrEmpty(config.Password))
         {
-            CredentialService.SavePassword(config.Username, config.Password);
+            CredentialService.SavePassword(config.Id, config.Password);
+            if (!string.IsNullOrEmpty(config.Username))
+            {
+                CredentialService.SavePassword(config.Username, config.Password);
+            }
+        }
+
+        if (!string.IsNullOrEmpty(config.RefreshToken))
+        {
+            CredentialService.SavePassword($"{config.Id}_rt", config.RefreshToken);
         }
 
         var existing = Servers.FirstOrDefault(s => s.Id == config.Id);
@@ -64,50 +75,57 @@ public class CloudreveManager
 
     public void SetActiveServer(ServerConfig config)
     {
+        config.IsConnected = true;
         ActiveServer = config;
-        try
-        {
-            File.WriteAllText(_activeIdFilePath, config.Id);
-        }
-        catch { }
+        Persist();
     }
 
-    public void DisconnectActiveServer()
+    public void ConnectServer(ServerConfig config)
     {
-        ActiveServer = null;
-        try
-        {
-            if (File.Exists(_activeIdFilePath))
-            {
-                File.Delete(_activeIdFilePath);
-            }
-        }
-        catch { }
+        SetActiveServer(config);
     }
 
-    public void DeleteServer(ServerConfig config)
+    public void DisconnectServer(ServerConfig config)
     {
-        Servers.Remove(config);
+        config.IsConnected = false;
         if (ActiveServer?.Id == config.Id)
         {
-            ActiveServer = Servers.FirstOrDefault();
-            try
-            {
-                if (ActiveServer != null)
-                {
-                    File.WriteAllText(_activeIdFilePath, ActiveServer.Id);
-                }
-                else if (File.Exists(_activeIdFilePath))
-                {
-                    File.Delete(_activeIdFilePath);
-                }
-            }
-            catch { }
+            ActiveServer = Servers.FirstOrDefault(s => s.IsConnected && s.Id != config.Id);
         }
         Persist();
     }
 
-    private void Persist()
+    public void DisconnectActiveServer()
+    {
+        if (ActiveServer != null)
+        {
+            DisconnectServer(ActiveServer);
+        }
+        else
+        {
+            ActiveServer = null;
+            Persist();
+        }
+    }
+
+    public void DeleteServer(ServerConfig config)
+    {
+        CredentialService.DeletePassword(config.Id);
+        CredentialService.DeletePassword($"{config.Id}_rt");
+        if (!string.IsNullOrEmpty(config.Username))
+        {
+            CredentialService.DeletePassword(config.Username);
+        }
+
+        Servers.Remove(config);
+        if (ActiveServer?.Id == config.Id)
+        {
+            ActiveServer = Servers.FirstOrDefault(s => s.IsConnected);
+        }
+        Persist();
+    }
+
+    public void Persist()
     {
         try
         {
@@ -124,13 +142,15 @@ public class CloudreveManager
                 SmbShareName = s.SmbShareName,
                 ClientId = s.ClientId,
                 ClientSecret = s.ClientSecret,
-                AutoSyncEnabled = s.AutoSyncEnabled
+                RefreshToken = s.RefreshToken,
+                AutoSyncEnabled = s.AutoSyncEnabled,
+                IsConnected = s.IsConnected
             }).ToList();
 
             var json = JsonSerializer.Serialize(sanitized, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(_serversFilePath, json);
 
-            if (ActiveServer != null)
+            if (ActiveServer != null && ActiveServer.IsConnected)
             {
                 File.WriteAllText(_activeIdFilePath, ActiveServer.Id);
             }
@@ -158,16 +178,32 @@ public class CloudreveManager
                     Servers.Clear();
                     foreach (var s in list)
                     {
-                        if (string.IsNullOrWhiteSpace(s.ServerURL) || s.ServerURL.Contains("your-cloudreve-domain.com") || s.ServerURL.Contains("driver-cloudreve"))
+                        // Sadece geçersiz veya sahte cloudreve domainlerini filtrele, Google Drive ve OneDrive'ı ASLA atlama!
+                        if (s.Protocol != StorageProtocol.GoogleDrive && s.Protocol != StorageProtocol.OneDrive)
                         {
-                            continue;
+                            if (string.IsNullOrWhiteSpace(s.ServerURL) || s.ServerURL.Contains("your-cloudreve-domain.com") || s.ServerURL.Contains("driver-cloudreve"))
+                            {
+                                continue;
+                            }
                         }
 
-                        var pass = CredentialService.GetPassword(s.Username);
+                        // Parolayı/Tokenı CredentialService'den yükle (önce Id ile, sonra Username ile)
+                        var pass = CredentialService.GetPassword(s.Id);
+                        if (string.IsNullOrEmpty(pass) && !string.IsNullOrEmpty(s.Username))
+                        {
+                            pass = CredentialService.GetPassword(s.Username);
+                        }
                         if (!string.IsNullOrEmpty(pass))
                         {
                             s.Password = pass;
                         }
+
+                        var rt = CredentialService.GetPassword($"{s.Id}_rt");
+                        if (!string.IsNullOrEmpty(rt))
+                        {
+                            s.RefreshToken = rt;
+                        }
+
                         Servers.Add(s);
                     }
 
@@ -179,7 +215,10 @@ public class CloudreveManager
                             activeId = File.ReadAllText(_activeIdFilePath).Trim();
                         }
 
-                        _activeServer = Servers.FirstOrDefault(s => s.Id == activeId) ?? Servers.FirstOrDefault();
+                        _activeServer = Servers.FirstOrDefault(s => s.Id == activeId && s.IsConnected) 
+                                     ?? Servers.FirstOrDefault(s => s.Id == activeId)
+                                     ?? Servers.FirstOrDefault(s => s.IsConnected) 
+                                     ?? Servers.FirstOrDefault();
                         return;
                     }
                 }
@@ -194,10 +233,11 @@ public class CloudreveManager
             {
                 var json = File.ReadAllText(_legacyConfigFilePath);
                 var legacy = JsonSerializer.Deserialize<ServerConfig>(json);
-                if (legacy != null && !string.IsNullOrWhiteSpace(legacy.ServerURL) && !legacy.ServerURL.Contains("your-cloudreve-domain.com") && !legacy.ServerURL.Contains("driver-cloudreve"))
+                if (legacy != null && (legacy.Protocol == StorageProtocol.GoogleDrive || legacy.Protocol == StorageProtocol.OneDrive || (!string.IsNullOrWhiteSpace(legacy.ServerURL) && !legacy.ServerURL.Contains("your-cloudreve-domain.com"))))
                 {
-                    var pass = CredentialService.GetPassword(legacy.Username);
+                    var pass = CredentialService.GetPassword(legacy.Id) ?? CredentialService.GetPassword(legacy.Username);
                     if (!string.IsNullOrEmpty(pass)) legacy.Password = pass;
+                    legacy.IsConnected = true;
                     Servers.Clear();
                     Servers.Add(legacy);
                     _activeServer = legacy;

@@ -112,10 +112,11 @@ public struct CloudreveServerConfig: Identifiable, Codable, Hashable {
     public var smbShare: String = ""
     public var clientId: String = ""
     public var clientSecret: String = ""
+    public var refreshToken: String = ""
     public var isConnected: Bool = true
     
     enum CodingKeys: String, CodingKey {
-        case id, name, serverURL, username, password, autoMountOnStart, storageProtocol, bucketName, region, smbShare, clientId, clientSecret, isConnected
+        case id, name, serverURL, username, password, autoMountOnStart, storageProtocol, bucketName, region, smbShare, clientId, clientSecret, refreshToken, isConnected
     }
     
     public init(
@@ -129,6 +130,7 @@ public struct CloudreveServerConfig: Identifiable, Codable, Hashable {
         smbShare: String = "",
         clientId: String = "",
         clientSecret: String = "",
+        refreshToken: String = "",
         isConnected: Bool = true
     ) {
         self.name = name
@@ -141,6 +143,7 @@ public struct CloudreveServerConfig: Identifiable, Codable, Hashable {
         self.smbShare = smbShare
         self.clientId = clientId
         self.clientSecret = clientSecret
+        self.refreshToken = refreshToken
         self.isConnected = isConnected
     }
     
@@ -158,6 +161,7 @@ public struct CloudreveServerConfig: Identifiable, Codable, Hashable {
         smbShare = try c.decodeIfPresent(String.self, forKey: .smbShare) ?? ""
         clientId = try c.decodeIfPresent(String.self, forKey: .clientId) ?? ""
         clientSecret = try c.decodeIfPresent(String.self, forKey: .clientSecret) ?? ""
+        refreshToken = try c.decodeIfPresent(String.self, forKey: .refreshToken) ?? ""
         isConnected = try c.decodeIfPresent(Bool.self, forKey: .isConnected) ?? true
     }
     
@@ -175,6 +179,7 @@ public struct CloudreveServerConfig: Identifiable, Codable, Hashable {
         try c.encode(smbShare, forKey: .smbShare)
         try c.encode(clientId, forKey: .clientId)
         try c.encode(clientSecret, forKey: .clientSecret)
+        try c.encode(refreshToken, forKey: .refreshToken)
         try c.encode(isConnected, forKey: .isConnected)
     }
 }

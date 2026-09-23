@@ -49,6 +49,31 @@ public class WebDAVClient
         }
     }
 
+    private async Task<bool> TryRefreshOAuthTokenAsync()
+    {
+        if (string.IsNullOrEmpty(_config.RefreshToken)) return false;
+
+        try
+        {
+            var (success, newToken, _) = await OAuthHelper.RefreshOAuthTokenAsync(
+                _config.Protocol, 
+                _config.RefreshToken, 
+                _config.ClientId, 
+                _config.ClientSecret);
+
+            if (success && !string.IsNullOrEmpty(newToken))
+            {
+                _config.Password = newToken;
+                CloudreveManager.Instance.SaveServer(_config);
+                _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", newToken);
+                return true;
+            }
+        }
+        catch { }
+
+        return false;
+    }
+
     public Uri BuildUri(string relativePath)
     {
         var trimmed = relativePath?.Trim() ?? "";
@@ -234,6 +259,15 @@ public class WebDAVClient
                 }
                 if ((int)gResp.StatusCode == 401)
                 {
+                    if (await TryRefreshOAuthTokenAsync())
+                    {
+                        var retryReq = new HttpRequestMessage(HttpMethod.Get, "https://www.googleapis.com/drive/v3/files?pageSize=1&supportsAllDrives=true");
+                        var retryResp = await _httpClient.SendAsync(retryReq);
+                        if (retryResp.IsSuccessStatusCode)
+                        {
+                            return (true, "Google Drive bağlantısı başarılı (Token yenilendi)!");
+                        }
+                    }
                     return (false, "Google Drive oturumunun süresi dolmuş. Lütfen 'Tarayıcı ile Giriş Yap' butonuna tıklayarak yeniden bağlanın.");
                 }
                 return (false, $"Google Drive yanıtı: HTTP {(int)gResp.StatusCode} {gResp.ReasonPhrase}");
@@ -253,6 +287,15 @@ public class WebDAVClient
                 }
                 if ((int)odResp.StatusCode == 401)
                 {
+                    if (await TryRefreshOAuthTokenAsync())
+                    {
+                        var retryReq = new HttpRequestMessage(HttpMethod.Get, "https://graph.microsoft.com/v1.0/me/drive/root/children?$top=1");
+                        var retryResp = await _httpClient.SendAsync(retryReq);
+                        if (retryResp.IsSuccessStatusCode)
+                        {
+                            return (true, "Microsoft OneDrive bağlantısı başarılı (Token yenilendi)!");
+                        }
+                    }
                     return (false, "OneDrive oturumunun süresi dolmuş. Lütfen 'Tarayıcı ile Giriş Yap' butonuna tıklayarak yeniden bağlanın.");
                 }
                 return (false, $"OneDrive yanıtı: HTTP {(int)odResp.StatusCode} {odResp.ReasonPhrase}");
@@ -998,6 +1041,11 @@ public class WebDAVClient
         {
             var req = new HttpRequestMessage(HttpMethod.Get, url);
             var resp = await _httpClient.SendAsync(req);
+            if ((int)resp.StatusCode == 401 && await TryRefreshOAuthTokenAsync())
+            {
+                req = new HttpRequestMessage(HttpMethod.Get, url);
+                resp = await _httpClient.SendAsync(req);
+            }
             if (!resp.IsSuccessStatusCode) return list;
 
             var json = await resp.Content.ReadAsStringAsync();
@@ -1069,6 +1117,11 @@ public class WebDAVClient
         {
             var req = new HttpRequestMessage(HttpMethod.Get, url);
             var resp = await _httpClient.SendAsync(req);
+            if ((int)resp.StatusCode == 401 && await TryRefreshOAuthTokenAsync())
+            {
+                req = new HttpRequestMessage(HttpMethod.Get, url);
+                resp = await _httpClient.SendAsync(req);
+            }
             if (!resp.IsSuccessStatusCode)
             {
                 if ((int)resp.StatusCode == 404 && !string.IsNullOrEmpty(clean))

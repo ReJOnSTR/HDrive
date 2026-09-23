@@ -28,7 +28,7 @@ public final class CloudreveManager: ObservableObject {
            let found = servers.first(where: { $0.id == uuid && $0.isConnected }) {
             activeServer = found
         } else {
-            activeServer = servers.first(where: { $0.isConnected })
+            activeServer = servers.first(where: { $0.isConnected }) ?? servers.first
         }
     }
     
@@ -37,6 +37,9 @@ public final class CloudreveManager: ObservableObject {
         s.isConnected = true
         if !s.password.isEmpty {
             KeychainHelper.shared.save(password: s.password, for: s.id.uuidString)
+        }
+        if !s.refreshToken.isEmpty {
+            KeychainHelper.shared.save(password: s.refreshToken, for: "\(s.id.uuidString)_rt")
         }
         
         if let index = servers.firstIndex(where: { $0.id == s.id }) {
@@ -50,6 +53,7 @@ public final class CloudreveManager: ObservableObject {
     
     public func deleteServer(_ server: CloudreveServerConfig) {
         KeychainHelper.shared.delete(account: server.id.uuidString)
+        KeychainHelper.shared.delete(account: "\(server.id.uuidString)_rt")
         servers.removeAll { $0.id == server.id }
         if activeServer?.id == server.id {
             activeServer = servers.first(where: { $0.isConnected })
@@ -105,17 +109,23 @@ public final class CloudreveManager: ObservableObject {
         if let data = UserDefaults.standard.data(forKey: userDefaultsKey),
            let saved = try? JSONDecoder().decode([CloudreveServerConfig].self, from: data) {
             let valid = saved.filter { s in
-                !s.serverURL.contains("your-cloudreve-domain.com") && !s.serverURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                // Sahte varsayılan domaini atla, ancak Google Drive, OneDrive ve Yerel hesapları ASLA atlama!
+                !s.serverURL.contains("your-cloudreve-domain.com") && 
+                (!s.serverURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || s.storageProtocol == .googleDrive || s.storageProtocol == .oneDrive || s.storageProtocol == .local)
             }
             self.servers = valid.map { server in
                 var s = server
-                // Keychain'den güvenli parolayı çek
+                // Keychain'den güvenli parolayı / tokenı çek
                 if let pass = KeychainHelper.shared.get(account: server.id.uuidString) {
                     s.password = pass
                 } else if !server.password.isEmpty {
-                    // Eski sürümden kalan şifreyi Keychain'e taşı ve güvenli hale getir
                     KeychainHelper.shared.save(password: server.password, for: server.id.uuidString)
                     s.password = server.password
+                }
+                
+                // Refresh token'ı Keychain'den yükle
+                if let rt = KeychainHelper.shared.get(account: "\(server.id.uuidString)_rt") {
+                    s.refreshToken = rt
                 }
                 return s
             }
