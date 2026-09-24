@@ -8,6 +8,17 @@
     xmlns:views="using:HDriveWin.Views"
     mc:Ignorable="d">
 
+    <UserControl.Resources>
+        <Style x:Key="CardButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
+            <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+        </Style>
+    </UserControl.Resources>
+
     <!-- Windows Yerel Klasör Ayarları / Özellikler Penceresi Düzeni -->
     <Grid Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
         <Grid.RowDefinitions>
@@ -223,7 +234,7 @@
                             <!-- Google Drive -->
                             <Button Grid.Row="0" Grid.Column="0" Tag="GoogleDrive" Click="ProviderTile_Click" 
                                     HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="14,12"
-                                    Style="{ThemeResource CardButtonStyle}">
+                                    Style="{StaticResource CardButtonStyle}">
                                 <Grid ColumnSpacing="12">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto" />
@@ -242,7 +253,7 @@
                             <!-- OneDrive -->
                             <Button Grid.Row="0" Grid.Column="1" Tag="OneDrive" Click="ProviderTile_Click" 
                                     HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="14,12"
-                                    Style="{ThemeResource CardButtonStyle}">
+                                    Style="{StaticResource CardButtonStyle}">
                                 <Grid ColumnSpacing="12">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto" />
@@ -261,7 +272,7 @@
                             <!-- WebDAV -->
                             <Button Grid.Row="1" Grid.Column="0" Tag="WebDAV" Click="ProviderTile_Click" 
                                     HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="14,12"
-                                    Style="{ThemeResource CardButtonStyle}">
+                                    Style="{StaticResource CardButtonStyle}">
                                 <Grid ColumnSpacing="12">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto" />
@@ -280,7 +291,7 @@
                             <!-- Amazon S3 -->
                             <Button Grid.Row="1" Grid.Column="1" Tag="S3" Click="ProviderTile_Click" 
                                     HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="14,12"
-                                    Style="{ThemeResource CardButtonStyle}">
+                                    Style="{StaticResource CardButtonStyle}">
                                 <Grid ColumnSpacing="12">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto" />
@@ -299,7 +310,7 @@
                             <!-- SMB -->
                             <Button Grid.Row="2" Grid.Column="0" Tag="SMB" Click="ProviderTile_Click" 
                                     HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="14,12"
-                                    Style="{ThemeResource CardButtonStyle}">
+                                    Style="{StaticResource CardButtonStyle}">
                                 <Grid ColumnSpacing="12">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto" />

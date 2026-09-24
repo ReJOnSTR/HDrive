@@ -221,7 +221,7 @@
                             <!-- Google Drive -->
                             <Button Grid.Row="0" Grid.Column="0" Tag="GoogleDrive" Click="ProviderTile_Click" 
                                     HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="14,12"
-                                    Style="{ThemeResource CardButtonStyle}">
+                                    Style="{StaticResource CardButtonStyle}">
                                 <Grid ColumnSpacing="12">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto" />
@@ -240,7 +240,7 @@
                             <!-- OneDrive -->
                             <Button Grid.Row="0" Grid.Column="1" Tag="OneDrive" Click="ProviderTile_Click" 
                                     HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="14,12"
-                                    Style="{ThemeResource CardButtonStyle}">
+                                    Style="{StaticResource CardButtonStyle}">
                                 <Grid ColumnSpacing="12">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto" />
@@ -259,7 +259,7 @@
                             <!-- WebDAV -->
                             <Button Grid.Row="1" Grid.Column="0" Tag="WebDAV" Click="ProviderTile_Click" 
                                     HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="14,12"
-                                    Style="{ThemeResource CardButtonStyle}">
+                                    Style="{StaticResource CardButtonStyle}">
                                 <Grid ColumnSpacing="12">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto" />
@@ -278,7 +278,7 @@
                             <!-- Amazon S3 -->
                             <Button Grid.Row="1" Grid.Column="1" Tag="S3" Click="ProviderTile_Click" 
                                     HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="14,12"
-                                    Style="{ThemeResource CardButtonStyle}">
+                                    Style="{StaticResource CardButtonStyle}">
                                 <Grid ColumnSpacing="12">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto" />
@@ -297,7 +297,7 @@
                             <!-- SMB -->
                             <Button Grid.Row="2" Grid.Column="0" Tag="SMB" Click="ProviderTile_Click" 
                                     HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="14,12"
-                                    Style="{ThemeResource CardButtonStyle}">
+                                    Style="{StaticResource CardButtonStyle}">
                                 <Grid ColumnSpacing="12">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto" />

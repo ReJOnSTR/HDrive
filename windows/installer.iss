@@ -1,6 +1,6 @@
 ; HDrive Windows (WinUI 3) Inno Setup Kurulum Senaryosu
 #define MyAppName "HDrive"
-#define MyAppVersion "1.2.1"
+#define MyAppVersion "1.3.1"
 #define MyAppPublisher "ReJOnSTR"
 #define MyAppURL "https://github.com/ReJOnSTR/HDrive"
 #define MyAppExeName "HDrive.exe"
@@ -36,10 +36,37 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 Source: "HDriveWin\publish_x64\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "vc_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall; Check: VCRedistExists
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
+Filename: "{tmp}\vc_redist.x64.exe"; Parameters: "/install /passive /norestart"; Check: VCRedistNeedsInstall; Flags: waituntilterminated
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent
+
+[Code]
+function VCRedistExists: Boolean;
+begin
+  Result := FileExists(ExpandConstant('{src}\vc_redist.x64.exe'));
+end;
+
+function VCRedistNeedsInstall: Boolean;
+var
+  Installed: Cardinal;
+begin
+  if not VCRedistExists then
+  begin
+    Result := False;
+    Exit;
+  end;
+  if RegQueryDWordValue(HKLM64, 'SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64', 'Installed', Installed) and (Installed = 1) then
+  begin
+    Result := False;
+  end
+  else
+  begin
+    Result := True;
+  end;
+end;
