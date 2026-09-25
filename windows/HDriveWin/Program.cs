@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
@@ -25,8 +26,7 @@ public static class Program
     [STAThread]
     public static void Main(string[] args)
     {
-        // Seviye 0: Saf Win32 / .NET çalışma zamanı. Hiçbir WinUI nesnesi referans edilmez.
-        // Bu sayede JIT derleme hatası olsa dahi Main çalışır ve yakalar.
+        // Seviye 0: Saf Win32 / .NET çalışma zamanı.
         try
         {
             Directory.CreateDirectory(LogDir);
@@ -35,21 +35,15 @@ public static class Program
             AppDomain.CurrentDomain.UnhandledException += (s, e) =>
             {
                 var ex = e.ExceptionObject as Exception;
-                WriteStartupLog($"[AppDomain.UnhandledException] {ex?.Message}\n{ex?.StackTrace}");
-                ShowFatalDialog("Kritik Çalışma Zamanı Hatası", ex);
+                ReportFatalError("AppDomain.UnhandledException", ex);
             };
 
-            // Seviye 1: WinUI başlatıcıyı ayrı bir metoda delege et (NoInlining şart)
+            // Seviye 1: WinUI başlatıcıyı çağır (NoInlining şart)
             RunWinUIApp(args);
         }
         catch (Exception ex)
         {
-            WriteStartupLog($"[Main.Catch] {ex.GetType().FullName}: {ex.Message}\n{ex.StackTrace}");
-            if (ex.InnerException != null)
-            {
-                WriteStartupLog($"[Main.InnerException] {ex.InnerException.GetType().FullName}: {ex.InnerException.Message}\n{ex.InnerException.StackTrace}");
-            }
-            ShowFatalDialog("Uygulama Başlatılamadı", ex);
+            ReportFatalError("Program.Main", ex);
         }
     }
 
@@ -63,7 +57,7 @@ public static class Program
         }
         catch (Exception ex)
         {
-            WriteStartupLog($"XamlCheckProcessRequirements uyarı/hata: {ex.Message}");
+            WriteStartupLog($"XamlCheckProcessRequirements uyarısı: {ex.Message}");
         }
 
         WriteStartupLog("WinRT ComWrappers başlatılıyor...");
@@ -79,13 +73,12 @@ public static class Program
                 var context = new DispatcherQueueSynchronizationContext(queue);
                 SynchronizationContext.SetSynchronizationContext(context);
 
-                WriteStartupLog("App sınıfı başlatılıyor...");
+                WriteStartupLog("App sınıfı oluşturuluyor...");
                 _ = new App();
             }
             catch (Exception ex)
             {
-                WriteStartupLog($"[Application.Start.Callback Hatası] {ex.Message}\n{ex.StackTrace}");
-                ShowFatalDialog("WinUI Başlatma Hatası", ex);
+                ReportFatalError("Application.Start.Callback", ex);
                 throw;
             }
         });
@@ -102,20 +95,98 @@ public static class Program
         catch { }
     }
 
-    private static void ShowFatalDialog(string title, Exception? ex)
+    public static void ReportFatalError(string source, Exception? ex)
     {
         try
         {
-            var logPath = Path.Combine(LogDir, "startup.log");
-            var msg = $"HDrive başlatılamadı:\n\n{ex?.GetType().Name}: {ex?.Message}\n\nDetaylı kayıt dosyası:\n{logPath}";
-            
-            // Eğer eksik Windows App SDK ile ilgiliyse yönlendirici bilgi ekle
-            if (ex is TypeLoadException || ex is DllNotFoundException || (ex != null && ex.Message.Contains("0x80040154")))
+            var sb = new StringBuilder();
+            sb.AppendLine("================================================================================");
+            sb.AppendLine("                      HDRIVE WINDOWS HATA RAPORU");
+            sb.AppendLine("================================================================================");
+            sb.AppendLine($"Tarih / Saat       : {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+            sb.AppendLine($"İşletim Sistemi    : {Environment.OSVersion} ({(Environment.Is64BitOperatingSystem ? "64-bit" : "32-bit")})");
+            sb.AppendLine($".NET Sürümü        : {Environment.Version}");
+            sb.AppendLine($"Çalışma Dizini     : {AppContext.BaseDirectory}");
+            sb.AppendLine($"Komut Satırı       : {Environment.CommandLine}");
+            sb.AppendLine($"Hata Kaynağı       : {source}");
+            sb.AppendLine("--------------------------------------------------------------------------------");
+            sb.AppendLine($"Hata Türü          : {ex?.GetType().FullName ?? "Bilinmiyor"}");
+            sb.AppendLine($"Hata Mesajı        : {ex?.Message ?? "Belirtilmedi"}");
+            sb.AppendLine("--------------------------------------------------------------------------------");
+            sb.AppendLine("Yığın İzi (Stack Trace):");
+            sb.AppendLine(ex?.StackTrace ?? "İz bulunamadı");
+
+            var inner = ex?.InnerException;
+            int level = 1;
+            while (inner != null)
             {
-                msg += "\n\nNot: Bilgisayarınızda 'Windows App SDK 1.5 Runtime' veya 'Visual C++ 2015-2022' eksik olabilir.";
+                sb.AppendLine("--------------------------------------------------------------------------------");
+                sb.AppendLine($"İç Hata (Level {level}) : {inner.GetType().FullName}");
+                sb.AppendLine($"Mesaj               : {inner.Message}");
+                sb.AppendLine(inner.StackTrace ?? "");
+                inner = inner.InnerException;
+                level++;
             }
 
-            MessageBox(IntPtr.Zero, msg, $"HDrive - {title}", 0x00000010 /* MB_ICONERROR */);
+            sb.AppendLine("================================================================================");
+            sb.AppendLine("ÖNERİLEN ÇÖZÜMLER:");
+            sb.AppendLine("1. Windows App SDK 1.5 Runtime veya Visual C++ 2015-2022 eksik olabilir.");
+            sb.AppendLine("   Uygulama klasöründeki veya kurulumdaki 'WindowsAppRuntimeInstall-x64.exe' dosyasını çalıştırın.");
+            sb.AppendLine("2. Sorun devam ederse bu dosyanın içeriğini GitHub Issues üzerinden geliştiriciye iletin.");
+            sb.AppendLine("================================================================================");
+
+            var reportContent = sb.ToString();
+
+            // 1. Masaüstüne yaz
+            string? desktopFile = null;
+            try
+            {
+                var desktopDir = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+                if (!string.IsNullOrEmpty(desktopDir) && Directory.Exists(desktopDir))
+                {
+                    desktopFile = Path.Combine(desktopDir, "HDrive-Hata.txt");
+                    File.WriteAllText(desktopFile, reportContent, Encoding.UTF8);
+                }
+            }
+            catch { }
+
+            // 2. Uygulama dizinine yaz
+            string? localFile = null;
+            try
+            {
+                localFile = Path.Combine(AppContext.BaseDirectory, "HDrive-Hata.txt");
+                File.WriteAllText(localFile, reportContent, Encoding.UTF8);
+            }
+            catch { }
+
+            // 3. LocalAppData dizinine yaz
+            try
+            {
+                Directory.CreateDirectory(LogDir);
+                var logFile = Path.Combine(LogDir, "startup.log");
+                File.AppendAllText(logFile, "\n" + reportContent + "\n");
+            }
+            catch { }
+
+            // 4. Hata dosyasını otomatik olarak Not Defteri ile aç
+            var fileToOpen = desktopFile ?? localFile;
+            if (!string.IsNullOrEmpty(fileToOpen) && File.Exists(fileToOpen))
+            {
+                try
+                {
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = "notepad.exe",
+                        Arguments = $"\"{fileToOpen}\"",
+                        UseShellExecute = true
+                    });
+                }
+                catch { }
+            }
+
+            // 5. En önde kalacak şekilde Windows Mesaj Kutusu göster (MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND)
+            var dialogMsg = $"HDrive başlatılırken bir hata oluştu:\n\n{ex?.Message}\n\nHata detayları masaüstünüze 'HDrive-Hata.txt' olarak kaydedildi ve Not Defteri ile açıldı.";
+            MessageBox(IntPtr.Zero, dialogMsg, "HDrive - Başlatma Hatası", 0x00000010 | 0x00040000 | 0x00010000);
         }
         catch { }
     }
