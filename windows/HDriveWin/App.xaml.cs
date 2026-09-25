@@ -44,11 +44,15 @@ public partial class App : Application
     {
         try
         {
+            Program.WriteStartupLog("App.OnLaunched çağrıldı. MainWindow oluşturuluyor...");
             MainWindowInstance = new MainWindow();
+            Program.WriteStartupLog("MainWindow oluşturuldu. MainWindow.Activate çağrılıyor...");
             MainWindowInstance.Activate();
+            Program.WriteStartupLog("MainWindow.Activate başarıyla tamamlandı.");
         }
         catch (Exception ex)
         {
+            Program.WriteStartupLog($"[App.OnLaunched Hatası] {ex.GetType().FullName}: {ex.Message}\n{ex.StackTrace}");
             LogCrash("App.OnLaunched", ex);
             ShowCrashDialog("Pencere Başlatma Hatası", ex);
         }

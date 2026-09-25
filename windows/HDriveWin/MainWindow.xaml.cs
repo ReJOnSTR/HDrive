@@ -498,36 +498,46 @@ public sealed partial class MainWindow : Window
     private async Task LoadDirectoryAsync(string path)
     {
         var sessionId = ++_loadSessionId;
-        LoadingRing.IsActive = true;
-
-        var config = CloudreveManager.Instance.ActiveServer;
-        if (config == null)
+        try
         {
+            if (LoadingRing != null) LoadingRing.IsActive = true;
+
+            var config = CloudreveManager.Instance.ActiveServer;
+            if (config == null)
+            {
+                _allItems.Clear();
+                _items.Clear();
+                if (LoadingRing != null) LoadingRing.IsActive = false;
+                if (ItemCountText != null) ItemCountText.Text = "Bağlı sunucu yok";
+                return;
+            }
+
+            var client = new WebDAVClient(config);
+            var list = await client.ListDirectoryAsync(path);
+
+            // Eğer başka bir gezinme başladıysa bu eski isteğin sonucunu yoksay
+            if (sessionId != _loadSessionId) return;
+
             _allItems.Clear();
-            _items.Clear();
-            LoadingRing.IsActive = false;
-            ItemCountText.Text = "Bağlı sunucu yok";
-            return;
+            var uniqueList = list.GroupBy(x => x.Path, StringComparer.OrdinalIgnoreCase)
+                                 .Select(g => g.First())
+                                 .ToList();
+            _allItems.AddRange(uniqueList);
+
+            ApplySearchFilter(SearchBox?.Text ?? "");
+
+            if (ItemCountText != null) ItemCountText.Text = $"{_items.Count} öğe";
+
+            _ = RefreshStorageQuotaAsync();
         }
-
-        var client = new WebDAVClient(config);
-        var list = await client.ListDirectoryAsync(path);
-
-        // Eğer başka bir gezinme başladıysa bu eski isteğin sonucunu yoksay
-        if (sessionId != _loadSessionId) return;
-
-        _allItems.Clear();
-        var uniqueList = list.GroupBy(x => x.Path, StringComparer.OrdinalIgnoreCase)
-                             .Select(g => g.First())
-                             .ToList();
-        _allItems.AddRange(uniqueList);
-
-        ApplySearchFilter(SearchBox.Text);
-
-        LoadingRing.IsActive = false;
-        ItemCountText.Text = $"{_items.Count} öğe";
-
-        _ = RefreshStorageQuotaAsync();
+        catch (Exception ex)
+        {
+            App.LogCrash("MainWindow.LoadDirectoryAsync", ex);
+        }
+        finally
+        {
+            if (LoadingRing != null) LoadingRing.IsActive = false;
+        }
     }
 
     private void ApplySearchFilter(string query)
@@ -3010,31 +3020,34 @@ public sealed partial class MainWindow : Window
                 double percent = total > 0 ? ((double)used / total) * 100.0 : 0.0;
                 percent = Math.Min(100.0, Math.Max(0.0, percent));
 
-                DispatcherQueue.TryEnqueue(() =>
+                DispatcherQueue?.TryEnqueue(() =>
                 {
-                    StorageQuotaPercentText.Text = $"%{Math.Round(percent)}";
-                    StorageQuotaProgressBar.Value = percent;
-                    StorageQuotaDetailText.Text = $"{FormatBytes(used)} / {FormatBytes(total)}";
+                    if (StorageQuotaPercentText != null) StorageQuotaPercentText.Text = $"%{Math.Round(percent)}";
+                    if (StorageQuotaProgressBar != null) StorageQuotaProgressBar.Value = percent;
+                    if (StorageQuotaDetailText != null) StorageQuotaDetailText.Text = $"{FormatBytes(used)} / {FormatBytes(total)}";
 
-                    if (percent > 90.0)
+                    if (StorageQuotaProgressBar != null)
                     {
-                        StorageQuotaProgressBar.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 232, 17, 35));
-                    }
-                    else if (percent > 75.0)
-                    {
-                        StorageQuotaProgressBar.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 247, 99, 12));
-                    }
-                    else
-                    {
-                        StorageQuotaProgressBar.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 0, 120, 215));
+                        if (percent > 90.0)
+                        {
+                            StorageQuotaProgressBar.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 232, 17, 35));
+                        }
+                        else if (percent > 75.0)
+                        {
+                            StorageQuotaProgressBar.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 247, 99, 12));
+                        }
+                        else
+                        {
+                            StorageQuotaProgressBar.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 0, 120, 215));
+                        }
                     }
                 });
             }
             else
             {
-                DispatcherQueue.TryEnqueue(() =>
+                DispatcherQueue?.TryEnqueue(() =>
                 {
-                    StorageQuotaDetailText.Text = "Bilgi alınamadı";
+                    if (StorageQuotaDetailText != null) StorageQuotaDetailText.Text = "Bilgi alınamadı";
                 });
             }
         }
