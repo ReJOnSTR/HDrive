@@ -37,5 +37,36 @@ if exist "%USERPROFILE%\Desktop\HDrive-Hata.txt" (
 
 echo.
 echo ======================================================================
-echo Konsolu kapatmak icin klavyeden herhangi bir tusa basin...
-pause > nul
+echo COZUM SECENEKLERI:
+if exist "WindowsAppRuntimeInstall-x64.exe" (
+    echo [1] Windows App SDK 1.5 Runtime'i Yonetici Olarak Kur
+)
+if exist "vc_redist.x64.exe" (
+    echo [2] Visual C++ 2015-2022 Runtime'i Yonetici Olarak Kur
+)
+echo [0] Konsoldan Cik
+echo ======================================================================
+set /p SECIM="Lutfen bir secim yapin [0-2]: "
+
+if "%SECIM%"=="1" (
+    if exist "WindowsAppRuntimeInstall-x64.exe" (
+        echo Windows App SDK kuruluyor, yonetici izni onaylayin...
+        powershell -Command "Start-Process 'WindowsAppRuntimeInstall-x64.exe' -ArgumentList '--quiet' -Verb RunAs -Wait"
+        echo Kurulum tamamlandi. HDrive.exe tekrar calistiriliyor...
+        start "" "HDrive.exe"
+        exit /b 0
+    )
+)
+
+if "%SECIM%"=="2" (
+    if exist "vc_redist.x64.exe" (
+        echo Visual C++ kuruluyor, yonetici izni onaylayin...
+        powershell -Command "Start-Process 'vc_redist.x64.exe' -ArgumentList '/install /passive /norestart' -Verb RunAs -Wait"
+        echo Kurulum tamamlandi. HDrive.exe tekrar calistiriliyor...
+        start "" "HDrive.exe"
+        exit /b 0
+    )
+)
+
+exit /b 0
+

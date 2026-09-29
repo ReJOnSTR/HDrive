@@ -426,10 +426,6 @@ public sealed partial class MainWindow : Window
             {
                 AppWindow?.SetIcon(iconPath);
             }
-            else
-            {
-                AppWindow?.SetIcon("app.ico");
-            }
         }
         catch (Exception ex)
         {

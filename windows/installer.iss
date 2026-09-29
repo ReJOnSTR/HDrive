@@ -1,6 +1,6 @@
 ; HDrive Windows (WinUI 3) Inno Setup Kurulum Senaryosu
 #define MyAppName "HDrive"
-#define MyAppVersion "1.3.1"
+#define MyAppVersion "1.3.2"
 #define MyAppPublisher "ReJOnSTR"
 #define MyAppURL "https://github.com/ReJOnSTR/HDrive"
 #define MyAppExeName "HDrive.exe"
@@ -13,10 +13,10 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
-DefaultDirName={localappdata}\Programs\{#MyAppName}
+DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
-PrivilegesRequired=lowest
+PrivilegesRequired=admin
 OutputDir=Output
 OutputBaseFilename=HDrive-Setup
 Compression=lzma2/ultra64
@@ -36,8 +36,8 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 Source: "HDriveWin\publish_x64\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "vc_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall; Check: VCRedistExists
-Source: "WindowsAppRuntimeInstall-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall; Check: WinAppRuntimeExists
+Source: "vc_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
+Source: "WindowsAppRuntimeInstall-x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
@@ -45,26 +45,21 @@ Name: "{autoprograms}\{#MyAppName} (Sorun Giderme)"; Filename: "{app}\HDrive-Hat
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
-Filename: "{tmp}\vc_redist.x64.exe"; Parameters: "/install /passive /norestart"; Check: VCRedistNeedsInstall; Flags: waituntilterminated
-Filename: "{tmp}\WindowsAppRuntimeInstall-x64.exe"; Parameters: "--quiet"; Check: WinAppRuntimeExists; Flags: waituntilterminated
+Filename: "{tmp}\vc_redist.x64.exe"; Parameters: "/install /passive /norestart"; StatusMsg: "Visual C++ 2015-2022 Runtime kuruluyor..."; Check: VCRedistNeedsInstall; Flags: waituntilterminated
+Filename: "{tmp}\WindowsAppRuntimeInstall-x64.exe"; Parameters: "--quiet"; StatusMsg: "Windows App SDK 1.5 Runtime kuruluyor..."; Check: WinAppRuntimeExistsInTmp; Flags: waituntilterminated
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent
 
 [Code]
-function VCRedistExists: Boolean;
+function WinAppRuntimeExistsInTmp: Boolean;
 begin
-  Result := FileExists(ExpandConstant('{src}\vc_redist.x64.exe'));
-end;
-
-function WinAppRuntimeExists: Boolean;
-begin
-  Result := FileExists(ExpandConstant('{src}\WindowsAppRuntimeInstall-x64.exe'));
+  Result := FileExists(ExpandConstant('{tmp}\WindowsAppRuntimeInstall-x64.exe'));
 end;
 
 function VCRedistNeedsInstall: Boolean;
 var
   Installed: Cardinal;
 begin
-  if not VCRedistExists then
+  if not FileExists(ExpandConstant('{tmp}\vc_redist.x64.exe')) then
   begin
     Result := False;
     Exit;

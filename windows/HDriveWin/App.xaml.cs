@@ -17,12 +17,15 @@ public partial class App : Application
         AppDomain.CurrentDomain.UnhandledException += (sender, args) =>
         {
             var ex = args.ExceptionObject as Exception;
-            Program.ReportFatalError("AppDomain.UnhandledException", ex);
+            Program.WriteStartupLog($"[App.AppDomain.UnhandledException] {ex?.Message}\n{ex?.StackTrace}");
+            Program.HandleOrReportError("AppDomain.UnhandledException", ex);
         };
 
         this.UnhandledException += (sender, args) =>
         {
-            Program.ReportFatalError("App.UnhandledException (WinUI)", args.Exception);
+            Program.WriteStartupLog($"[App.UnhandledException (WinUI)] {args.Message}\n{args.Exception?.StackTrace}");
+            Program.HandleOrReportError("App.UnhandledException (WinUI)", args.Exception);
+            args.Handled = true;
         };
 
         try
@@ -31,7 +34,8 @@ public partial class App : Application
         }
         catch (Exception ex)
         {
-            Program.ReportFatalError("App.InitializeComponent", ex);
+            Program.WriteStartupLog($"[App.InitializeComponent Hatası] {ex.Message}\n{ex.StackTrace}");
+            Program.HandleOrReportError("App.InitializeComponent", ex);
             throw;
         }
     }
@@ -48,7 +52,8 @@ public partial class App : Application
         }
         catch (Exception ex)
         {
-            Program.ReportFatalError("App.OnLaunched", ex);
+            Program.WriteStartupLog($"[App.OnLaunched Hatası] {ex.Message}\n{ex.StackTrace}");
+            Program.HandleOrReportError("App.OnLaunched", ex);
         }
     }
 
