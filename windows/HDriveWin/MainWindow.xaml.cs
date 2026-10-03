@@ -242,23 +242,26 @@ public sealed partial class MainWindow : Window
             App.LogCrash("MainWindow.TransferManagerSetup", ex);
         }
 
-        try
+        DispatcherQueue?.TryEnqueue(() =>
         {
-            LoadPinnedFolders();
-        }
-        catch (Exception ex)
-        {
-            App.LogCrash("MainWindow.LoadPinnedFolders", ex);
-        }
+            try
+            {
+                LoadPinnedFolders();
+            }
+            catch (Exception ex)
+            {
+                App.LogCrash("MainWindow.LoadPinnedFolders", ex);
+            }
 
-        try
-        {
-            _ = RefreshStorageQuotaAsync();
-        }
-        catch (Exception ex)
-        {
-            App.LogCrash("MainWindow.RefreshStorageQuotaAsync", ex);
-        }
+            try
+            {
+                _ = RefreshStorageQuotaAsync();
+            }
+            catch (Exception ex)
+            {
+                App.LogCrash("MainWindow.RefreshStorageQuotaAsync", ex);
+            }
+        });
 
         try
         {
@@ -267,6 +270,34 @@ public sealed partial class MainWindow : Window
         catch (Exception ex)
         {
             App.LogCrash("MainWindow.NavViewSelection", ex);
+        }
+
+        this.Activated += MainWindow_Activated;
+    }
+
+    private bool _isFirstActivation = true;
+
+    private void MainWindow_Activated(object sender, WindowActivatedEventArgs args)
+    {
+        if (_isFirstActivation)
+        {
+            _isFirstActivation = false;
+            TryApplyMicaBackdrop();
+        }
+    }
+
+    private void TryApplyMicaBackdrop()
+    {
+        try
+        {
+            if (Microsoft.UI.Composition.SystemBackdrops.MicaController.IsSupported())
+            {
+                this.SystemBackdrop = new MicaBackdrop { Kind = Microsoft.UI.Composition.SystemBackdrops.MicaKind.Base };
+            }
+        }
+        catch (Exception ex)
+        {
+            App.LogCrash("MainWindow.TryApplyMicaBackdrop", ex);
         }
     }
 
