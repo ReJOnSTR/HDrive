@@ -60,9 +60,15 @@ public static class Program
             AppDomain.CurrentDomain.UnhandledException += (s, e) =>
             {
                 var ex = e.ExceptionObject as Exception;
-                WriteStartupLog($"[AppDomain.UnhandledException] {ex?.Message}\n{ex?.StackTrace}");
+                WriteStartupLog($"[AppDomain.UnhandledException] {ex?.GetType().FullName}: {ex?.Message}\n{ex?.StackTrace}");
                 HandleOrReportError("AppDomain.UnhandledException", ex);
                 Environment.Exit(1);
+            };
+
+            System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (s, e) =>
+            {
+                WriteStartupLog($"[Program.TaskScheduler.UnobservedTaskException] {e.Exception?.GetType().FullName}: {e.Exception?.Message}\n{e.Exception?.StackTrace}");
+                e.SetObserved();
             };
 
             // WinUI uygulamasını başlat

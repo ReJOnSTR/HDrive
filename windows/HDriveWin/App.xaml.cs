@@ -17,15 +17,29 @@ public partial class App : Application
         AppDomain.CurrentDomain.UnhandledException += (sender, args) =>
         {
             var ex = args.ExceptionObject as Exception;
-            Program.WriteStartupLog($"[App.AppDomain.UnhandledException] {ex?.Message}\n{ex?.StackTrace}");
+            Program.WriteStartupLog($"[App.AppDomain.UnhandledException] {ex?.GetType().FullName}: {ex?.Message}\n{ex?.StackTrace}");
             Program.HandleOrReportError("AppDomain.UnhandledException", ex);
+        };
+
+        System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (sender, args) =>
+        {
+            Program.WriteStartupLog($"[App.TaskScheduler.UnobservedTaskException] {args.Exception?.GetType().FullName}: {args.Exception?.Message}\n{args.Exception?.StackTrace}");
+            args.SetObserved();
         };
 
         this.UnhandledException += (sender, args) =>
         {
-            Program.WriteStartupLog($"[App.UnhandledException (WinUI)] {args.Message}\n{args.Exception?.StackTrace}");
-            Program.HandleOrReportError("App.UnhandledException (WinUI)", args.Exception);
-            args.Handled = true;
+            try
+            {
+                var ex = args.Exception;
+                var msg = $"[App.UnhandledException (WinUI)] Mesaj: {args.Message}, Ex: {ex?.GetType().FullName}: {ex?.Message}\n{ex?.StackTrace}";
+                Program.WriteStartupLog(msg);
+                Program.HandleOrReportError("App.UnhandledException (WinUI)", ex);
+            }
+            catch (Exception handlerEx)
+            {
+                Program.WriteStartupLog($"[App.UnhandledException Handler Crash] {handlerEx.Message}");
+            }
         };
 
         try
@@ -34,7 +48,7 @@ public partial class App : Application
         }
         catch (Exception ex)
         {
-            Program.WriteStartupLog($"[App.InitializeComponent Hatası] {ex.Message}\n{ex.StackTrace}");
+            Program.WriteStartupLog($"[App.InitializeComponent Hatasi] {ex.GetType().FullName}: {ex.Message}\n{ex.StackTrace}");
             Program.HandleOrReportError("App.InitializeComponent", ex);
             Environment.Exit(1);
         }
@@ -52,7 +66,12 @@ public partial class App : Application
         }
         catch (Exception ex)
         {
-            Program.WriteStartupLog($"[App.OnLaunched Hatası] {ex.Message}\n{ex.StackTrace}");
+            var msg = $"[App.OnLaunched Hatasi] {ex.GetType().FullName}: {ex.Message}\n{ex.StackTrace}";
+            if (ex.InnerException != null)
+            {
+                msg += $"\n[Inner] {ex.InnerException.GetType().FullName}: {ex.InnerException.Message}\n{ex.InnerException.StackTrace}";
+            }
+            Program.WriteStartupLog(msg);
             Program.HandleOrReportError("App.OnLaunched", ex);
             Environment.Exit(1);
         }
@@ -60,20 +79,20 @@ public partial class App : Application
 
     public static void LogCrash(string source, Exception? ex)
     {
+        var message = $"[CRASH {source}] {ex?.GetType().FullName}: {ex?.Message}\n{ex?.StackTrace}";
+        if (ex?.InnerException != null)
+        {
+            message += $"\n[Inner] {ex.InnerException.GetType().FullName}: {ex.InnerException.Message}\n{ex.InnerException.StackTrace}";
+        }
+        Program.WriteStartupLog(message);
+
         try
         {
             var appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
             var logDir = Path.Combine(appData, "HDrive");
             Directory.CreateDirectory(logDir);
             var logPath = Path.Combine(logDir, "crash.log");
-
-            var message = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] [{source}] {ex?.GetType().FullName}: {ex?.Message}\n{ex?.StackTrace}\n";
-            if (ex?.InnerException != null)
-            {
-                message += $"InnerException: {ex.InnerException.GetType().FullName}: {ex.InnerException.Message}\n{ex.InnerException.StackTrace}\n";
-            }
-            message += new string('-', 80) + "\n";
-            File.AppendAllText(logPath, message);
+            File.AppendAllText(logPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {message}\n" + new string('-', 80) + "\n");
         }
         catch { }
     }
