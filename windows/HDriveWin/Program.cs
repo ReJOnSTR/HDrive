@@ -15,6 +15,10 @@ public static class Program
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern int MessageBox(IntPtr hWnd, string text, string caption, uint type);
 
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool AttachConsole(uint dwProcessId);
+    private const uint ATTACH_PARENT_PROCESS = 0xFFFFFFFF;
+
     private const uint MB_OK = 0x00000000;
     private const uint MB_YESNO = 0x00000004;
     private const uint MB_ICONERROR = 0x00000010;
@@ -31,7 +35,14 @@ public static class Program
     [STAThread]
     public static void Main(string[] args)
     {
-        // 1. Unpackaged / Self-contained Windows App SDK için temel dizin ortam değişkenini ayarla
+        // 1. Konsoldan veya .bat dosyasından çalıştırılmışsa çıktıyı konsola bağla
+        try
+        {
+            AttachConsole(ATTACH_PARENT_PROCESS);
+        }
+        catch { }
+
+        // 2. Unpackaged / Self-contained Windows App SDK için temel dizin ortam değişkenini ayarla
         try
         {
             Environment.SetEnvironmentVariable("MICROSOFT_WINDOWSAPPRUNTIME_BASE_DIRECTORY", AppContext.BaseDirectory);
@@ -40,8 +51,11 @@ public static class Program
 
         try
         {
-            Directory.CreateDirectory(LogDir);
-            WriteStartupLog("HDrive başlatılıyor (Main)...");
+            WriteStartupLog("=================================================");
+            WriteStartupLog("Adim 1: HDrive baslatiliyor (Program.Main)...");
+            WriteStartupLog($"OS: {Environment.OSVersion} ({(Environment.Is64BitOperatingSystem ? "64-bit" : "32-bit")})");
+            WriteStartupLog($".NET Surumu: {Environment.Version}");
+            WriteStartupLog($"Uygulama Dizini: {AppContext.BaseDirectory}");
 
             AppDomain.CurrentDomain.UnhandledException += (s, e) =>
             {
@@ -65,25 +79,25 @@ public static class Program
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static void RunWinUIApp(string[] args)
     {
-        WriteStartupLog("WinRT ComWrappers başlatılıyor...");
+        WriteStartupLog("Adim 2: WinRT ComWrappers baslatiliyor...");
         WinRT.ComWrappersSupport.InitializeComWrappers();
 
-        WriteStartupLog("Application.Start çağrılıyor...");
+        WriteStartupLog("Adim 3: Application.Start cagiriliyor...");
         Application.Start((p) =>
         {
             try
             {
-                WriteStartupLog("DispatcherQueueSynchronizationContext ayarlanıyor...");
+                WriteStartupLog("Adim 4: DispatcherQueueSynchronizationContext ayarlaniyor...");
                 var queue = DispatcherQueue.GetForCurrentThread();
                 var context = new DispatcherQueueSynchronizationContext(queue);
                 SynchronizationContext.SetSynchronizationContext(context);
 
-                WriteStartupLog("App sınıfı oluşturuluyor...");
+                WriteStartupLog("Adim 5: App sinifi ornegi olusturuluyor...");
                 _ = new App();
             }
             catch (Exception ex)
             {
-                WriteStartupLog($"[Application.Start.Callback Hatası] {ex.Message}\n{ex.StackTrace}");
+                WriteStartupLog($"[Application.Start.Callback Hatasi] {ex.Message}\n{ex.StackTrace}");
                 HandleOrReportError("Application.Start.Callback", ex);
                 Environment.Exit(1);
             }
@@ -92,11 +106,41 @@ public static class Program
 
     public static void WriteStartupLog(string text)
     {
+        var line = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {text}\n";
+
+        // 1. Konsola yazdır (eğer sorun giderme konsolundan çalıştırılıyorsa)
+        try
+        {
+            Console.WriteLine(line.TrimEnd());
+        }
+        catch { }
+
+        // 2. Masaüstündeki HDrive_boot.txt dosyasına yazdır (kullanıcı hemen görebilsin)
+        try
+        {
+            var desktopDir = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+            if (!string.IsNullOrEmpty(desktopDir) && Directory.Exists(desktopDir))
+            {
+                var desktopBoot = Path.Combine(desktopDir, "HDrive_boot.txt");
+                File.AppendAllText(desktopBoot, line);
+            }
+        }
+        catch { }
+
+        // 3. LocalAppData dizinine yazdır
         try
         {
             Directory.CreateDirectory(LogDir);
             var path = Path.Combine(LogDir, "startup.log");
-            File.AppendAllText(path, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {text}\n");
+            File.AppendAllText(path, line);
+        }
+        catch { }
+
+        // 4. Uygulama çalışma dizinine yazdır
+        try
+        {
+            var localBoot = Path.Combine(AppContext.BaseDirectory, "boot.log");
+            File.AppendAllText(localBoot, line);
         }
         catch { }
     }

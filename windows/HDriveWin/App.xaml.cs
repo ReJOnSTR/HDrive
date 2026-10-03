@@ -44,11 +44,11 @@ public partial class App : Application
     {
         try
         {
-            Program.WriteStartupLog("App.OnLaunched çağrıldı. MainWindow oluşturuluyor...");
+            Program.WriteStartupLog("Adim 6: App.OnLaunched cagrildi. MainWindow olusturuluyor...");
             MainWindowInstance = new MainWindow();
-            Program.WriteStartupLog("MainWindow oluşturuldu. MainWindow.Activate çağrılıyor...");
+            Program.WriteStartupLog("Adim 7: MainWindow olusturuldu. MainWindow.Activate cagiriliyor...");
             MainWindowInstance.Activate();
-            Program.WriteStartupLog("MainWindow.Activate başarıyla tamamlandı.");
+            Program.WriteStartupLog("Adim 8: MainWindow.Activate basariyla tamamlandi.");
         }
         catch (Exception ex)
         {

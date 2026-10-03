@@ -23,10 +23,18 @@ if exist "%USERPROFILE%\Desktop\HDrive-Hata.txt" (
     echo [!] Masaustunde hata raporu bulundu (HDrive-Hata.txt):
     echo.
     type "%USERPROFILE%\Desktop\HDrive-Hata.txt"
+) else if exist "%USERPROFILE%\Desktop\HDrive_boot.txt" (
+    echo [!] Masaustunde baslatma adimlari bulundu (HDrive_boot.txt):
+    echo.
+    type "%USERPROFILE%\Desktop\HDrive_boot.txt"
 ) else if exist "HDrive-Hata.txt" (
     echo [!] Uygulama dizininde hata raporu bulundu:
     echo.
     type "HDrive-Hata.txt"
+) else if exist "boot.log" (
+    echo [!] Uygulama dizininde boot.log bulundu:
+    echo.
+    type "boot.log"
 ) else if exist "%LOCALAPPDATA%\HDrive\startup.log" (
     echo [!] Baslatma kayitlari (startup.log):
     echo.
