@@ -9,10 +9,6 @@
     mc:Ignorable="d"
     Title="HDrive">
 
-    <Window.SystemBackdrop>
-        <MicaBackdrop Kind="Base" />
-    </Window.SystemBackdrop>
-
     <Grid>
         <Grid.RowDefinitions>
             <!-- 0: Özel Başlık Çubuğu (TitleBar) -->

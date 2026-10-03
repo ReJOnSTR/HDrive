@@ -58,14 +58,8 @@ public sealed partial class MainWindow : Window
             throw;
         }
 
-        try
-        {
-            SetupTitleBar();
-        }
-        catch (Exception ex)
-        {
-            App.LogCrash("MainWindow.SetupTitleBar", ex);
-        }
+        // Pencere tamamen aktifleşip HWND oluştuğunda TitleBar ve Backdrop'ı güvenle başlat
+        this.Activated += MainWindow_Activated;
 
         try
         {
@@ -403,6 +397,37 @@ public sealed partial class MainWindow : Window
 
     #endregion
 
+    private bool _isWindowActivated = false;
+
+    private void MainWindow_Activated(object sender, WindowActivatedEventArgs args)
+    {
+        if (!_isWindowActivated)
+        {
+            _isWindowActivated = true;
+            SetupBackdrop();
+            SetupTitleBar();
+        }
+    }
+
+    private void SetupBackdrop()
+    {
+        try
+        {
+            if (Microsoft.UI.Composition.SystemBackdrops.MicaController.IsSupported())
+            {
+                this.SystemBackdrop = new MicaBackdrop();
+            }
+            else if (Microsoft.UI.Composition.SystemBackdrops.DesktopAcrylicController.IsSupported())
+            {
+                this.SystemBackdrop = new DesktopAcrylicBackdrop();
+            }
+        }
+        catch (Exception ex)
+        {
+            App.LogCrash("MainWindow.SetupBackdrop", ex);
+        }
+    }
+
     private void SetupTitleBar()
     {
         try
@@ -422,9 +447,9 @@ public sealed partial class MainWindow : Window
         {
             var baseDir = AppContext.BaseDirectory;
             var iconPath = Path.Combine(baseDir, "app.ico");
-            if (File.Exists(iconPath))
+            if (File.Exists(iconPath) && AppWindow != null)
             {
-                AppWindow?.SetIcon(iconPath);
+                AppWindow.SetIcon(iconPath);
             }
         }
         catch (Exception ex)

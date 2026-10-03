@@ -36,7 +36,7 @@ public partial class App : Application
         {
             Program.WriteStartupLog($"[App.InitializeComponent Hatası] {ex.Message}\n{ex.StackTrace}");
             Program.HandleOrReportError("App.InitializeComponent", ex);
-            throw;
+            Environment.Exit(1);
         }
     }
 
@@ -54,6 +54,7 @@ public partial class App : Application
         {
             Program.WriteStartupLog($"[App.OnLaunched Hatası] {ex.Message}\n{ex.StackTrace}");
             Program.HandleOrReportError("App.OnLaunched", ex);
+            Environment.Exit(1);
         }
     }
 

@@ -48,6 +48,7 @@ public static class Program
                 var ex = e.ExceptionObject as Exception;
                 WriteStartupLog($"[AppDomain.UnhandledException] {ex?.Message}\n{ex?.StackTrace}");
                 HandleOrReportError("AppDomain.UnhandledException", ex);
+                Environment.Exit(1);
             };
 
             // WinUI uygulamasını başlat
@@ -57,6 +58,7 @@ public static class Program
         {
             WriteStartupLog($"[Main.Catch] {ex.GetType().FullName}: {ex.Message}\n{ex.StackTrace}");
             HandleOrReportError("Program.Main", ex);
+            Environment.Exit(1);
         }
     }
 
@@ -83,7 +85,7 @@ public static class Program
             {
                 WriteStartupLog($"[Application.Start.Callback Hatası] {ex.Message}\n{ex.StackTrace}");
                 HandleOrReportError("Application.Start.Callback", ex);
-                throw;
+                Environment.Exit(1);
             }
         });
     }
@@ -117,7 +119,7 @@ public static class Program
     {
         if (ex == null) return false;
 
-        if (ex is TypeLoadException || ex is DllNotFoundException || ex is COMException)
+        if (ex is DllNotFoundException)
         {
             return true;
         }
@@ -131,6 +133,14 @@ public static class Program
             msg.Contains("undockedregfree"))
         {
             return true;
+        }
+
+        if (ex is COMException comEx)
+        {
+            if (comEx.HResult == unchecked((int)0x80040154) || comEx.HResult == unchecked((int)0x8007007E))
+            {
+                return true;
+            }
         }
 
         return false;
@@ -290,6 +300,10 @@ public static class Program
             MessageBox(IntPtr.Zero, dialogMsg, "HDrive - Başlatma Hatası", MB_OK | MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND);
         }
         catch { }
+        finally
+        {
+            Environment.Exit(1);
+        }
     }
 }
 

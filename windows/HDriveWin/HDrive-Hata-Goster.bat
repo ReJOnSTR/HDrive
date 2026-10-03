@@ -31,8 +31,12 @@ if exist "%USERPROFILE%\Desktop\HDrive-Hata.txt" (
     echo [!] Baslatma kayitlari (startup.log):
     echo.
     type "%LOCALAPPDATA%\HDrive\startup.log"
-) else (
-    echo Herhangi bir hata dosyasi olusmadi. Cikis Kodu: %EXITCODE%
+)
+if exist "%LOCALAPPDATA%\HDrive\crash.log" (
+    echo.
+    echo [!] Cokme kayitlari (crash.log):
+    echo.
+    type "%LOCALAPPDATA%\HDrive\crash.log"
 )
 
 echo.

@@ -1,6 +1,6 @@
 ; HDrive Windows (WinUI 3) Inno Setup Kurulum Senaryosu
 #define MyAppName "HDrive"
-#define MyAppVersion "1.3.3"
+#define MyAppVersion "1.3.4"
 #define MyAppPublisher "ReJOnSTR"
 #define MyAppURL "https://github.com/ReJOnSTR/HDrive"
 #define MyAppExeName "HDrive.exe"
@@ -46,7 +46,7 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDi
 
 [Run]
 Filename: "{tmp}\vc_redist.x64.exe"; Parameters: "/install /passive /norestart"; StatusMsg: "Visual C++ 2015-2022 Runtime kuruluyor..."; Check: VCRedistNeedsInstall; Flags: waituntilterminated
-Filename: "{tmp}\WindowsAppRuntimeInstall-x64.exe"; Parameters: "--quiet"; StatusMsg: "Windows App SDK 1.5 Runtime kuruluyor..."; Check: WinAppRuntimeExistsInTmp; Flags: waituntilterminated
+Filename: "{tmp}\WindowsAppRuntimeInstall-x64.exe"; Parameters: "--quiet --force"; StatusMsg: "Windows App SDK 1.5 Runtime kuruluyor..."; Check: WinAppRuntimeExistsInTmp; Flags: waituntilterminated
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent
 
 [Code]
