@@ -48,48 +48,45 @@ public sealed partial class MainWindow : Window
 
     public MainWindow()
     {
-        Program.WriteStartupLog("Adim 6.1: MainWindow constructor basladi.");
         try
         {
-            Program.WriteStartupLog("Adim 6.2: this.InitializeComponent() cagiriliyor...");
             this.InitializeComponent();
-            Program.WriteStartupLog("Adim 6.3: this.InitializeComponent() basariyla tamamlandi.");
         }
         catch (Exception ex)
         {
-            Program.WriteStartupLog($"[MainWindow.InitializeComponent Hatasi] {ex.GetType().FullName}: {ex.Message}\n{ex.StackTrace}");
             App.LogCrash("MainWindow.InitializeComponent", ex);
             throw;
         }
 
-        Program.WriteStartupLog("Adim 6.4: Activated event ekleniyor...");
-        this.Activated += MainWindow_Activated;
+        try
+        {
+            SetupTitleBar();
+        }
+        catch (Exception ex)
+        {
+            App.LogCrash("MainWindow.SetupTitleBar", ex);
+        }
 
         try
         {
-            Program.WriteStartupLog("Adim 6.5: ItemsSource baglantilari yapiliyor...");
             FileGridView.ItemsSource = _items;
             FileGridViewMedium.ItemsSource = _items;
             FileListView.ItemsSource = _items;
             PathBreadcrumbBar.ItemsSource = _breadcrumbs;
 
-            Program.WriteStartupLog("Adim 6.6: LoadViewSettings() cagiriliyor...");
+            // Görünüm ve sıralama ayarlarını ilk sekme açılmadan önce yükle
             LoadViewSettings();
-            Program.WriteStartupLog("Adim 6.6b: LoadViewSettings() tamamlandi.");
 
-            Program.WriteStartupLog("Adim 6.7: CreateInitialTab() cagiriliyor...");
+            // Başlangıç sekmesi oluştur
             CreateInitialTab();
-            Program.WriteStartupLog("Adim 6.8: CreateInitialTab() tamamlandi.");
         }
         catch (Exception ex)
         {
-            Program.WriteStartupLog($"[MainWindow.TabAndItemsSetup Hatasi] {ex.GetType().FullName}: {ex.Message}\n{ex.StackTrace}");
             App.LogCrash("MainWindow.TabAndItemsSetup", ex);
         }
 
         try
         {
-            Program.WriteStartupLog("Adim 6.9: KeyDown event ekleniyor...");
             if (this.Content is FrameworkElement rootElement)
             {
                 // Klavyeden Explorer Kısayolları (Ctrl+C, Ctrl+X, Ctrl+V, F2, Alt+Enter, Ctrl+A, Ctrl+T, Ctrl+W, Delete, Esc)
@@ -174,13 +171,12 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            Program.WriteStartupLog($"[MainWindow.KeyDownSetup Hatasi] {ex.Message}");
             App.LogCrash("MainWindow.KeyDownSetup", ex);
         }
 
         try
         {
-            Program.WriteStartupLog("Adim 6.10: LiveEditWatcherService dinleyicisi ekleniyor...");
+            // Canlı Harici Uygulama Düzenleme (In-Place Edit Auto-Sync) Dinleyicisi
             LiveEditWatcherService.Instance.FileAutoSynced += (s, e) =>
             {
                 DispatcherQueue?.TryEnqueue(async () =>
@@ -208,13 +204,11 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            Program.WriteStartupLog($"[MainWindow.LiveEditWatcherSetup Hatasi] {ex.Message}");
             App.LogCrash("MainWindow.LiveEditWatcherSetup", ex);
         }
 
         try
         {
-            Program.WriteStartupLog("Adim 6.11: TransferManager baglantisi yapiliyor...");
             TransferListView.ItemsSource = TransferManager.Instance.Items;
             TransferManager.Instance.Items.CollectionChanged += (s, e) =>
             {
@@ -245,44 +239,35 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            Program.WriteStartupLog($"[MainWindow.TransferManagerSetup Hatasi] {ex.Message}");
             App.LogCrash("MainWindow.TransferManagerSetup", ex);
         }
 
         try
         {
-            Program.WriteStartupLog("Adim 6.12: LoadPinnedFolders() cagiriliyor...");
             LoadPinnedFolders();
         }
         catch (Exception ex)
         {
-            Program.WriteStartupLog($"[MainWindow.LoadPinnedFolders Hatasi] {ex.Message}");
             App.LogCrash("MainWindow.LoadPinnedFolders", ex);
         }
 
         try
         {
-            Program.WriteStartupLog("Adim 6.13: RefreshStorageQuotaAsync() cagiriliyor...");
             _ = RefreshStorageQuotaAsync();
         }
         catch (Exception ex)
         {
-            Program.WriteStartupLog($"[MainWindow.RefreshStorageQuotaAsync Hatasi] {ex.Message}");
             App.LogCrash("MainWindow.RefreshStorageQuotaAsync", ex);
         }
 
         try
         {
-            Program.WriteStartupLog("Adim 6.14: NavView.SelectedItem ayarlaniyor...");
             NavView.SelectedItem = AllFilesNavItem;
         }
         catch (Exception ex)
         {
-            Program.WriteStartupLog($"[MainWindow.NavViewSelection Hatasi] {ex.Message}");
             App.LogCrash("MainWindow.NavViewSelection", ex);
         }
-
-        Program.WriteStartupLog("Adim 6.15: MainWindow constructor basariyla tamamlandi.");
     }
 
     #region Windows 11 Sekme (TabView) Yönetimi
@@ -417,49 +402,6 @@ public sealed partial class MainWindow : Window
     }
 
     #endregion
-
-    private bool _isWindowActivated = false;
-
-    private void MainWindow_Activated(object sender, WindowActivatedEventArgs args)
-    {
-        try
-        {
-            Program.WriteStartupLog($"Adim 7.1: MainWindow_Activated tetiklendi. WindowActivationState: {args.WindowActivationState}");
-            if (!_isWindowActivated)
-            {
-                _isWindowActivated = true;
-                Program.WriteStartupLog("Adim 7.2: SetupBackdrop() cagiriliyor...");
-                SetupBackdrop();
-                Program.WriteStartupLog("Adim 7.3: SetupTitleBar() cagiriliyor...");
-                SetupTitleBar();
-                Program.WriteStartupLog("Adim 7.4: TitleBar ve Backdrop basariyla tamamlandi.");
-            }
-        }
-        catch (Exception ex)
-        {
-            Program.WriteStartupLog($"[MainWindow_Activated Hatasi] {ex.GetType().FullName}: {ex.Message}\n{ex.StackTrace}");
-            App.LogCrash("MainWindow_Activated", ex);
-        }
-    }
-
-    private void SetupBackdrop()
-    {
-        try
-        {
-            if (Microsoft.UI.Composition.SystemBackdrops.MicaController.IsSupported())
-            {
-                this.SystemBackdrop = new MicaBackdrop();
-            }
-            else if (Microsoft.UI.Composition.SystemBackdrops.DesktopAcrylicController.IsSupported())
-            {
-                this.SystemBackdrop = new DesktopAcrylicBackdrop();
-            }
-        }
-        catch (Exception ex)
-        {
-            App.LogCrash("MainWindow.SetupBackdrop", ex);
-        }
-    }
 
     private void SetupTitleBar()
     {
