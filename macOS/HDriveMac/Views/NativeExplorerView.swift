@@ -4666,7 +4666,7 @@ public struct HDriveSettingsView: View {
             VStack(spacing: 4) {
                 Text("HDrive for Mac")
                     .font(.title.bold())
-                Text("Sürüm 1.4.1 (Universal Binary)")
+                Text("Sürüm 1.4.2 (Universal Binary)")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
             }

@@ -231,7 +231,7 @@ public sealed partial class MainWindow : Window
                         }
                         else
                         {
-                            TransferButtonIcon.ClearValue(PathIcon.ForegroundProperty);
+                            TransferButtonIcon.ClearValue(FontIcon.ForegroundProperty);
                         }
                     });
                 }

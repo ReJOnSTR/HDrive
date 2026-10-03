@@ -223,8 +223,7 @@
                     <AppBarToggleButton x:Name="PreviewPaneToggle" Icon="PreviewLink" Label="Önizleme" Click="PreviewPaneToggle_Click" />
                     <AppBarButton x:Name="TransferButton" Label="Transferler" Click="TransferButton_Click">
                         <AppBarButton.Icon>
-                            <PathIcon x:Name="TransferButtonIcon" 
-                                      Data="M 6.5,3 L 2.5,7 L 3.9,8.4 L 5.5,6.8 V 16 H 7.5 V 6.8 L 9.1,8.4 L 10.5,7 Z M 13.5,17 L 17.5,13 L 16.1,11.6 L 14.5,13.2 V 4 H 12.5 V 13.2 L 10.9,11.6 L 9.5,13 Z" />
+                            <FontIcon x:Name="TransferButtonIcon" Glyph="&#xE896;" />
                         </AppBarButton.Icon>
                         <AppBarButton.Flyout>
                             <Flyout x:Name="TransferFlyout" Placement="Bottom">
@@ -237,8 +236,7 @@
                                     <!-- Başlık & Temizle -->
                                     <Grid Grid.Row="0" Margin="0,0,0,12">
                                         <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                            <PathIcon Data="M 6.5,3 L 2.5,7 L 3.9,8.4 L 5.5,6.8 V 16 H 7.5 V 6.8 L 9.1,8.4 L 10.5,7 Z M 13.5,17 L 17.5,13 L 16.1,11.6 L 14.5,13.2 V 4 H 12.5 V 13.2 L 10.9,11.6 L 9.5,13 Z" 
-                                                      Foreground="{ThemeResource AccentFillColorDefaultBrush}" Width="16" Height="16" />
+                                            <FontIcon Glyph="&#xE896;" FontSize="16" Foreground="{ThemeResource AccentFillColorDefaultBrush}" />
                                             <TextBlock Text="Transfer Kuyruğu" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center" />
                                         </StackPanel>
                                         <Button Content="Temizle" Click="TransferClearCompleted_Click" HorizontalAlignment="Right"
@@ -296,8 +294,7 @@
                                     </ListView>
 
                                     <StackPanel x:Name="TransferEmptyState" Grid.Row="1" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,35" Spacing="10">
-                                        <PathIcon Data="M 6.5,3 L 2.5,7 L 3.9,8.4 L 5.5,6.8 V 16 H 7.5 V 6.8 L 9.1,8.4 L 10.5,7 Z M 13.5,17 L 17.5,13 L 16.1,11.6 L 14.5,13.2 V 4 H 12.5 V 13.2 L 10.9,11.6 L 9.5,13 Z"
-                                                  Foreground="{ThemeResource TextFillColorTertiaryBrush}" Width="32" Height="32" />
+                                        <FontIcon Glyph="&#xE896;" FontSize="32" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
                                         <TextBlock Text="Aktif veya geçmiş transfer bulunmuyor" 
                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" HorizontalAlignment="Center" />
                                     </StackPanel>
@@ -728,7 +725,7 @@
                     <!-- Sağ Taraf: Windows 11 Ayrıntılar ve Önizleme Bölmesi (Details / Preview Pane) -->
                     <Border x:Name="PreviewPane" Grid.Column="1"
                             Width="280" Margin="0"
-                            Background="{ThemeResource LayerOnMicaBaseAltFillColorDefaultBrush}"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                             BorderThickness="1,0,0,0"
                             CornerRadius="0"
