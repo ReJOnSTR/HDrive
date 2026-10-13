@@ -1,0 +1,37 @@
+name: Windows Release Startup Check
+
+on:
+  push:
+    branches:
+      - 'codex/windows-startup-check-20261013'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-published-app:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Startup Test
+        uses: actions/checkout@v4
+
+      - name: Download Published Windows v1.4.2
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri https://github.com/ReJOnSTR/HDrive/releases/download/v1.4.2/HDrive-Windows-x64.zip -OutFile windows-release.zip
+          Expand-Archive -LiteralPath windows-release.zip -DestinationPath published-app
+
+      - name: Open Published App and Verify Main Window
+        shell: pwsh
+        run: |
+          ./windows/test-startup.ps1 -ExePath ./published-app/HDrive.exe -ReportDirectory ./windows/startup-report
+
+      - name: Upload Startup Diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HDrive-Published-Windows-Startup
+          path: windows/startup-report/
+          if-no-files-found: ignore
