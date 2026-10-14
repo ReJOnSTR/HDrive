@@ -51,6 +51,9 @@ public partial class App : Application
         {
             LogCrash("App.OnLaunched", ex);
             ShowCrashDialog("Pencere Başlatma Hatası", ex);
+            // No window can be shown after this failure. Do not leave a headless
+            // application in the event loop, and let launch checks detect failure.
+            Environment.Exit(1);
         }
     }
 

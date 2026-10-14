@@ -37,5 +37,25 @@ HDrive'ın Windows sürümü, Microsoft'un en modern masaüstü çatısı olan *
 3. **Derleme (Tek Başına Çalışan EXE)**:
    - `windows\build-windows.bat` dosyasına çift tıklayın veya:
      ```cmd
-     dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true
+     dotnet publish -c Release -p:Platform=x64 -r win-x64 --self-contained true -p:PublishSingleFile=false -p:PublishTrimmed=false
      ```
+
+
+## Uygulama açılmıyorsa
+
+PowerShell'de `diagnose-windows.ps1` dosyasının bulunduğu klasörde çalıştırın:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\diagnose-windows.ps1
+```
+
+Araç uygulamayı başlatır, 10 saniye bekler ve çıkış kodunu, gerekli dosyaların varlığını,
+ilgili Windows Olay Günlüğü hatalarını ve `crash.log` dosyasının son satırlarını
+masaüstündeki `HDrive-diagnostics.txt` dosyasına kaydeder. Taşınabilir sürüm farklı
+bir klasördeyse `-ExePath "C:\klasor\HDrive.exe"` parametresini kullanın.
+Paylaşmadan önce rapordaki yerel dosya yollarını ve hata mesajlarını kontrol edin.
+
+GitHub Actions derleme süreci ayrıca `test-startup.ps1` ile yayın klasöründeki
+uygulamayı açar. Test, `HDrive` ana penceresinin açılıp açık kaldığını ve yeni bir
+başlangıç hatası kaydedilmediğini kontrol eder. Başarısız açılışlarda kurulum paketi
+oluşturulmaz; `HDrive-Windows-Startup` artifact'i hata kayıtlarını içerir.
