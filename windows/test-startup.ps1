@@ -1,7 +1,8 @@
 param(
     [Parameter(Mandatory = $true)][string]$ExePath,
     [Parameter(Mandatory = $true)][string]$ReportDirectory,
-    [int]$TimeoutSeconds = 30
+    [int]$TimeoutSeconds = 30,
+    [int]$ObserveSeconds = 3
 )
 
 $ErrorActionPreference = 'Stop'
@@ -40,7 +41,7 @@ try {
     }
 
     # Allow first layout and deferred startup callbacks to run before passing.
-    Start-Sleep -Seconds 3
+    Start-Sleep -Seconds $ObserveSeconds
     $process.Refresh()
     if ($process.HasExited -or $process.MainWindowHandle -eq [IntPtr]::Zero -or $process.MainWindowTitle -ne 'HDrive') {
         throw 'HDrive lost its main window immediately after startup.'

@@ -1,4 +1,5 @@
 using System;
+using System.Text.Json.Serialization;
 
 namespace HDriveWin.Models;
 
@@ -28,6 +29,10 @@ public class ServerConfig
     public bool AutoSyncEnabled { get; set; } = true;
     public bool IsConnected { get; set; } = true;
 
+    // Presentation properties must not participate in account persistence.
+    // In particular, IsActive accesses the manager that is still being constructed
+    // when config.json is migrated on the first launch after an upgrade.
+    [JsonIgnore]
     public string ProviderName => Protocol switch
     {
         StorageProtocol.GoogleDrive => "Google Drive",
@@ -37,6 +42,7 @@ public class ServerConfig
         _ => "WebDAV"
     };
 
+    [JsonIgnore]
     public string GlyphIcon => Protocol switch
     {
         StorageProtocol.GoogleDrive => "\uE753", // Drive
@@ -46,17 +52,24 @@ public class ServerConfig
         _ => "\uE753"
     };
 
+    [JsonIgnore]
     public string Subtitle => $"{ProviderName} • {(string.IsNullOrEmpty(ServerURL) ? "Yerel / Bulut" : ServerURL)}";
 
+    [JsonIgnore]
     public bool IsActive => Services.CloudreveManager.Instance.ActiveServer?.Id == Id;
+    [JsonIgnore]
     public string ConnectionStatusText => IsConnected ? "Bağlı" : "Bağlı Değil";
+    [JsonIgnore]
     public string ConnectionActionText => IsConnected ? "Bağlantıyı Kes" : "Bağlan";
+    [JsonIgnore]
     public Microsoft.UI.Xaml.Media.SolidColorBrush StatusDotBrush => new(IsConnected 
         ? Windows.UI.Color.FromArgb(255, 16, 124, 65) 
         : Windows.UI.Color.FromArgb(255, 138, 136, 134));
+    [JsonIgnore]
     public Microsoft.UI.Xaml.Media.SolidColorBrush StatusTextBrush => new(IsConnected 
         ? Windows.UI.Color.FromArgb(255, 16, 124, 65) 
         : Windows.UI.Color.FromArgb(255, 138, 136, 134));
+    [JsonIgnore]
     public Microsoft.UI.Xaml.Media.SolidColorBrush StatusBgBrush => new(IsConnected 
         ? Windows.UI.Color.FromArgb(30, 16, 124, 65) 
         : Windows.UI.Color.FromArgb(20, 138, 136, 134));

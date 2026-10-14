@@ -36,6 +36,7 @@ _ReSharper*/
 *.ide/
 
 # Temporary files
+scratch/
 *.tmp
 *.log
 *.dmg

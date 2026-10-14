@@ -34,17 +34,32 @@ jobs:
           cd windows/HDriveWin
           dotnet publish -c Release -p:Platform=x64 -r win-x64 --self-contained -p:PublishSingleFile=false -p:PublishTrimmed=false -p:PublishReadyToRun=false -p:WindowsAppSDKSelfContained=true -o publish_x64
 
+      - name: Verify Account Serialization
+        run: dotnet run --project windows/tests/AccountSerialization/AccountSerialization.csproj -c Release
+
       - name: Verify Windows App Opens Its Main Window
         shell: pwsh
         run: |
           ./windows/test-startup.ps1 -ExePath ./windows/HDriveWin/publish_x64/HDrive.exe -ReportDirectory ./windows/startup-report
+
+      - name: Setup Python for Upgrade Fixture
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Verify v1.2.7 Account Migration and Restart
+        shell: pwsh
+        run: |
+          ./windows/test-startup-upgrade.ps1 -ExePath ./windows/HDriveWin/publish_x64/HDrive.exe -VerifyMigration
 
       - name: Upload Windows Startup Report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: HDrive-Windows-Startup
-          path: windows/startup-report/
+          path: |
+            windows/startup-report/
+            windows/upgrade-report/
           if-no-files-found: ignore
 
       - name: Build Windows Setup Installer (HDrive-Setup.exe)
@@ -148,14 +163,15 @@ jobs:
           name: HDrive ${{ github.ref_name || 'v1.0.0' }}
           fail_on_unmatched_files: true
           body: |
-            Windows başlangıç hataları için kapanma davranışı ve teşhis araçları iyileştirildi.
-            
+            v1.2.7 hesaplarının taşınması sırasında oluşan Windows açılış hatası düzeltildi.
+
             - Ana pencere başlatılamazsa hata bildirildikten sonra uygulama başarısız çıkış koduyla kapanır.
             - Windows paketlerine `diagnose-windows.ps1` eklendi; açılış durumunu, hata kayıtlarını ve ilgili Windows olaylarını toplar.
             - Windows paketi yayınlanmadan önce ana pencerenin açılması ve açık kalması otomatik olarak kontrol edilir.
-            
+            - Hesapların kayıt işlemi arayüz alanlarını değerlendirmez; v1.2.7 hesap geçişi ve yeniden açılış da yayın öncesinde test edilir.
+
             **İndirmeler**
-            
+
             - [Windows x64 kurulum programı](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/HDrive-Setup.exe)
             - [Windows x64 taşınabilir paket](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/HDrive-Windows-x64.zip) — ZIP'in tüm içeriğini aynı klasöre çıkarın.
             - [macOS DMG](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/HDrive-macOS.dmg)

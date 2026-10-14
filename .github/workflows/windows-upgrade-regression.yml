@@ -1,0 +1,46 @@
+name: Windows v1.2.7 Upgrade Regression
+
+on:
+  push:
+    branches:
+      - 'codex/windows-v127-regression-20261014'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  startup:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [windows-2022, windows-latest]
+        version: [v1.2.7, v1.3.1, v1.4.3]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Download Published Windows Package
+        shell: pwsh
+        env:
+          HDRIVE_VERSION: ${{ matrix.version }}
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/ReJOnSTR/HDrive/releases/download/$env:HDRIVE_VERSION/HDrive-Windows-x64.zip" -OutFile app.zip
+          Expand-Archive -LiteralPath app.zip -DestinationPath app
+          Get-Item ./app/HDrive.exe, ./app/coreclr.dll, ./app/Microsoft.ui.xaml.dll | ForEach-Object { Write-Host "$($_.Name): $($_.VersionInfo.FileVersion)" }
+      - name: Test Saved Accounts and v1.2.7 Migration
+        shell: pwsh
+        env:
+          HDRIVE_VERSION: ${{ matrix.version }}
+        run: |
+          ./windows/test-startup-upgrade.ps1 -ExePath ./app/HDrive.exe -Version $env:HDRIVE_VERSION
+      - name: Upload Regression Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HDrive-Upgrade-${{ matrix.runner }}-${{ matrix.version }}
+          path: windows/upgrade-report/
+          if-no-files-found: ignore

@@ -40,7 +40,6 @@ HDrive'ın Windows sürümü, Microsoft'un en modern masaüstü çatısı olan *
      dotnet publish -c Release -p:Platform=x64 -r win-x64 --self-contained true -p:PublishSingleFile=false -p:PublishTrimmed=false
      ```
 
-
 ## Uygulama açılmıyorsa
 
 PowerShell'de `diagnose-windows.ps1` dosyasının bulunduğu klasörde çalıştırın:
@@ -59,3 +58,23 @@ GitHub Actions derleme süreci ayrıca `test-startup.ps1` ile yayın klasöründ
 uygulamayı açar. Test, `HDrive` ana penceresinin açılıp açık kaldığını ve yeni bir
 başlangıç hatası kaydedilmediğini kontrol eder. Başarısız açılışlarda kurulum paketi
 oluşturulmaz; `HDrive-Windows-Startup` artifact'i hata kayıtlarını içerir.
+
+## v1.2.7 yükseltme hatası ve regresyon kontrolü
+
+v1.3.1 ile gelen `ServerConfig.IsActive` özelliği, eski `config.json` dosyasının
+`servers.json` biçimine taşınması sırasında JSON'a yazılmaya çalışılıyordu. Bu işlem
+henüz oluşturulmakta olan `CloudreveManager.Instance`'ı tekrar oluşturup yığın
+taşmasına neden oluyordu. Hesap modelindeki hesaplanan arayüz özellikleri artık
+`[JsonIgnore]` ile kayıt işleminden çıkarıldı. Ayrıntılı karşılaştırma ve doğrulama
+sonuçları: [STARTUP-REGRESSION.md](STARTUP-REGRESSION.md).
+
+Arayüz bağımlılığı olmadan gerçek hesap modelinin kayıt işlemini test etmek için
+depo kökünden çalıştırın:
+
+```sh
+dotnet run --project windows/tests/AccountSerialization/AccountSerialization.csproj -c Release
+```
+
+Yayın akışı ayrıca izole Windows runner'ında `test-startup-upgrade.ps1 -VerifyMigration`
+ile eski hesapla ilk açılışı, hesabın ve aktif hesap seçiminin korunmasını ve yeniden
+açılışı kontrol eder. Bu test başarısızsa kurulum paketi oluşturulmaz.

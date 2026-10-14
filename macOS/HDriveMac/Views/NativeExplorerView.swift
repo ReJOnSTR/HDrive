@@ -4666,7 +4666,7 @@ public struct HDriveSettingsView: View {
             VStack(spacing: 4) {
                 Text("HDrive for Mac")
                     .font(.title.bold())
-                Text("Sürüm 1.4.3 (Universal Binary)")
+                Text("Sürüm 1.4.4 (Universal Binary)")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
             }
@@ -5422,6 +5422,5 @@ struct ToolbarCustomizationSheet: View {
         .frame(minWidth: 720, idealWidth: 760, maxWidth: 840, minHeight: 520, idealHeight: 560, maxHeight: 680)
     }
 }
-
 
 
