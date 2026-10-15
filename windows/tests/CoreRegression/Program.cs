@@ -278,15 +278,16 @@ await Check("Folder sync detects both-side changes and does not silently propaga
     Require(FolderSynchronizer.Decide(null, "remote", baseline) == SyncAction.Conflict, "Deletion propagated silently");
     return Task.CompletedTask;
 });
-await Check("Two-way sync transfers additions and persists a stable baseline", async () => {
+await Check("Two-way sync transfers additions, preserves both conflict copies and persists its baseline", async () => {
     var directory = Profile(); File.WriteAllText(Path.Combine(directory, "local.txt"), "local-data");
-    var remote = new Dictionary<string, (string Id, string Data)> { ["remote.txt"] = ("remote-id", "remote-data") };
+    var remote = new Dictionary<string, (string Id, string Data)> { ["remote.txt"] = ("remote-id", "remote-data"), ["same.txt"] = ("same-id", "cloud-version") };
+    File.WriteAllText(Path.Combine(directory, "same.txt"), "local-version");
     var client = Client(Account(StorageProtocol.GoogleDrive), async (request, _) => {
         if (request.Method == HttpMethod.Post) {
             var parts = ((MultipartContent)request.Content!).ToList();
             using var metadata = JsonDocument.Parse(await parts[0].ReadAsStringAsync());
             var name = metadata.RootElement.GetProperty("name").GetString()!;
-            remote[name] = ("new-id", await parts[1].ReadAsStringAsync()); return Json("{}");
+            remote[name] = (S3RequestSigner.Hash(name)[..12], await parts[1].ReadAsStringAsync()); return Json("{}");
         }
         var uri = request.RequestUri!;
         if (uri.AbsolutePath.EndsWith("/files")) return Json(JsonSerializer.Serialize(new { files = remote.Select(entry => new { id = entry.Value.Id, name = entry.Key, mimeType = "text/plain", size = entry.Value.Data.Length.ToString(), modifiedTime = "2026-01-01T00:00:00Z" }) }));
@@ -297,7 +298,8 @@ await Check("Two-way sync transfers additions and persists a stable baseline", a
     var engine = new FolderSynchronizer(client, directory, "");
     var rows = await engine.PreviewAsync();
     Require(rows.Count(row => row.Action == SyncAction.Upload) == 1 && rows.Count(row => row.Action == SyncAction.Download) == 1, "Additions were not classified in both directions");
-    Require((await engine.ApplyAsync(rows)).Count == 0, "Sync failed");
+    Require((await engine.ApplyAsync(rows, SyncConflictPolicy.KeepBoth)).Count == 0, "Sync failed");
+    Require(File.ReadAllText(Path.Combine(directory, "same.txt")) == "cloud-version" && remote.Any(pair => pair.Key.Contains("yerel") && pair.Value.Data == "local-version"), "Keep-both lost a conflict version");
     Require(File.ReadAllText(Path.Combine(directory, "remote.txt")) == "remote-data" && remote["local.txt"].Data == "local-data", "Sync lost file data");
     Require((await new FolderSynchronizer(client, directory, "").PreviewAsync()).All(row => row.Action == SyncAction.None), "Restart lost the sync baseline");
 });

@@ -54,9 +54,8 @@ public final class FolderSynchronizer {
         try Task.checkCancellation()
         return try await withCheckedThrowingContinuation { continuation in client.listFiles(at: path) { continuation.resume(with: $0) } }
     }
-    public func preview() async throws -> [FolderSyncRow] {
-        if FileManager.default.fileExists(atPath: manifest.path) { baseline = try JSONDecoder().decode([String: FolderSyncBaseline].self, from: Data(contentsOf: manifest)) }
-        var local: [String: String] = [:], remote: [String: RemoteFileItem] = [:]
+    private func scanLocalFiles() throws -> [String: String] {
+        var local: [String: String] = [:]
         guard let iterator = FileManager.default.enumerator(at: localRoot, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey], options: []) else { throw CocoaError(.fileReadNoSuchFile) }
         for case let url as URL in iterator {
             try Task.checkCancellation()
@@ -65,6 +64,12 @@ public final class FolderSynchronizer {
             if excluded(relative) || values.isSymbolicLink == true { iterator.skipDescendants(); continue }
             if values.isRegularFile == true { local[relative] = try hash(url) }
         }
+        return local
+    }
+    public func preview() async throws -> [FolderSyncRow] {
+        if FileManager.default.fileExists(atPath: manifest.path) { baseline = try JSONDecoder().decode([String: FolderSyncBaseline].self, from: Data(contentsOf: manifest)) }
+        let local = try scanLocalFiles()
+        var remote: [String: RemoteFileItem] = [:]
         remoteDirectories = ["": remoteRoot]
         var pending: [(String, String)] = [("", remoteRoot)], visited = Set<String>()
         while !pending.isEmpty {
@@ -140,6 +145,11 @@ public final class FolderSynchronizer {
                         let copy = row.localURL.deletingLastPathComponent().appendingPathComponent(name)
                         try FileManager.default.copyItem(at: row.localURL, to: copy)
                         try await upload(copy, folder: remoteParent, existing: nil)
+                        let copies = try await list(remoteParent)
+                        guard let copied = copies.first(where: { !$0.isDirectory && $0.name == copy.lastPathComponent }) else { throw CocoaError(.fileReadNoSuchFile) }
+                        let copyPath = parent.isEmpty ? copy.lastPathComponent : parent + "/" + copy.lastPathComponent
+                        baseline[copyPath] = FolderSyncBaseline(localHash: try hash(copy), remoteStamp: stamp(copied))
+                        try JSONEncoder().encode(baseline).write(to: manifest, options: .atomic)
                         action = .download
                     } else { action = policy == .local ? .upload : .download }
                 }

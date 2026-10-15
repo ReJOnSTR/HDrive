@@ -95,6 +95,10 @@ public sealed class FolderSynchronizer
                         var copy = Path.Combine(Path.GetDirectoryName(row.LocalPath)!, Path.GetFileNameWithoutExtension(name) + " (yerel " + Guid.NewGuid().ToString("N")[..8] + ")" + Path.GetExtension(name));
                         File.Copy(row.LocalPath, copy);
                         await _client.UploadAsync(copy, remoteParent, ct: ct);
+                        var copied = (await _client.ListDirectoryAsync(remoteParent).WaitAsync(ct)).Single(item => !item.IsDirectory && item.Name == Path.GetFileName(copy));
+                        var copyPath = parent.Length == 0 ? Path.GetFileName(copy) : parent + "/" + Path.GetFileName(copy);
+                        _baseline[copyPath] = new(await HashAsync(copy, ct), Stamp(copied));
+                        AtomicFile.WriteAllText(_manifest, JsonSerializer.Serialize(_baseline));
                         action = SyncAction.Download;
                     } else action = policy == SyncConflictPolicy.KeepLocal ? SyncAction.Upload : SyncAction.Download;
                 }

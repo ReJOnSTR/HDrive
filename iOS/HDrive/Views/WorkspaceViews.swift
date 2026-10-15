@@ -187,7 +187,7 @@ public struct FolderSyncView: View {
                     Text("Yerel kopyalar HDrive Dosyaları / Eşitleme altında tutulur.").font(.caption).foregroundStyle(.secondary)
                     #endif
                     TextField("Hariç tutulanlar (; ile ayırın)", text: $exclusions)
-                        .onChange(of: exclusions) { _ in engine = nil; rows = [] }
+                        .onChange(of: exclusions) { _, _ in engine = nil; rows = [] }
                     Picker("Çakışma kararı", selection: $policy) { ForEach(FolderSyncPolicy.allCases, id: \.self) { Text($0.rawValue) } }
                     Toggle("Bu ekran açıkken her dakika eşitle", isOn: $automatic)
                     Text("Otomatik turda çakışmalar atlanır. Silmeler otomatik yayılmaz. Ekranı kapatmak otomatik eşitlemeyi durdurur.").font(.caption).foregroundStyle(.secondary)

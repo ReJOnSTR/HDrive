@@ -3040,8 +3040,6 @@ public struct NativeExplorerView: View {
         }
         
         let client = WebDAVClient(config: server)
-        let basePath = currentPath.isEmpty ? "" : currentPath + "/"
-        
         client.renameItem(href: file.href, newName: newName, parentPath: currentPath) { error in
             renamingFileID = nil
             if error == nil {
