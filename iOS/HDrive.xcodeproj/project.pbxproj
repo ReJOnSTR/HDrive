@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+        110100202C8C000100000020 /* Localization in Resources */ = {isa = PBXBuildFile; fileRef = 110200202C8C000100000020 /* Localization */; };
+        110100192C8C000100000019 /* FolderSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110200192C8C000100000019 /* FolderSync.swift */; };
+        110100182C8C000100000018 /* WorkspaceViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110200182C8C000100000018 /* WorkspaceViews.swift */; };
         110100172C8C000100000017 /* S3Storage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110200172C8C000100000017 /* S3Storage.swift */; };
         110100162C8C000100000016 /* StorageSecurity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110200162C8C000100000016 /* StorageSecurity.swift */; };
 		110100012C8C000100000001 /* HDriveApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110200012C8C000100000001 /* HDriveApp.swift */; };
@@ -32,6 +35,9 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+        110200202C8C000100000020 /* Localization */ = {isa = PBXFileReference; lastKnownFileType = folder; path = ../Resources/Localization; sourceTree = SOURCE_ROOT; };
+        110200192C8C000100000019 /* FolderSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderSync.swift; sourceTree = "<group>"; };
+        110200182C8C000100000018 /* WorkspaceViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceViews.swift; sourceTree = "<group>"; };
         110200172C8C000100000017 /* S3Storage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = S3Storage.swift; sourceTree = "<group>"; };
         110200162C8C000100000016 /* StorageSecurity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageSecurity.swift; sourceTree = "<group>"; };
 		110200002C8C000100000000 /* HDrive.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HDrive.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -115,6 +121,7 @@
 				110200102C8C000100000010 /* WebDAVClient.swift */,
                 110200172C8C000100000017 /* S3Storage.swift */,
                 110200162C8C000100000016 /* StorageSecurity.swift */,
+                110200192C8C000100000019 /* FolderSync.swift */,
 				110200112C8C000100000011 /* CloudreveManager.swift */,
 				1102000C2C8C00010000000C /* TransferManager.swift */,
 				110200132C8C000100000013 /* KeychainHelper.swift */,
@@ -143,6 +150,7 @@
 				1102000B2C8C00010000000B /* FileDetailView.swift */,
 				1102000D2C8C00010000000D /* SettingsView.swift */,
 				110200122C8C000100000012 /* CloudreveMobileView.swift */,
+                110200182C8C000100000018 /* WorkspaceViews.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -212,6 +220,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+                110100202C8C000100000020 /* Localization in Resources */,
 				1101000E2C8C00010000000E /* WebAssets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -239,8 +248,10 @@
 				110100102C8C000100000010 /* WebDAVClient.swift in Sources */,
                 110100172C8C000100000017 /* S3Storage.swift in Sources */,
                 110100162C8C000100000016 /* StorageSecurity.swift in Sources */,
+                110100192C8C000100000019 /* FolderSync.swift in Sources */,
 				110100112C8C000100000011 /* CloudreveManager.swift in Sources */,
 				110100122C8C000100000012 /* CloudreveMobileView.swift in Sources */,
+                110100182C8C000100000018 /* WorkspaceViews.swift in Sources */,
 				110100132C8C000100000013 /* KeychainHelper.swift in Sources */,
 				110100142C8C000100000014 /* NetworkMonitor.swift in Sources */,
 				110100152C8C000100000015 /* SyncLogManager.swift in Sources */,
@@ -314,7 +325,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.4.4;
 				PRODUCT_BUNDLE_IDENTIFIER = com.halilsak.HDrive;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -337,7 +348,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.4.4;
 				PRODUCT_BUNDLE_IDENTIFIER = com.halilsak.HDrive;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;

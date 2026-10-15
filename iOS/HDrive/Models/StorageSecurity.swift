@@ -131,3 +131,233 @@ public enum S3Signing {
         return request
     }
 }
+
+public enum FileCollisionPolicy { case fail, replace, keepBoth, skip }
+
+public enum LocalFileOperations {
+    public struct TrashEntry: Codable, Identifiable {
+        public var id: UUID
+        public var originalPath: String
+        public var deletedAt: Date
+        public var name: String { URL(fileURLWithPath: originalPath).lastPathComponent }
+    }
+    public static func validName(_ value: String) throws -> String {
+        let name = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, name != ".", name != "..", !name.contains("/"), !name.contains("\\"), !name.contains("\0") else {
+            throw NSError(domain: "HDrive.Files", code: 400, userInfo: [NSLocalizedDescriptionKey: "Geçerli bir dosya veya klasör adı girin."])
+        }
+        return name
+    }
+    public static func availableURL(_ target: URL) -> URL {
+        let manager = FileManager.default
+        if !manager.fileExists(atPath: target.path) { return target }
+        let ext = target.pathExtension
+        let stem = ext.isEmpty ? target.lastPathComponent : target.deletingPathExtension().lastPathComponent
+        var number = 2
+        while true {
+            let name = "\(stem) (\(number))" + (ext.isEmpty ? "" : "." + ext)
+            let candidate = target.deletingLastPathComponent().appendingPathComponent(name)
+            if !manager.fileExists(atPath: candidate.path) { return candidate }
+            number += 1
+        }
+    }
+    @discardableResult public static func importFile(_ source: URL, into directory: URL, policy: FileCollisionPolicy = .fail) throws -> URL? {
+        let manager = FileManager.default
+        let name = try validName(source.lastPathComponent)
+        var target = directory.appendingPathComponent(name)
+        if source.standardizedFileURL == target.standardizedFileURL { return target }
+        if manager.fileExists(atPath: target.path) {
+            switch policy {
+            case .skip: return nil
+            case .keepBoth: target = availableURL(target)
+            case .fail: throw CocoaError(.fileWriteFileExists)
+            case .replace: break
+            }
+        }
+        try SafeFileStorage.installFile(source: source, destination: target)
+        return target
+    }
+    public static var trashRoot: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("HDrive/Trash", isDirectory: true)
+    }
+    @discardableResult public static func trash(_ source: URL, root: URL = trashRoot) throws -> TrashEntry {
+        let manager = FileManager.default
+        let entry = TrashEntry(id: UUID(), originalPath: source.path, deletedAt: Date())
+        let directory = root.appendingPathComponent(entry.id.uuidString, isDirectory: true)
+        try manager.createDirectory(at: directory, withIntermediateDirectories: true)
+        do {
+            try JSONEncoder().encode(entry).write(to: directory.appendingPathComponent("entry.json"), options: .atomic)
+            try manager.moveItem(at: source, to: directory.appendingPathComponent("content"))
+        } catch { try? manager.removeItem(at: directory); throw error }
+        return entry
+    }
+    public static func trashEntries(root: URL = trashRoot) throws -> [TrashEntry] {
+        guard FileManager.default.fileExists(atPath: root.path) else { return [] }
+        return try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil).compactMap { directory in
+            guard FileManager.default.fileExists(atPath: directory.appendingPathComponent("content").path) else { return nil }
+            return try JSONDecoder().decode(TrashEntry.self, from: Data(contentsOf: directory.appendingPathComponent("entry.json")))
+        }.sorted { $0.deletedAt > $1.deletedAt }
+    }
+    @discardableResult public static func restore(_ entry: TrashEntry, root: URL = trashRoot) throws -> URL {
+        let directory = root.appendingPathComponent(entry.id.uuidString)
+        let destination = availableURL(URL(fileURLWithPath: entry.originalPath))
+        try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.moveItem(at: directory.appendingPathComponent("content"), to: destination)
+        try FileManager.default.removeItem(at: directory)
+        return destination
+    }
+}
+
+public enum AppVersion {
+    public static var display: String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Geliştirme"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+        return build.map { "\(version) (\($0))" } ?? version
+    }
+}
+
+public enum OfflineStore {
+    public struct Entry: Codable, Identifiable {
+        public var id: String
+        public var accountID: UUID
+        public var accountName: String
+        public var identity: String
+        public var remotePath: String
+        public var name: String
+        public var savedAt: Date
+        public var localPath: String
+        public var localURL: URL { URL(fileURLWithPath: localPath) }
+    }
+    public static var root: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("HDrive/Offline", isDirectory: true)
+    }
+    public static func identity(_ config: CloudreveServerConfig) -> String {
+        S3Signing.hash("\(config.id)|\(config.storageProtocol.rawValue)|\(config.serverURL)|\(config.username)|\(config.bucketName)|\(config.smbShare)")
+    }
+    public static func destination(config: CloudreveServerConfig, remotePath: String, name: String, root: URL = root) throws -> URL {
+        let id = S3Signing.hash(identity(config) + "|" + remotePath)
+        let directory = root.appendingPathComponent(id, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let destination = directory.appendingPathComponent(try LocalFileOperations.validName(name))
+        let entry = Entry(id: id, accountID: config.id, accountName: config.name, identity: identity(config), remotePath: remotePath, name: name, savedAt: Date(), localPath: destination.path)
+        try JSONEncoder().encode(entry).write(to: directory.appendingPathComponent("entry.json"), options: .atomic)
+        return destination
+    }
+    public static func entries(root: URL = root) throws -> [Entry] {
+        guard FileManager.default.fileExists(atPath: root.path) else { return [] }
+        return try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil).compactMap { directory in
+            let entry = try JSONDecoder().decode(Entry.self, from: Data(contentsOf: directory.appendingPathComponent("entry.json")))
+            return FileManager.default.fileExists(atPath: entry.localPath) ? entry : nil
+        }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+}
+
+public struct CloudFileVersion: Identifiable {
+    public var id: String
+    public var modified: String
+    public var canRestore: Bool
+}
+public struct CloudTrashItem: Identifiable {
+    public var id: String
+    public var name: String
+}
+
+public struct TransferRecord: Codable {
+    public var id: UUID
+    public var accountID: UUID
+    public var identity: String
+    public var fileName: String
+    public var remotePath: String
+    public var localPath: String
+    public var direction: String
+    public var status: String
+    public var totalBytes: Int64
+}
+public final class TransferJournal {
+    private let url: URL
+    private var failed = false
+    private var previous: Data?
+    public init(url: URL) { self.url = url }
+    public func load() throws -> [TransferRecord] {
+        let manager = FileManager.default
+        guard manager.fileExists(atPath: url.path) || manager.fileExists(atPath: url.path + ".bak") else { return [] }
+        do {
+            let data = try Data(contentsOf: url)
+            return try JSONDecoder().decode([TransferRecord].self, from: data)
+        } catch {
+            do { return try JSONDecoder().decode([TransferRecord].self, from: Data(contentsOf: URL(fileURLWithPath: url.path + ".bak"))) }
+            catch { failed = true; throw error }
+        }
+    }
+    public func save(_ records: [TransferRecord]) throws {
+        guard !failed else { throw CocoaError(.fileReadCorruptFile) }
+        let data = try JSONEncoder().encode(records)
+        guard data != previous else { return }
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try data.write(to: url, options: .atomic)
+        try data.write(to: URL(fileURLWithPath: url.path + ".bak"), options: .atomic)
+        previous = data
+    }
+}
+
+public enum WorkingCache {
+    public struct Entry: Identifiable {
+        public var url: URL
+        public var bytes: Int64
+        public var modified: Date
+        public var protected: Bool
+        public var id: String { url.path }
+    }
+    public static var roots: [URL] {
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        return [caches.appendingPathComponent("HDriveFiles"), caches.appendingPathComponent("HDrivePreviews"), FileManager.default.temporaryDirectory.appendingPathComponent("HDriveCache")]
+    }
+    public static func protect(_ url: URL) throws {
+        try Data().write(to: url.deletingLastPathComponent().appendingPathComponent(".hdrive-protected"), options: .atomic)
+    }
+    public static func entries(roots: [URL] = roots) throws -> [Entry] {
+        let manager = FileManager.default
+        var result: [Entry] = []
+        for originalRoot in roots {
+            let root = originalRoot.standardizedFileURL.resolvingSymlinksInPath()
+            guard let iterator = manager.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey, .contentModificationDateKey], options: [.skipsHiddenFiles]) else { continue }
+            for case let url as URL in iterator {
+                let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey, .contentModificationDateKey])
+                guard values.isRegularFile == true, values.isSymbolicLink != true, !url.lastPathComponent.hasSuffix(".part") else { continue }
+                var parent = url.standardizedFileURL.resolvingSymlinksInPath().deletingLastPathComponent(), protected = false
+                while parent.path.hasPrefix(root.path) {
+                    if manager.fileExists(atPath: parent.appendingPathComponent(".hdrive-protected").path) { protected = true; break }
+                    if parent == root { break }; parent.deleteLastPathComponent()
+                }
+                result.append(Entry(url: url, bytes: Int64(values.fileSize ?? 0), modified: values.contentModificationDate ?? .distantPast, protected: protected))
+            }
+        }
+        return result
+    }
+    @discardableResult public static func trim(to limit: Int64, roots: [URL] = roots) throws -> Int64 {
+        let files = try entries(roots: roots)
+        var total = files.reduce(Int64(0)) { $0 + $1.bytes }, removed: Int64 = 0
+        for file in files.filter({ !$0.protected }).sorted(by: { $0.modified < $1.modified }) where total > limit {
+            try FileManager.default.removeItem(at: file.url)
+            total -= file.bytes; removed += file.bytes
+        }
+        return removed
+    }
+}
+
+public enum L10n {
+    private static let translations: [String: [String: String]] = {
+        var result: [String: [String: String]] = [:]
+        for language in ["tr", "en"] {
+            if let url = Bundle.main.url(forResource: language, withExtension: "json", subdirectory: "Localization"),
+               let data = try? Data(contentsOf: url), let entries = try? JSONDecoder().decode([String: String].self, from: data) { result[language] = entries }
+        }
+        return result
+    }()
+    public static func text(_ key: String) -> String {
+        let preferred = UserDefaults.standard.string(forKey: "HDriveLanguage") ?? "system"
+        let language = preferred == "system" ? (Locale.preferredLanguages.first?.hasPrefix("tr") == true ? "tr" : "en") : preferred
+        return translations[language]?[key] ?? key
+    }
+}

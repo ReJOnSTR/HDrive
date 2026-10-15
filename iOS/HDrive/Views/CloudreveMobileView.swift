@@ -9,17 +9,33 @@ import PhotosUI
 public struct CloudreveMobileView: View {
     @ObservedObject var manager = CloudreveManager.shared
     
-    @State private var serverName: String = "Cloudreve Sunucum"
-    @State private var serverURL: String = "https://your-cloudreve.com/dav"
+    @State private var serverName: String = "Bulut Hesabım"
+    @State private var serverURL: String = ""
     @State private var username: String = ""
     @State private var password: String = ""
     
     @State private var isConfiguring = false
+    @State private var showFolderSync = false
+    @State private var showCloudManagement = false
+    @State private var cloudActionConfig: CloudreveServerConfig?
+    @State private var cloudActionFile: RemoteFileItem?
+    @State private var cloudActionMode: CloudManagementView.Mode = .sharing
+
     @State private var isTesting = false
     @State private var testMessage: String? = nil
     
     // Uzak Dosya Gezgini Durumları
     @State private var currentPath: String = ""
+    @State private var pathHistory: [String] = []
+    @State private var pathTitles: [String] = []
+    @State private var operationError: String?
+    @State private var listingError: String?
+    @State private var selecting = false
+    @State private var selectedIDs = Set<String>()
+    @State private var pendingDeletion: [RemoteFileItem] = []
+    @State private var showDeleteConfirmation = false
+    @State private var showDocumentPicker = false
+    @State private var loadGeneration = UUID()
     @State private var remoteFiles: [RemoteFileItem] = []
     @State private var isLoading = false
     @State private var showingNewFolderAlert = false
@@ -38,23 +54,82 @@ public struct CloudreveMobileView: View {
     public init() {}
     
     public var body: some View {
-        NavigationStack {
+        NavigationStack { browserDialogs }
+    }
+    private var browserMain: some View {
             Group {
-                if isConfiguring || manager.activeServer?.serverURL.isEmpty == true {
+                if isConfiguring || manager.activeServer == nil {
                     serverSettingsForm
                 } else {
                     remoteFilesView
                 }
             }
-            .navigationTitle(currentPath.isEmpty ? "Cloudreve" : (currentPath as NSString).lastPathComponent)
+            .navigationTitle(pathTitles.last ?? manager.activeServer?.name ?? "Bulut")
             .navigationBarTitleDisplayMode(currentPath.isEmpty ? .large : .inline)
-            .toolbar {
+            .toolbar { browserToolbar }
+    }
+    private var browserDialogs: some View {
+        browserMain
+            .onAppear {
+                loadConfig()
+                if !(manager.activeServer?.serverURL.isEmpty ?? true) {
+                    refreshFiles()
+                }
+            }
+            .alert("Yeni Klasör", isPresented: $showingNewFolderAlert) {
+                TextField(L10n.text("Klasör Adı"), text: $newFolderName)
+                Button(L10n.text("Oluştur"), action: createFolder)
+                Button(L10n.text("İptal"), role: .cancel) { newFolderName = "" }
+            }
+            .alert("Yeniden Adlandır", isPresented: $showingRenameAlert) {
+                TextField(L10n.text("Yeni İsim"), text: $renamingName)
+                Button(L10n.text("Tamam"), action: commitRename)
+                Button(L10n.text("İptal"), role: .cancel) { renamingName = ""; itemToRename = nil }
+            }
+            .onChange(of: selectedPhotos) { items in
+                uploadSelectedPhotos(items)
+            }
+            .alert("İşlem tamamlanamadı", isPresented: Binding(get: { operationError != nil }, set: { if !$0 { operationError = nil } })) {
+                Button(L10n.text("Tamam")) { operationError = nil }
+            } message: { Text(operationError ?? "") }
+            .confirmationDialog("Seçili \(pendingDeletion.count) öğe silinsin mi? Bu işlem sağlayıcıya bağlı olarak kalıcı olabilir.", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
+                Button(L10n.text("Sil"), role: .destructive) { deletePending() }
+                Button(L10n.text("Vazgeç"), role: .cancel) { pendingDeletion = [] }
+            }
+
+        .sheet(isPresented: $showFolderSync) {
+            if let account = manager.activeServer { FolderSyncView(config: account, remoteRoot: currentPath) }
+        }
+        .sheet(isPresented: $showCloudManagement) {
+            if let account = cloudActionConfig {
+                CloudManagementView(config: account, href: cloudActionFile?.href ?? "", name: cloudActionFile?.name ?? "", mode: cloudActionMode)
+            }
+        }
+            .sheet(isPresented: $showDocumentPicker) {
+                DocumentPicker { urls in uploadDocuments(urls) }
+            }
+            .safeAreaInset(edge: .bottom) {
+                if selecting {
+                    HStack {
+                        Text("\(selectedIDs.count) seçili").font(.caption)
+                        Spacer()
+                        Button { downloadSelected() } label: { Label("İndir", systemImage: "arrow.down.circle") }
+                        Button(role: .destructive) {
+                            pendingDeletion = remoteFiles.filter { selectedIDs.contains($0.id) }; showDeleteConfirmation = true
+                        } label: { Label(L10n.text("Sil"), systemImage: "trash") }
+                    }.padding().background(.regularMaterial).disabled(selectedIDs.isEmpty)
+                }
+            }
+    }
+
+    @ToolbarContentBuilder private var browserToolbar: some ToolbarContent {
+
                 if !currentPath.isEmpty && !isConfiguring {
                     ToolbarItem(placement: .topBarLeading) {
                         Button(action: goBack) {
                             HStack(spacing: 4) {
                                 Image(systemName: "chevron.backward")
-                                Text("Geri")
+                                Text(L10n.text("Geri"))
                             }
                         }
                     }
@@ -62,19 +137,19 @@ public struct CloudreveMobileView: View {
                 
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     if !isConfiguring {
+                        Button(selecting ? "Bitti" : "Seç") { selecting.toggle(); selectedIDs.removeAll() }
                         Menu {
+                            Button { showDocumentPicker = true } label: { Label(L10n.text("Dosya Yükle"), systemImage: "doc.badge.plus") }
                             Button(action: { showingNewFolderAlert = true }) {
-                                Label("Yeni Klasör", systemImage: "folder.badge.plus")
+                                Label(L10n.text("Yeni Klasör"), systemImage: "folder.badge.plus")
                             }
                             PhotosPicker(selection: $selectedPhotos, matching: .any(of: [.images, .videos])) {
                                 Label("Fotoğraf Yükle", systemImage: "photo.badge.plus")
                             }
-                        } label: {
-                            Image(systemName: "plus")
-                        }
+                        } label: { Label(L10n.text("Dosya Ekle"), systemImage: "plus") }
                         
                         Menu {
-                            Section("Sıralama Ölçütü") {
+                            Section(L10n.text("Sıralama Ölçütü")) {
                                 ForEach(FileSortField.allCases) { field in
                                     Button(action: { sortField = field }) {
                                         HStack {
@@ -84,16 +159,16 @@ public struct CloudreveMobileView: View {
                                     }
                                 }
                             }
-                            Section("Sıralama Yönü") {
+                            Section(L10n.text("Sıralama Yönü")) {
                                 Button(action: { sortAscending = true }) {
                                     HStack {
-                                        Text("Artan (A-Z)")
+                                        Text(L10n.text("Artan (A-Z)"))
                                         if sortAscending { Image(systemName: "checkmark") }
                                     }
                                 }
                                 Button(action: { sortAscending = false }) {
                                     HStack {
-                                        Text("Azalan (Z-A)")
+                                        Text(L10n.text("Azalan (Z-A)"))
                                         if !sortAscending { Image(systemName: "checkmark") }
                                     }
                                 }
@@ -103,44 +178,37 @@ public struct CloudreveMobileView: View {
                         }
                     }
                     
+                    Menu {
+                        Button("Bu Klasörü Eşitle") { showFolderSync = true }
+                        if manager.activeServer?.storageProtocol == .googleDrive {
+                            Button(L10n.text("Google Drive Çöp Kutusu")) { presentCloudAction(nil, mode: .trash) }
+                        }
+                        ForEach(manager.servers.filter { $0.isConnected }) { account in
+                            Button(account.name) {
+                                manager.setActiveServer(account)
+                                currentPath = ""; pathHistory = []; pathTitles = []; selectedIDs = []
+                                loadConfig(); refreshFiles()
+                            }
+                        }
+                    } label: { Label(L10n.text("Hesap Seç"), systemImage: "person.crop.circle") }
                     Button(action: { isConfiguring.toggle() }) {
                         Image(systemName: isConfiguring ? "checkmark.circle.fill" : "gearshape")
                     }
                 }
-            }
-            .onAppear {
-                loadConfig()
-                if !(manager.activeServer?.serverURL.isEmpty ?? true) {
-                    refreshFiles()
-                }
-            }
-            .alert("Yeni Klasör", isPresented: $showingNewFolderAlert) {
-                TextField("Klasör Adı", text: $newFolderName)
-                Button("Oluştur", action: createFolder)
-                Button("İptal", role: .cancel) { newFolderName = "" }
-            }
-            .alert("Yeniden Adlandır", isPresented: $showingRenameAlert) {
-                TextField("Yeni İsim", text: $renamingName)
-                Button("Tamam", action: commitRename)
-                Button("İptal", role: .cancel) { renamingName = ""; itemToRename = nil }
-            }
-            .onChange(of: selectedPhotos) { items in
-                uploadSelectedPhotos(items)
-            }
-        }
+
     }
-    
+
     // MARK: - Sunucu Yapılandırma Formu
     private var serverSettingsForm: some View {
         Form {
-            Section(header: Text("Cloudreve WebDAV Bağlantısı"), footer: Text("Cloudreve hesabınızdan WebDAV adresini (genellikle https://alanadi.com/dav) ve şifrenizi girin.")) {
-                TextField("Sunucu Adı", text: $serverName)
+            Section(header: Text(L10n.text("WebDAV Bağlantısı")), footer: Text("Sağlayıcınızın WebDAV adresini ve uygulama parolasını girin.")) {
+                TextField(L10n.text("Sunucu Adı"), text: $serverName)
                 TextField("https://alanadi.com/dav", text: $serverURL)
                     .autocapitalization(.none)
                     .disableAutocorrection(true)
-                TextField("Kullanıcı Adı / E-posta", text: $username)
+                TextField(L10n.text("Kullanıcı Adı / E-posta"), text: $username)
                     .autocapitalization(.none)
-                SecureField("WebDAV Şifresi", text: $password)
+                SecureField(L10n.text("WebDAV Şifresi"), text: $password)
             }
             
             Section {
@@ -211,8 +279,14 @@ public struct CloudreveMobileView: View {
         VStack(spacing: 0) {
             if isLoading {
                 Spacer()
-                ProgressView("Cloudreve sunucusundan yükleniyor...")
+                ProgressView("Dosyalar yükleniyor...")
                 Spacer()
+            } else if let listingError = listingError {
+                ContentUnavailableView {
+                    Label(L10n.text("Klasör açılamadı"), systemImage: "exclamationmark.triangle")
+                } description: { Text(listingError) } actions: {
+                    Button(L10n.text("Yeniden Dene"), action: refreshFiles)
+                }
             } else if remoteFiles.isEmpty {
                 VStack(spacing: 16) {
                     Spacer()
@@ -225,7 +299,7 @@ public struct CloudreveMobileView: View {
                             .foregroundColor(.indigo)
                     }
                     
-                    Text("Bu Klasör Boş")
+                    Text(L10n.text("Bu Klasör Boş"))
                         .font(.title3.weight(.semibold))
                         .foregroundColor(.primary)
                     
@@ -237,7 +311,7 @@ public struct CloudreveMobileView: View {
                     
                     HStack(spacing: 12) {
                         Button(action: { showingNewFolderAlert = true }) {
-                            Label("Yeni Klasör", systemImage: "folder.badge.plus")
+                            Label(L10n.text("Yeni Klasör"), systemImage: "folder.badge.plus")
                                 .font(.subheadline.weight(.medium))
                         }
                         .buttonStyle(.bordered)
@@ -258,6 +332,9 @@ public struct CloudreveMobileView: View {
                 List {
                     ForEach(sortedRemoteFiles) { file in
                         HStack(spacing: 14) {
+                            if selecting {
+                                Image(systemName: selectedIDs.contains(file.id) ? "checkmark.circle.fill" : "circle").foregroundStyle(.indigo)
+                            }
                             Image(systemName: file.systemIcon)
                                 .font(.title2)
                                 .foregroundColor(file.isDirectory ? .blue : .purple)
@@ -276,36 +353,42 @@ public struct CloudreveMobileView: View {
                         }
                         .padding(.vertical, 4)
                         .contentShape(Rectangle())
-                        .onTapGesture {
-                            if file.isDirectory {
-                                navigateTo(file.name)
-                            }
-                        }
-                        .swipeActions(edge: .trailing) {
+                        .onTapGesture { activate(file) }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityAction { activate(file) }
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button(role: .destructive) {
-                                deleteFile(file)
+                                pendingDeletion = [file]; showDeleteConfirmation = true
                             } label: {
-                                Label("Sil", systemImage: "trash")
+                                Label(L10n.text("Sil"), systemImage: "trash")
                             }
                         }
                         .swipeActions(edge: .leading) {
                             Button {
                                 startRenaming(file)
                             } label: {
-                                Label("Yeniden Adlandır", systemImage: "pencil")
+                                Label(L10n.text("Yeniden Adlandır"), systemImage: "pencil")
                             }
                             .tint(.orange)
                         }
                         .contextMenu {
+                            if let account = manager.activeServer, account.storageProtocol == .googleDrive || account.storageProtocol == .oneDrive {
+                                Button(L10n.text("Paylaşım Bağlantısı...")) { presentCloudAction(file, mode: .sharing) }
+                                if !file.isDirectory { Button(L10n.text("Sürüm Geçmişi...")) { presentCloudAction(file, mode: .versions) } }
+                            }
+                            if !file.isDirectory {
+                                Button { downloadFiles([file]) } label: { Label(L10n.text("Çevrimdışı Kaydet"), systemImage: "arrow.down.circle") }
+                            }
                             Button {
                                 startRenaming(file)
                             } label: {
-                                Label("Yeniden Adlandır", systemImage: "pencil")
+                                Label(L10n.text("Yeniden Adlandır"), systemImage: "pencil")
                             }
                             Button(role: .destructive) {
-                                deleteFile(file)
+                                pendingDeletion = [file]; showDeleteConfirmation = true
                             } label: {
-                                Label("Sil", systemImage: "trash")
+                                Label(L10n.text("Sil"), systemImage: "trash")
                             }
                         }
                     }
@@ -319,6 +402,19 @@ public struct CloudreveMobileView: View {
     }
     
     // MARK: - İşlemler
+    private func activate(_ file: RemoteFileItem) {
+        if selecting {
+            if selectedIDs.contains(file.id) { selectedIDs.remove(file.id) } else { selectedIDs.insert(file.id) }
+        } else if file.isDirectory {
+            pathHistory.append(currentPath); pathTitles.append(file.name)
+            currentPath = file.href; refreshFiles()
+        } else { downloadFiles([file]) }
+    }
+
+    private func presentCloudAction(_ file: RemoteFileItem?, mode: CloudManagementView.Mode) {
+        cloudActionConfig = manager.activeServer; cloudActionFile = file; cloudActionMode = mode; showCloudManagement = true
+    }
+
     private func loadConfig() {
         if let current = manager.activeServer {
             self.serverName = current.name
@@ -356,14 +452,18 @@ public struct CloudreveMobileView: View {
     private func refreshFiles() {
         guard let server = manager.activeServer else { return }
         isLoading = true
+        listingError = nil
+        selectedIDs.removeAll()
+        let generation = UUID(); loadGeneration = generation
         let client = WebDAVClient(config: server)
         client.listFiles(at: currentPath) { result in
+            guard loadGeneration == generation, manager.activeServer?.id == server.id else { return }
             isLoading = false
             switch result {
             case .success(let files):
                 self.remoteFiles = files
             case .failure(let error):
-                self.testMessage = error.localizedDescription
+                self.listingError = error.localizedDescription
             }
         }
     }
@@ -374,38 +474,75 @@ public struct CloudreveMobileView: View {
     }
     
     private func goBack() {
-        let parts = currentPath.split(separator: "/")
-        if parts.count <= 1 {
-            currentPath = ""
-        } else {
-            currentPath = parts.dropLast().joined(separator: "/")
-        }
+        currentPath = pathHistory.popLast() ?? ""
+        if !pathTitles.isEmpty { pathTitles.removeLast() }
         refreshFiles()
     }
-    
+
     private func createFolder() {
-        let name = newFolderName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty, let server = manager.activeServer else { return }
+        guard let server = manager.activeServer else { return }
+        let name: String
+        do { name = try LocalFileOperations.validName(newFolderName) }
+        catch { operationError = error.localizedDescription; return }
         let client = WebDAVClient(config: server)
         let target = (currentPath.isEmpty ? "" : currentPath + "/") + name
         client.createFolder(at: target) { error in
             if error == nil {
                 newFolderName = ""
                 refreshFiles()
-            }
+            } else { operationError = error?.localizedDescription }
         }
     }
     
-    private func deleteFile(_ file: RemoteFileItem) {
+    private func deletePending() {
         guard let server = manager.activeServer else { return }
         let client = WebDAVClient(config: server)
-        client.delete(at: file.href, isDirectory: file.isDirectory) { error in
-            if error == nil {
-                refreshFiles()
+        let files = pendingDeletion
+        pendingDeletion = []
+        Task {
+            var errors: [String] = []
+            for file in files {
+                let error: Error? = await withCheckedContinuation { continuation in
+                    client.moveToTrash(href: file.href, isDirectory: file.isDirectory) { continuation.resume(returning: $0) }
+                }
+                if let error = error { errors.append("\(file.name): \(error.localizedDescription)") }
+            }
+            let message = errors.joined(separator: "\n")
+            await MainActor.run {
+                if !message.isEmpty { operationError = message }
+                if manager.activeServer?.id == server.id { refreshFiles() }
             }
         }
     }
-    
+
+    private func downloadSelected() { downloadFiles(remoteFiles.filter { selectedIDs.contains($0.id) }) }
+    private func downloadFiles(_ files: [RemoteFileItem]) {
+        guard let server = manager.activeServer else { return }
+        let client = WebDAVClient(config: server)
+        for file in files {
+            guard !file.isDirectory else { operationError = "Klasör indirmek için içindeki dosyaları seçin."; continue }
+            do {
+                let target = try OfflineStore.destination(config: server, remotePath: file.href, name: file.name)
+                TransferManager.shared.enqueueDownload(fileName: file.name, remoteHref: file.href, localTargetURL: target, client: client, expectedSize: file.size)
+            } catch { operationError = error.localizedDescription }
+        }
+    }
+    private func uploadDocuments(_ urls: [URL]) {
+        guard let server = manager.activeServer else { return }
+        let client = WebDAVClient(config: server)
+        for source in urls {
+            let access = source.startAccessingSecurityScopedResource()
+            defer { if access { source.stopAccessingSecurityScopedResource() } }
+            do {
+                let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("HDrive/Uploads/" + UUID().uuidString)
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                if let copy = try LocalFileOperations.importFile(source, into: directory) {
+                    TransferManager.shared.enqueueUpload(fileURL: copy, remoteFolder: currentPath, client: client)
+                }
+            } catch { operationError = error.localizedDescription }
+        }
+    }
+
     private func startRenaming(_ file: RemoteFileItem) {
         itemToRename = file
         renamingName = file.name
@@ -423,15 +560,13 @@ public struct CloudreveMobileView: View {
         
         let client = WebDAVClient(config: server)
         let basePath = currentPath.isEmpty ? "" : currentPath + "/"
-        let sourcePath = basePath + file.name
-        let destPath = basePath + newName
         
-        client.move(from: sourcePath, to: destPath, overwrite: false) { error in
+        client.renameItem(href: file.href, newName: newName, parentPath: currentPath) { error in
             itemToRename = nil
             renamingName = ""
             if error == nil {
                 refreshFiles()
-            }
+            } else { operationError = error?.localizedDescription }
         }
     }
     
@@ -442,12 +577,14 @@ public struct CloudreveMobileView: View {
         for item in items {
             item.loadTransferable(type: Data.self) { result in
                 if case .success(let data) = result, let data = data {
-                    let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("IMG_\(Int(Date().timeIntervalSince1970)).jpg")
-                    try? data.write(to: tempURL)
+                    let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("IMG_\(UUID().uuidString).jpg")
+                    do { try data.write(to: tempURL, options: .atomic) }
+                    catch { DispatchQueue.main.async { operationError = error.localizedDescription }; return }
                     let remoteDest = (currentPath.isEmpty ? "" : currentPath + "/") + tempURL.lastPathComponent
                     client.uploadFile(localFileURL: tempURL, toRemotePath: remoteDest) { error in
                         try? FileManager.default.removeItem(at: tempURL)
                         DispatchQueue.main.async {
+                            if let error = error { operationError = error.localizedDescription }
                             self.refreshFiles()
                         }
                     }

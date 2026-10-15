@@ -48,6 +48,9 @@ public partial class WebDAVClient
         return name;
     }
 
+    internal static string StorageIdentity(ServerConfig config) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
+        $"{config.Id}|{config.Protocol}|{config.ServerURL}|{config.Username}|{config.BucketName}|{config.SmbShareName}")));
+
     internal string CachePath(string remotePath, string fileName)
     {
         var identity = $"{_config.Id}|{_config.Protocol}|{_config.ServerURL}|{remotePath}";
@@ -105,12 +108,18 @@ public partial class WebDAVClient
         return _config.Protocol == StorageProtocol.S3 ? S3ObjectUri(path) : BuildUri(path);
     }
 
+    private record ResumeInfo(string Validator, long Total);
+
     public async Task DownloadToAsync(string remotePath, string destination, IProgress<TransferProgress>? progress = null,
-        CancellationToken ct = default, string? fileName = null)
+        CancellationToken ct = default, string? fileName = null, bool allowResume = false)
     {
         var parent = Path.GetDirectoryName(Path.GetFullPath(destination))!;
         Directory.CreateDirectory(parent);
-        var staging = Path.Combine(parent, ".hdrive-" + Guid.NewGuid().ToString("N") + ".part");
+        var resumable = allowResume && _config.Protocol != StorageProtocol.SMB;
+        var identity = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(StorageIdentity(_config) + "|" + remotePath + "|" + Path.GetFullPath(destination))));
+        var staging = Path.Combine(parent, resumable ? ".hdrive-resume-" + identity + ".part" : ".hdrive-" + Guid.NewGuid().ToString("N") + ".part");
+        var metadata = staging + ".json";
+        var installed = false;
         try
         {
             if (_config.Protocol == StorageProtocol.SMB)
@@ -122,23 +131,67 @@ public partial class WebDAVClient
             else
             {
                 var uri = await DownloadUriAsync(remotePath, fileName, ct).ConfigureAwait(false);
-                using var response = await SendAuthorizedAsync(() => new HttpRequestMessage(HttpMethod.Get, uri), ct).ConfigureAwait(false);
-                response.EnsureSuccessStatusCode();
-                await using var input = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
-                await CopyToStagingAsync(input, staging, response.Content.Headers.ContentLength ?? -1, progress, ct).ConfigureAwait(false);
+                ResumeInfo? resume = null;
+                long offset = 0;
+                if (resumable && File.Exists(staging) && File.Exists(metadata))
+                {
+                    try {
+                        resume = JsonSerializer.Deserialize<ResumeInfo>(await File.ReadAllTextAsync(metadata, ct));
+                        offset = new FileInfo(staging).Length;
+                        if (resume == null || string.IsNullOrEmpty(resume.Validator) || offset <= 0 || (resume.Total >= 0 && offset > resume.Total)) { offset = 0; resume = null; }
+                    } catch (JsonException) { offset = 0; }
+                }
+                HttpRequestMessage Request()
+                {
+                    var request = new HttpRequestMessage(HttpMethod.Get, uri);
+                    if (offset > 0 && resume != null) {
+                        request.Headers.Range = new RangeHeaderValue(offset, null);
+                        request.Headers.TryAddWithoutValidation("If-Range", resume.Validator);
+                    }
+                    return request;
+                }
+                var response = await SendAuthorizedAsync(Request, ct).ConfigureAwait(false);
+                if (response.StatusCode == HttpStatusCode.RequestedRangeNotSatisfiable) {
+                    response.Dispose(); offset = 0; resume = null;
+                    response = await SendAuthorizedAsync(Request, ct).ConfigureAwait(false);
+                }
+                using (response)
+                {
+                    response.EnsureSuccessStatusCode();
+                    var partial = response.StatusCode == HttpStatusCode.PartialContent;
+                    var range = response.Content.Headers.ContentRange;
+                    if (partial && (offset <= 0 || range?.From != offset || range.Length == null))
+                        throw new IOException("Sunucu geçersiz bir kısmi dosya yanıtı gönderdi; mevcut dosya korundu.");
+                    if (!partial) offset = 0; // If-Range mismatch: restart with the new complete representation.
+                    var total = partial ? range!.Length!.Value : response.Content.Headers.ContentLength ?? -1;
+                    var validator = response.Headers.ETag is { IsWeak: false } etag ? etag.ToString()
+                        : response.Content.Headers.LastModified?.ToString("R");
+                    if (resumable && !string.IsNullOrEmpty(validator))
+                        AtomicFile.WriteAllText(metadata, JsonSerializer.Serialize(new ResumeInfo(validator, total)));
+                    else if (File.Exists(metadata)) File.Delete(metadata);
+                    await using var input = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+                    await CopyToStagingAsync(input, staging, total, progress, ct, offset).ConfigureAwait(false);
+                }
             }
             ct.ThrowIfCancellationRequested();
             File.Move(staging, destination, overwrite: true);
+            installed = true;
         }
-        finally { if (File.Exists(staging)) File.Delete(staging); }
+        finally
+        {
+            var keepPartial = !installed && resumable && File.Exists(metadata);
+            if (!keepPartial && File.Exists(staging)) File.Delete(staging);
+            if (!keepPartial && File.Exists(metadata)) File.Delete(metadata);
+        }
     }
 
     private static async Task CopyToStagingAsync(Stream input, string staging, long total,
-        IProgress<TransferProgress>? progress, CancellationToken ct)
+        IProgress<TransferProgress>? progress, CancellationToken ct, long offset = 0)
     {
-        await using var output = new FileStream(staging, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, true);
+        await using var output = new FileStream(staging, offset > 0 ? FileMode.Open : FileMode.Create, FileAccess.Write, FileShare.None, 81920, true);
+        if (offset > 0) { output.SetLength(offset); output.Position = offset; }
         var buffer = new byte[81920];
-        long transferred = 0;
+        long transferred = offset;
         int count;
         while ((count = await input.ReadAsync(buffer.AsMemory(), ct).ConfigureAwait(false)) != 0)
         {

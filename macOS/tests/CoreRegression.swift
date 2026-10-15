@@ -148,6 +148,61 @@ struct CoreRegression {
         do { _ = try await s3.list("") } catch { s3Denied = true }
         try require(s3Denied, "S3 access denied reported as success")
         print("PASS: signed S3 XML listing, continuation and access-denied handling")
+
+        let imports = root.appendingPathComponent("imports")
+        try FileManager.default.createDirectory(at: imports, withIntermediateDirectories: true)
+        let existing = imports.appendingPathComponent("response.txt")
+        try Data("original-import".utf8).write(to: existing)
+        let kept = try LocalFileOperations.importFile(temporary, into: imports, policy: .keepBoth)!
+        try require(kept != existing && (try String(contentsOf: existing, encoding: .utf8)) == "original-import", "Keep-both replaced original")
+        var importFailed = false
+        do { try LocalFileOperations.importFile(root.appendingPathComponent("missing/response.txt"), into: imports, policy: .replace) }
+        catch { importFailed = true }
+        try require(importFailed && (try String(contentsOf: existing, encoding: .utf8)) == "original-import", "Failed import deleted existing file")
+        let trashRoot = root.appendingPathComponent("trash")
+        let trashed = try LocalFileOperations.trash(existing, root: trashRoot)
+        try Data("new-local-file".utf8).write(to: existing)
+        let recovered = try LocalFileOperations.restore(trashed, root: trashRoot)
+        try require(recovered != existing && (try String(contentsOf: recovered, encoding: .utf8)) == "original-import", "Trash recovery overwrote a new file")
+        print("PASS: import collision policies and trash restore preserve both file versions")
+        let cacheRoot = root.appendingPathComponent("cache")
+        let protectedDirectory = cacheRoot.appendingPathComponent("protected")
+        try FileManager.default.createDirectory(at: protectedDirectory, withIntermediateDirectories: true)
+        let protectedFile = protectedDirectory.appendingPathComponent("edit.txt")
+        try Data("edited".utf8).write(to: protectedFile)
+        try WorkingCache.protect(protectedFile)
+        let preview = cacheRoot.appendingPathComponent("preview.txt")
+        try Data("preview".utf8).write(to: preview)
+        try WorkingCache.trim(to: 0, roots: [cacheRoot])
+        try require(FileManager.default.fileExists(atPath: protectedFile.path) && !FileManager.default.fileExists(atPath: preview.path), "Cache trim removed protected edits")
+        print("PASS: cache limits preserve protected working copies")
+        let journalURL = root.appendingPathComponent("transfers.json")
+        let journal = TransferJournal(url: journalURL)
+        let queueRecord = TransferRecord(id: UUID(), accountID: account.id, identity: "identity-hash", fileName: "file", remotePath: "id", localPath: existing.path, direction: "download", status: "running", totalBytes: 100)
+        _ = try journal.load()
+        try journal.save([queueRecord])
+        try Data("broken".utf8).write(to: journalURL)
+        let recoveredQueue = try TransferJournal(url: journalURL).load()
+        try require(recoveredQueue.count == 1 && recoveredQueue[0].id == queueRecord.id, "Transfer journal backup failed")
+        print("PASS: credential-free transfer journal recovers its atomic backup")
+        var actions = 0
+        FixtureURLProtocol.handler = { request in
+            actions += 1
+            guard request.httpMethod == "GET" else { throw URLError(.noPermissionsToReadFile) }
+            return (200, Data("{\"webViewLink\":\"https://drive.google.com/file/d/id/view\"}".utf8))
+        }
+        var googleConfig = account; googleConfig.storageProtocol = .googleDrive
+        _ = try await WebDAVClient(config: googleConfig, session: http).readOnlyLink(href: "id")
+        try require(actions == 1, "Reading a link modified public permissions")
+        print("PASS: reading a cloud sharing link does not grant public access")
+
+        let baseline = FolderSyncBaseline(localHash: "local", remoteStamp: "remote")
+        try require(FolderSynchronizer.decide(local: "local", remote: "remote", previous: baseline) == .none, "Unchanged files transferred")
+        try require(FolderSynchronizer.decide(local: "changed", remote: "remote", previous: baseline) == .upload, "Local change lost")
+        try require(FolderSynchronizer.decide(local: "local", remote: "changed", previous: baseline) == .download, "Remote change lost")
+        try require(FolderSynchronizer.decide(local: "changed", remote: "changed", previous: baseline) == .conflict, "Two-side changes overwritten")
+        try require(FolderSynchronizer.decide(local: nil, remote: "remote", previous: baseline) == .conflict, "Deletion silently propagated")
+        print("PASS: two-way sync planning preserves concurrent edits and requires deletion decisions")
         print("All Apple core regression checks passed.")
     }
 }

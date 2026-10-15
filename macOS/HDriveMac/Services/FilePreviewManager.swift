@@ -90,33 +90,29 @@ public final class FilePreviewManager: ObservableObject {
     
     private init() {}
     
-    /// Belirtilen dosya için yerel bir dosya URL'i arar (Disk, Eşitleme veya Cache)
-    public func resolvedLocalURL(for file: RemoteFileItem) -> URL? {
-        // 1. HDriveFiles Cache (FileOpener)
-        if let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first {
-            let openerCache = caches.appendingPathComponent("HDriveFiles", isDirectory: true).appendingPathComponent(file.name)
-            if FileManager.default.fileExists(atPath: openerCache.path) {
-                return openerCache
-            }
-        }
-        
-        // 3. Özel Önizleme Cache (Önce ID bazlı güvenli ad, sonra dosya adı)
-        let safeName = "\(file.id.replacingOccurrences(of: "/", with: "_"))_\(file.name)"
-        let safePreviewTarget = previewCacheDir.appendingPathComponent(safeName)
-        if FileManager.default.fileExists(atPath: safePreviewTarget.path) {
-            return safePreviewTarget
-        }
-        let previewTarget = previewCacheDir.appendingPathComponent(file.name)
-        if FileManager.default.fileExists(atPath: previewTarget.path) {
-            return previewTarget
-        }
-        
-        return nil
+    private var accountIdentity = ""
+    public func resetForAccount(_ config: CloudreveServerConfig) {
+        let identity = OfflineStore.identity(config)
+        if accountIdentity != identity { accountIdentity = identity; cachedImages = [:]; loadingPreviewIDs = [] }
     }
-    
+    private func cacheURL(for file: RemoteFileItem, config: CloudreveServerConfig) -> URL {
+        let key = S3Signing.hash(OfflineStore.identity(config) + "|" + file.href + "|" + String(file.size) + "|" + String(file.modificationDate?.timeIntervalSince1970 ?? -1))
+        let directory = previewCacheDir.appendingPathComponent(key)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let name = (try? LocalFileOperations.validName(file.name)) ?? "preview"
+        return directory.appendingPathComponent(name)
+    }
+    public func resolvedLocalURL(for file: RemoteFileItem, client: WebDAVClient? = nil) -> URL? {
+        guard let config = client?.config ?? CloudreveManager.shared.activeServer else { return nil }
+        let target = cacheURL(for: file, config: config)
+        return FileManager.default.fileExists(atPath: target.path) ? target : nil
+    }
+
     /// Görsel dosyasının veya bulut küçük resminin (thumbnail) görselini yükler veya indirir
     public func loadThumbnail(for file: RemoteFileItem, client: WebDAVClient?) {
         guard file.isImage || file.thumbnailURL != nil else { return }
+        if let client = client { resetForAccount(client.config) }
+        let identity = accountIdentity
         
         // Zaten bellekte varsa tekrar indirme
         if cachedImages[file.id] != nil { return }
@@ -128,7 +124,7 @@ public final class FilePreviewManager: ObservableObject {
             URLSession.shared.dataTask(with: thumbURL) { [weak self] data, _, _ in
                 DispatchQueue.main.async {
                     self?.loadingPreviewIDs.remove(file.id)
-                    if let data = data, let img = NSImage(data: data) {
+                    if self?.accountIdentity == identity, let data = data, let img = NSImage(data: data) {
                         self?.cachedImages[file.id] = img
                     }
                 }
@@ -137,7 +133,7 @@ public final class FilePreviewManager: ObservableObject {
         }
         
         // Yerel dosyadan yükle
-        if let localURL = resolvedLocalURL(for: file),
+        if let localURL = resolvedLocalURL(for: file, client: client),
            let img = NSImage(contentsOf: localURL) {
             DispatchQueue.main.async {
                 self.cachedImages[file.id] = img
@@ -150,13 +146,12 @@ public final class FilePreviewManager: ObservableObject {
         if file.size > 30 * 1024 * 1024 { return }
         
         loadingPreviewIDs.insert(file.id)
-        let safeName = "\(file.id.replacingOccurrences(of: "/", with: "_"))_\(file.name)"
-        let destURL = previewCacheDir.appendingPathComponent(safeName)
+        let destURL = cacheURL(for: file, config: client.config)
         
         client.downloadFile(href: file.href, to: destURL, progress: { _ in }) { [weak self] error in
             DispatchQueue.main.async {
                 self?.loadingPreviewIDs.remove(file.id)
-                if error == nil, let img = NSImage(contentsOf: destURL) {
+                if self?.accountIdentity == identity, error == nil, let img = NSImage(contentsOf: destURL) {
                     self?.cachedImages[file.id] = img
                 }
             }
@@ -165,13 +160,13 @@ public final class FilePreviewManager: ObservableObject {
     
     /// Hızlı Bakış (Quick Look) veya doğrudan inceleme için dosyanın yerel kopyasını garanti eder
     public func ensureLocalFile(file: RemoteFileItem, client: WebDAVClient, completion: @escaping (URL?) -> Void) {
-        if let local = resolvedLocalURL(for: file) {
+        resetForAccount(client.config)
+        if let local = resolvedLocalURL(for: file, client: client) {
             completion(local)
             return
         }
         
-        let safeName = "\(file.id.replacingOccurrences(of: "/", with: "_"))_\(file.name)"
-        let destURL = previewCacheDir.appendingPathComponent(safeName)
+        let destURL = cacheURL(for: file, config: client.config)
         loadingPreviewIDs.insert(file.id)
         
         client.downloadFile(href: file.href, to: destURL, progress: { _ in }) { [weak self] error in

@@ -46,33 +46,15 @@ public final class FileOpener: ObservableObject {
     public func openFileNatively(file: RemoteFileItem, client: WebDAVClient, completion: @escaping (Bool, String?) -> Void) {
         let localFileName = resolveLocalFileName(for: file, client: client)
         
-        // Önizleme önbelleğinde zaten mevcut ve boyutu geçerli mi?
-        let safeName = "\(file.id.replacingOccurrences(of: "/", with: "_"))_\(localFileName)"
-        let previewCandidate1 = FilePreviewManager.shared.previewCacheDir.appendingPathComponent(safeName)
-        let previewCandidate2 = FilePreviewManager.shared.previewCacheDir.appendingPathComponent(localFileName)
-        for previewCandidate in [previewCandidate1, previewCandidate2] {
-            if let attrs = try? FileManager.default.attributesOfItem(atPath: previewCandidate.path),
-               let size = attrs[.size] as? Int64, size > 0 {
-                if NSWorkspace.shared.open(previewCandidate) {
-                    completion(true, nil)
-                    return
-                }
-            }
-        }
-        
-        // 3. HDriveFiles önbelleğinde zaten mevcut ve boyutu geçerli mi?
-        let localFile = cacheDir.appendingPathComponent(safeName)
-        let legacyLocalFile = cacheDir.appendingPathComponent(localFileName)
-        for cand in [localFile, legacyLocalFile] {
-            if let attrs = try? FileManager.default.attributesOfItem(atPath: cand.path),
-               let size = attrs[.size] as? Int64, size > 0 {
-                if NSWorkspace.shared.open(cand) {
-                    completion(true, nil)
-                    return
-                }
-            }
-        }
-        
+        let localFile: URL
+        do {
+            _ = try WorkingCache.trim(to: Int64(UserDefaults.standard.object(forKey: "HDriveCacheLimitMB") == nil ? 1024 : max(256, UserDefaults.standard.integer(forKey: "HDriveCacheLimitMB"))) * 1024 * 1024)
+            let directory = cacheDir.appendingPathComponent(OfflineStore.identity(client.config)).appendingPathComponent(UUID().uuidString)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            localFile = directory.appendingPathComponent(try LocalFileOperations.validName(localFileName))
+            try WorkingCache.protect(localFile)
+        } catch { completion(false, error.localizedDescription); return }
+
         // 5. Yerel kopya yoksa arka planda hızlıca indir ve varsayılan Mac uygulamasıyla aç
         DispatchQueue.main.async {
             self.openingFile = file.name
@@ -138,12 +120,14 @@ public final class FileOpener: ObservableObject {
                 if let lastDate = self.lastModifiedDates[path], currentModDate <= lastDate {
                     return
                 }
-                self.lastModifiedDates[path] = currentModDate
-                
-                // Cloudreve'e otomatik geri yükle
-                client.uploadFile(localFileURL: localFile, toRemotePath: remoteHref) { err in
-                    if err == nil {
-                        print("[HDrive LiveEdit] Otomatik eşitlendi: \(localFile.lastPathComponent)")
+                guard let owner = CloudreveManager.shared.servers.first(where: { $0.id == client.config.id && $0.isConnected }), OfflineStore.identity(owner) == OfflineStore.identity(client.config) else {
+                    SyncLogManager.shared.log("Düzenleme yüklenemedi: hesabın bağlantısı kesildi.", isError: true); return
+                }
+                let uploadClient = WebDAVClient(config: owner)
+                uploadClient.replaceFile(href: remoteHref, localURL: localFile) { err in
+                    DispatchQueue.main.async {
+                        if let err = err { SyncLogManager.shared.log("Düzenleme yüklenemedi: " + err.localizedDescription, isError: true) }
+                        else { self.lastModifiedDates[path] = currentModDate; SyncLogManager.shared.log("Düzenleme kaydedildi: " + localFile.lastPathComponent) }
                     }
                 }
             }

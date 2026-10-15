@@ -275,6 +275,22 @@ public struct NativeExplorerView: View {
         return Set(items)
     }
     
+    private func connectSystemDrive() {
+        guard let account = manager.activeServer, account.storageProtocol == .webdav || account.storageProtocol == .smb,
+              var parts = URLComponents(string: account.serverURL) else { return }
+        parts.user = nil; parts.password = nil
+        if account.storageProtocol == .smb { parts.scheme = "smb" }
+        guard let url = parts.url, ["http", "https", "smb"].contains(url.scheme ?? "") else { return }
+        let value = url.absoluteString.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+        var error: NSDictionary?
+        NSAppleScript(source: "mount volume \"" + value + "\"")?.executeAndReturnError(&error)
+        if let error = error { statusAlertMessage = error.description }
+    }
+
+    private func presentCloudAction(_ file: RemoteFileItem?, mode: CloudManagementView.Mode) {
+        cloudActionConfig = manager.activeServer; cloudActionFile = file; cloudActionMode = mode; showCloudManagement = true
+    }
+
     private func isToolbarItemEnabled(_ id: ExplorerToolbarItemId) -> Bool {
         return enabledToolbarItemIDs.contains(id)
     }
@@ -376,6 +392,13 @@ public struct NativeExplorerView: View {
     @State private var files: [RemoteFileItem] = []
     @State private var isLoading: Bool = false
     @State private var searchText: String = ""
+    @State private var showFolderSync = false
+    @State private var showCloudManagement = false
+    @State private var cloudActionConfig: CloudreveServerConfig?
+    @State private var cloudActionFile: RemoteFileItem?
+    @State private var cloudActionMode: CloudManagementView.Mode = .sharing
+
+    @State private var directoryError: String?
     @State private var isSearchPresented: Bool = false
     @State private var mouseMonitor: Any? = nil
     @State private var rightClickMonitor: Any? = nil
@@ -452,7 +475,16 @@ public struct NativeExplorerView: View {
         } detail: {
             mainDetailView
         }
-        .frame(minWidth: showPreviewPane ? 960 : 750, minHeight: 520)
+        .frame(minWidth: 640, minHeight: 520)
+        .sheet(isPresented: $showFolderSync) {
+            if let account = manager.activeServer { FolderSyncView(config: account, remoteRoot: currentPath) }
+        }
+        .sheet(isPresented: $showCloudManagement) {
+            if let account = cloudActionConfig {
+                CloudManagementView(config: account, href: cloudActionFile?.href ?? "", name: cloudActionFile?.name ?? "", mode: cloudActionMode)
+            }
+        }
+
         .onAppear {
             loadPinnedFolders()
             if let first = tabs.first {
@@ -526,6 +558,7 @@ public struct NativeExplorerView: View {
             Divider()
             
             // Dosya Listesi ve Önizleme Bölmesi
+            GeometryReader { available in
             HStack(spacing: 0) {
                 mainFilesAreaView
                     .frame(minWidth: 200, maxWidth: .infinity, maxHeight: .infinity)
@@ -534,7 +567,7 @@ public struct NativeExplorerView: View {
                 if showPreviewPane {
                     Divider()
                     previewPaneSideView
-                        .frame(width: 320)
+                        .frame(width: min(320, max(190, available.size.width * 0.38)))
                         .frame(maxHeight: .infinity)
                         .background(Color(NSColor.windowBackgroundColor))
                         .layoutPriority(1)
@@ -542,6 +575,7 @@ public struct NativeExplorerView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             
+            }
             // Alt Durum Çubuğu
             bottomStatusBarView
         }
@@ -1888,6 +1922,13 @@ public struct NativeExplorerView: View {
                     Spacer()
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let directoryError = directoryError {
+                VStack(spacing: 12) {
+                    Image(systemName: "exclamationmark.triangle").font(.largeTitle)
+                    Text("Klasör açılamadı").font(.headline)
+                    Text(directoryError).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                    Button("Yeniden Dene") { loadDirectory(at: currentPath) }
+                }.padding().frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if filteredFiles.isEmpty {
                 if let s = manager.activeServer, (s.storageProtocol == .googleDrive || s.storageProtocol == .oneDrive) && s.password.isEmpty {
                     VStack(spacing: 14) {
@@ -1918,10 +1959,10 @@ public struct NativeExplorerView: View {
                         Image(systemName: "folder")
                             .font(.system(size: 54))
                             .foregroundColor(.secondary.opacity(0.5))
-                        Text("Bu Klasör Boş")
+                        Text(searchText.isEmpty ? "Bu Klasör Boş" : "Sonuç Bulunamadı")
                             .font(.headline)
                             .foregroundColor(.secondary)
-                        Text("Yukarıdaki 'Yükle' butonuna basarak dosya ekleyebilirsiniz.")
+                        Text(searchText.isEmpty ? "Yukarıdaki Yükle butonundan dosya ekleyebilirsiniz." : "Aramanızı değiştirin veya farklı bir arama kapsamı seçin.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                         Spacer()
@@ -2221,6 +2262,28 @@ public struct NativeExplorerView: View {
     // MARK: - Sağ Tık Menüsü (Context Menu)
     @ViewBuilder
     private func fileContextMenu(_ file: RemoteFileItem) -> some View {
+        Button("Bu Klasörü Eşitle...") { showFolderSync = true }
+        if manager.activeServer?.storageProtocol == .webdav || manager.activeServer?.storageProtocol == .smb {
+            Button("Finder'da Bağlan...") { connectSystemDrive() }
+        }
+        if let account = manager.activeServer {
+            if !file.isDirectory {
+                Button("Çevrimdışı Kaydet") {
+                    do {
+                        let target = try OfflineStore.destination(config: account, remotePath: file.href, name: file.name)
+                        TransferManager.shared.enqueueDownload(fileName: file.name, remoteHref: file.href, localTargetURL: target, client: WebDAVClient(config: account), expectedSize: file.size)
+                        showingTransferPopover = true
+                    } catch { statusAlertMessage = error.localizedDescription }
+                }
+            }
+            if account.storageProtocol == .googleDrive || account.storageProtocol == .oneDrive {
+                Button("Paylaşım Bağlantısı...") { presentCloudAction(file, mode: .sharing) }
+                if !file.isDirectory { Button("Sürüm Geçmişi...") { presentCloudAction(file, mode: .versions) } }
+            }
+            if account.storageProtocol == .googleDrive { Button("Google Drive Çöp Kutusu...") { presentCloudAction(nil, mode: .trash) } }
+            Divider()
+        }
+
         if !file.isDirectory {
             Button(action: { openFileDirectly(file) }) {
                 Label("Mac Uygulamasıyla Aç", systemImage: "arrow.up.forward.app")
@@ -2471,19 +2534,9 @@ public struct NativeExplorerView: View {
     }
     
     private func ensureWindowWidthForPreview() {
-        DispatchQueue.main.async {
-            if let window = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible && $0.canBecomeMain }) {
-                if window.frame.width < 960 {
-                    var frame = window.frame
-                    let diff = 960 - frame.width
-                    frame.size.width = 960
-                    frame.origin.x = max(0, frame.origin.x - diff / 2)
-                    window.setFrame(frame, display: true, animate: true)
-                }
-            }
-        }
+        // The preview now adapts to available space without resizing the user's window.
     }
-    
+
     private func triggerQuickLook(for file: RemoteFileItem) {
         if file.isDirectory { return }
         
@@ -2507,6 +2560,7 @@ public struct NativeExplorerView: View {
     }
     
     private func loadDirectory(at path: String) {
+        directoryError = nil
         self.files = []
         self.selectedFileID = nil
         self.selectedFileIDs = []
@@ -2534,6 +2588,7 @@ public struct NativeExplorerView: View {
         }
         
         isLoading = true
+        previewManager.resetForAccount(server)
         let client = WebDAVClient(config: server)
         loadStorageQuota(for: server)
         
@@ -2558,7 +2613,7 @@ public struct NativeExplorerView: View {
                 }
             case .failure(let error):
                 self.files = []
-                print("Listeleme hatası: \(error)")
+                directoryError = error.localizedDescription
             }
         }
     }
@@ -2986,10 +3041,8 @@ public struct NativeExplorerView: View {
         
         let client = WebDAVClient(config: server)
         let basePath = currentPath.isEmpty ? "" : currentPath + "/"
-        let sourcePath = basePath + file.name
-        let destPath = basePath + newName
         
-        client.move(from: sourcePath, to: destPath, overwrite: false) { error in
+        client.renameItem(href: file.href, newName: newName, parentPath: currentPath) { error in
             renamingFileID = nil
             if error == nil {
                 SyncLogManager.shared.log("Yeniden adlandırıldı: \(file.name) -> \(newName)")

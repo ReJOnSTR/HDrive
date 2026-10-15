@@ -193,6 +193,121 @@ await Check("OAuth sessions use independent state and an S256 PKCE challenge", (
     return Task.CompletedTask;
 });
 
+await Check("Interrupted downloads resume with If-Range and preserve the existing target", async () => {
+    var destination = Path.Combine(Profile(), "resume.txt"); File.WriteAllText(destination, "original");
+    var calls = 0;
+    var client = Client(Account(), (request, _) => {
+        calls++;
+        var response = new HttpResponseMessage(calls == 1 ? HttpStatusCode.OK : HttpStatusCode.PartialContent) { Content = new StringContent(calls == 1 ? "abc" : "def") };
+        response.Headers.ETag = new EntityTagHeaderValue("\"revision-one\"");
+        if (calls == 1) response.Content.Headers.ContentLength = 6;
+        else {
+            Require(request.Headers.Range?.Ranges.Single().From == 3 && request.Headers.IfRange?.EntityTag?.Tag == "\"revision-one\"", "Missing protected byte range");
+            response.Content.Headers.ContentRange = new ContentRangeHeaderValue(3, 5, 6);
+        }
+        return Task.FromResult(response);
+    });
+    await MustFail(() => client.DownloadToAsync("file.txt", destination, allowResume: true));
+    Require(File.ReadAllText(destination) == "original", "Interrupted download replaced destination");
+    await client.DownloadToAsync("file.txt", destination, allowResume: true);
+    Require(File.ReadAllText(destination) == "abcdef" && Directory.GetFiles(Path.GetDirectoryName(destination)!).Length == 1, "Resume corrupted content or leaked staging files");
+});
+await Check("Changed representations restart instead of appending stale bytes", async () => {
+    var destination = Path.Combine(Profile(), "changed.txt"); var calls = 0;
+    var client = Client(Account(), (_, _) => {
+        var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(++calls == 1 ? "old" : "new-version") };
+        response.Headers.ETag = new EntityTagHeaderValue(calls == 1 ? "\"old\"" : "\"new\"");
+        if (calls == 1) response.Content.Headers.ContentLength = 20;
+        return Task.FromResult(response);
+    });
+    await MustFail(() => client.DownloadToAsync("file", destination, allowResume: true));
+    await client.DownloadToAsync("file", destination, allowResume: true);
+    Require(File.ReadAllText(destination) == "new-version", "Changed resource was appended to stale bytes");
+});
+await Check("Transfer journals recover backups and never serialize account credentials", async () => {
+    var path = Path.Combine(Profile(), "transfers.json"); var journal = new TransferJournal(path);
+    journal.Load();
+    var record = new TransferRecord(Guid.NewGuid(), "file.txt", "remote", "local", TransferDirection.Download, TransferStatus.Running, "account", "identity-hash", 12);
+    journal.Save(new() { record }); File.WriteAllText(path, "broken");
+    Require(new TransferJournal(path).Load().Single() == record, "Transfer backup failed");
+    Require(!File.ReadAllText(path + ".bak").Contains("Password"), "Credentials persisted in transfer queue");
+    File.WriteAllText(path + ".bak", "also-broken"); journal = new TransferJournal(path);
+    await MustFail(() => { journal.Load(); return Task.CompletedTask; });
+    await MustFail(() => { journal.Save(new()); return Task.CompletedTask; });
+    Require(File.ReadAllText(path) == "broken", "Corrupt transfer queue was overwritten");
+});
+await Check("Offline copies isolate edited account targets and cache cleanup preserves working copies", () => {
+    var directory = Profile(); var account = Account();
+    var first = OfflineLibrary.Destination(account, "id", "report.txt", directory);
+    account.ServerURL = "https://another.example";
+    var second = OfflineLibrary.Destination(account, "id", "report.txt", directory);
+    Require(first != second, "Offline copies leaked across storage identities");
+    var cache = Profile(); var protectedDirectory = Path.Combine(cache, "working"); Directory.CreateDirectory(protectedDirectory);
+    var keep = Path.Combine(protectedDirectory, "edit.txt"); File.WriteAllText(keep, "edited");
+    File.WriteAllText(Path.Combine(protectedDirectory, ".hdrive-protected"), "");
+    File.WriteAllText(Path.Combine(cache, "preview.txt"), "preview");
+    WorkingCache.Trim(0, cache);
+    Require(File.Exists(keep) && !File.Exists(Path.Combine(cache, "preview.txt")), "Cache cleanup removed a protected edit");
+    return Task.CompletedTask;
+});
+await Check("Private sharing does not grant public permission and trash uses reversible metadata", async () => {
+    var requests = new List<HttpMethod>();
+    var client = Client(Account(StorageProtocol.GoogleDrive), async (request, _) => {
+        requests.Add(request.Method);
+        if (request.Method == HttpMethod.Get) return Json("{\"webViewLink\":\"https://drive.google.com/file/d/id/view\"}");
+        Require(request.Method == HttpMethod.Patch && (await request.Content!.ReadAsStringAsync()).Contains("\"trashed\":true"), "Trash used permanent deletion");
+        return Json("{}");
+    });
+    await client.ReadOnlyLinkAsync("id");
+    Require(requests.SequenceEqual(new[] { HttpMethod.Get }), "Reading an access link granted public permission");
+    await client.MoveToTrashAsync("id", false);
+});
+await Check("Version pagination rejects credential forwarding to foreign providers", async () => {
+    var calls = 0;
+    var client = Client(Account(StorageProtocol.OneDrive), (_, _) => { calls++; return Task.FromResult(Json("{\"value\":[],\"@odata.nextLink\":\"https://www.googleapis.com/steal\"}")); });
+    await MustFail(async () => { await client.VersionsAsync("id"); });
+    Require(calls == 1, "Version pagination forwarded credentials to another provider");
+});
+
+await Check("Folder sync detects both-side changes and does not silently propagate deletions", () => {
+    var baseline = new SyncBaseline("local", "remote");
+    Require(FolderSynchronizer.Decide("local", "remote", baseline) == SyncAction.None, "Unchanged pair was transferred");
+    Require(FolderSynchronizer.Decide("changed", "remote", baseline) == SyncAction.Upload, "Local edit not uploaded");
+    Require(FolderSynchronizer.Decide("local", "changed", baseline) == SyncAction.Download, "Remote edit not downloaded");
+    Require(FolderSynchronizer.Decide("changed", "changed", baseline) == SyncAction.Conflict, "Two-side edit was overwritten");
+    Require(FolderSynchronizer.Decide(null, "remote", baseline) == SyncAction.Conflict, "Deletion propagated silently");
+    return Task.CompletedTask;
+});
+await Check("Two-way sync transfers additions and persists a stable baseline", async () => {
+    var directory = Profile(); File.WriteAllText(Path.Combine(directory, "local.txt"), "local-data");
+    var remote = new Dictionary<string, (string Id, string Data)> { ["remote.txt"] = ("remote-id", "remote-data") };
+    var client = Client(Account(StorageProtocol.GoogleDrive), async (request, _) => {
+        if (request.Method == HttpMethod.Post) {
+            var parts = ((MultipartContent)request.Content!).ToList();
+            using var metadata = JsonDocument.Parse(await parts[0].ReadAsStringAsync());
+            var name = metadata.RootElement.GetProperty("name").GetString()!;
+            remote[name] = ("new-id", await parts[1].ReadAsStringAsync()); return Json("{}");
+        }
+        var uri = request.RequestUri!;
+        if (uri.AbsolutePath.EndsWith("/files")) return Json(JsonSerializer.Serialize(new { files = remote.Select(entry => new { id = entry.Value.Id, name = entry.Key, mimeType = "text/plain", size = entry.Value.Data.Length.ToString(), modifiedTime = "2026-01-01T00:00:00Z" }) }));
+        var file = remote.Single(entry => uri.AbsolutePath.EndsWith("/" + entry.Value.Id));
+        if (uri.Query.Contains("fields=")) return Json(JsonSerializer.Serialize(new { mimeType = "text/plain", name = file.Key }));
+        return Json(file.Value.Data);
+    });
+    var engine = new FolderSynchronizer(client, directory, "");
+    var rows = await engine.PreviewAsync();
+    Require(rows.Count(row => row.Action == SyncAction.Upload) == 1 && rows.Count(row => row.Action == SyncAction.Download) == 1, "Additions were not classified in both directions");
+    Require((await engine.ApplyAsync(rows)).Count == 0, "Sync failed");
+    Require(File.ReadAllText(Path.Combine(directory, "remote.txt")) == "remote-data" && remote["local.txt"].Data == "local-data", "Sync lost file data");
+    Require((await new FolderSynchronizer(client, directory, "").PreviewAsync()).All(row => row.Action == SyncAction.None), "Restart lost the sync baseline");
+});
+await Check("System WebDAV paths exclude credentials and preserve HTTPS and custom ports", () => {
+    var account = Account(); account.ServerURL = "https://username:password@storage.example:8443/dav/folder";
+    var target = Client(account, (_, _) => Task.FromResult(Json("{}"))).SystemConnectionTarget();
+    Require(target.StartsWith("\\\\storage.example@SSL@8443\\DavWWWRoot") && !target.Contains("password") && !target.Contains("username"), "System connection leaked credentials or lost origin details");
+    return Task.CompletedTask;
+});
+
 if (failures.Count > 0) throw new AggregateException(failures.Select(message => new Exception(message)));
 Console.WriteLine("All core regression checks passed.");
 Directory.Delete(root, recursive: true);

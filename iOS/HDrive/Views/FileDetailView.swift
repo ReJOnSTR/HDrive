@@ -122,7 +122,7 @@ public struct FileDetailView: View {
     // MARK: - Metadata Kartı
     private var metadataSection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Dosya Bilgileri")
+            Text(L10n.text("Dosya Bilgileri"))
                 .font(.headline.weight(.semibold))
             
             VStack(spacing: 10) {

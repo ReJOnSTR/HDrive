@@ -118,17 +118,17 @@
 
                     <!-- Windows 11 Tarzı Gezinti Butonları (< > ^ ↻) -->
                     <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="2" Margin="0,0,6,0" VerticalAlignment="Center">
-                        <Button x:Name="BackButton" Click="BackButton_Click" IsEnabled="False" 
+                        <Button x:Name="BackButton" AutomationProperties.Name="Geri" Click="BackButton_Click" IsEnabled="False"
                                 ToolTipService.ToolTip="Geri (Alt + Sol Ok)" Width="32" Height="32" Padding="0"
                                 Background="Transparent" BorderThickness="0" CornerRadius="4">
                             <FontIcon Glyph="&#xE72B;" FontSize="12" />
                         </Button>
-                        <Button x:Name="ForwardButton" Click="ForwardButton_Click" IsEnabled="False" 
+                        <Button x:Name="ForwardButton" AutomationProperties.Name="İleri" Click="ForwardButton_Click" IsEnabled="False"
                                 ToolTipService.ToolTip="İleri (Alt + Sağ Ok)" Width="32" Height="32" Padding="0"
                                 Background="Transparent" BorderThickness="0" CornerRadius="4">
                             <FontIcon Glyph="&#xE72A;" FontSize="12" />
                         </Button>
-                        <Button x:Name="UpButton" Click="UpButton_Click" IsEnabled="False" 
+                        <Button x:Name="UpButton" AutomationProperties.Name="Üst klasör" Click="UpButton_Click" IsEnabled="False"
                                 ToolTipService.ToolTip="Üst Klasör (Alt + Yukarı Ok)" Width="32" Height="32" Padding="0"
                                 Background="Transparent" BorderThickness="0" CornerRadius="4">
                             <FontIcon Glyph="&#xE74A;" FontSize="12" />
@@ -164,18 +164,35 @@
                     </Border>
 
                     <!-- Windows 11 Arama Çubuğu -->
-                    <AutoSuggestBox x:Name="SearchBox" 
-                                    Grid.Column="2"
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4">
+                    <AutoSuggestBox x:Name="SearchBox" x:Uid="SearchControl" AutomationProperties.Name="Dosya veya klasör ara"
+
                                     Width="240"
                                     Height="32"
                                     Margin="6,0,0,0"
-                                    PlaceholderText="HDrive içinde ara"
+                                    PlaceholderText="Bu klasörde ara"
                                     QueryIcon="Find"
                                     VerticalAlignment="Center"
                                     CornerRadius="4"
                                     TextChanged="SearchBox_TextChanged"
                                     QuerySubmitted="SearchBox_QuerySubmitted"
-                                    LostFocus="SearchBox_LostFocus" />
+ />
+                        <Button AutomationProperties.Name="Arama kapsamı ve filtreler" ToolTipService.ToolTip="Arama kapsamı ve filtreler">
+                            <FontIcon Glyph="&#xE71C;" />
+                            <Button.Flyout>
+                                <Flyout x:Name="SearchOptionsFlyout">
+                                    <StackPanel Spacing="12" Width="260">
+                                        <TextBlock Text="Arama Seçenekleri" FontWeight="SemiBold" />
+                                        <CheckBox x:Name="SearchSubfoldersCheckBox" x:Uid="SearchSubfolders" Content="Alt klasörlerde de ara" />
+                                        <TextBox x:Name="SearchExtensionBox" x:Uid="SearchExtension" Header="Dosya uzantısı" PlaceholderText="Örnek: pdf" />
+                                        <NumberBox x:Name="SearchMinimumSizeBox" x:Uid="SearchMinimum" Header="En küçük boyut (MB)" Minimum="0" SpinButtonPlacementMode="Compact" />
+                                        <CalendarDatePicker x:Name="SearchAfterDatePicker" x:Uid="SearchAfter" Header="Bu tarihten sonra değiştirilenler" PlaceholderText="Tarih sınırı yok" />
+                                        <Button x:Uid="SearchApply" Content="Uygula" Click="SearchOptionsApply_Click" Style="{ThemeResource AccentButtonStyle}" />
+                                    </StackPanel>
+                                </Flyout>
+                            </Button.Flyout>
+                        </Button>
+                    </StackPanel>
                 </Grid>
 
                 <!-- 1: Komut Çubuğu (Windows 11 Komut Şeridi & Üç Nokta Menüsü) -->
@@ -253,6 +270,7 @@
                                                         <RowDefinition Height="Auto" />
                                                         <RowDefinition Height="Auto" />
                                                         <RowDefinition Height="Auto" />
+                                                        <RowDefinition Height="Auto" />
                                                     </Grid.RowDefinitions>
                                                     <Grid.ColumnDefinitions>
                                                         <ColumnDefinition Width="Auto" />
@@ -281,13 +299,16 @@
                                                     </StackPanel>
 
                                                     <StackPanel Grid.Row="2" Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                                        <Button Tag="{Binding Id}" Click="TransferPause_Click" IsEnabled="{Binding IsRunning}" AutomationProperties.Name="Aktarımı duraklat" ToolTipService.ToolTip="Duraklat" Style="{ThemeResource SubtleButtonStyle}" Padding="5"><FontIcon Glyph="&#xE769;" FontSize="10" /></Button>
+                                                        <Button Tag="{Binding Id}" Click="TransferResume_Click" IsEnabled="{Binding IsPaused}" AutomationProperties.Name="Aktarımı sürdür" ToolTipService.ToolTip="Devam Et" Style="{ThemeResource SubtleButtonStyle}" Padding="5"><FontIcon Glyph="&#xE768;" FontSize="10" /></Button>
                                                         <Button Tag="{Binding Id}" Click="TransferCancel_Click" Style="{ThemeResource SubtleButtonStyle}" Padding="5" CornerRadius="4" ToolTipService.ToolTip="İptal">
                                                             <FontIcon Glyph="&#xE711;" FontSize="10" />
                                                         </Button>
-                                                        <Button Tag="{Binding Id}" Click="TransferRetry_Click" Style="{ThemeResource SubtleButtonStyle}" Padding="5" CornerRadius="4" ToolTipService.ToolTip="Yeniden Dene">
+                                                        <Button Tag="{Binding Id}" Click="TransferRetry_Click" IsEnabled="{Binding CanRetry}" AutomationProperties.Name="Aktarımı sürdür veya yeniden dene" Style="{ThemeResource SubtleButtonStyle}" Padding="5" CornerRadius="4" ToolTipService.ToolTip="Yeniden Dene">
                                                             <FontIcon Glyph="&#xE72C;" FontSize="10" />
                                                         </Button>
                                                     </StackPanel>
+                                                    <TextBlock Grid.Row="3" Grid.ColumnSpan="3" Text="{Binding ErrorMessage}" TextWrapping="Wrap" FontSize="11" Foreground="{ThemeResource SystemFillColorCriticalBrush}" />
                                                 </Grid>
                                             </DataTemplate>
                                         </ListView.ItemTemplate>
@@ -317,6 +338,10 @@
                                 <MenuFlyoutItem Text="Tümünü Seç" Click="SelectAll_Click">
                                     <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8B3;" /></MenuFlyoutItem.Icon>
                                 </MenuFlyoutItem>
+                                <MenuFlyoutItem Text="Sistem Dosya Yöneticisinde Bağlan" Click="ConnectSystemDrive_Click" />
+                                <MenuFlyoutItem Text="Bu Klasörü Eşitle..." Click="FolderSync_Click" />
+                                <MenuFlyoutItem Text="Çevrimdışı Dosyalar ve Önbellek" Click="Workspace_Click" />
+                                <MenuFlyoutItem Text="Google Drive Çöp Kutusu" Click="CloudTrash_Click" />
                                 <MenuFlyoutItem Text="Ayarlar" Click="OpenSettings_Click">
                                     <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE713;" /></MenuFlyoutItem.Icon>
                                 </MenuFlyoutItem>
@@ -795,7 +820,7 @@
 
                     <!-- Sağ Tık Menüsü (Yerel Dosya Gezgini Stili) -->
                     <Grid.ContextFlyout>
-                        <MenuFlyout>
+                        <MenuFlyout Opening="FileActions_Opening">
                             <MenuFlyoutItem Text="Aç (Enter)" Click="ContextOpen_Click">
                                 <MenuFlyoutItem.Icon>
                                     <FontIcon Glyph="&#xE8E5;" />
@@ -838,6 +863,9 @@
                                 </MenuFlyoutItem.Icon>
                             </MenuFlyoutItem>
                             <MenuFlyoutSeparator />
+                            <MenuFlyoutItem x:Name="SaveOfflineMenuItem" x:Uid="OfflineCommand" Text="Çevrimdışı Kaydet" Click="SaveOffline_Click" />
+                            <MenuFlyoutItem x:Name="CloudSharingMenuItem" x:Uid="SharingCommand" Text="Paylaşım Bağlantısı..." Click="CloudSharing_Click" />
+                            <MenuFlyoutItem x:Name="CloudVersionsMenuItem" x:Uid="VersionsCommand" Text="Sürüm Geçmişi..." Click="CloudVersions_Click" />
                             <MenuFlyoutItem Text="Sil (Delete)" Click="ContextDelete_Click">
                                 <MenuFlyoutItem.Icon>
                                     <FontIcon Glyph="&#xE74D;" Foreground="#E81123" />

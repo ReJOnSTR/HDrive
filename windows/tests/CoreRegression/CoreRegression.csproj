@@ -14,5 +14,8 @@
     <Compile Include="../../HDriveWin/Services/LiveEditWatcherService.cs" Link="LiveEditWatcherService.cs" />
     <Compile Include="../../HDriveWin/Services/OAuthHelper.cs" Link="OAuthHelper.cs" />
     <Compile Include="../../HDriveWin/Services/OAuthLoginSession.cs" Link="OAuthLoginSession.cs" />
+    <Compile Include="../../HDriveWin/Services/ProviderActions.cs" Link="ProviderActions.cs" />
+    <Compile Include="../../HDriveWin/Services/WorkspaceStorage.cs" Link="WorkspaceStorage.cs" />
+    <Compile Include="../../HDriveWin/Services/FolderSync.cs" Link="FolderSync.cs" />
   </ItemGroup>
 </Project>

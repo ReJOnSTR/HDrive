@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Text.Json;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
@@ -36,6 +38,9 @@ public class TransferItem : INotifyPropertyChanged
     public string LocalPath { get; set; } = string.Empty;
     public TransferDirection Direction { get; set; }
     public WebDAVClient? Client { get; set; }
+    public string ServerId { get; set; } = "";
+    public string StorageIdentity { get; set; } = "";
+    internal Task? ExecutionTask { get; set; }
 
     private TransferStatus _status = TransferStatus.Queued;
     public TransferStatus Status
@@ -52,6 +57,7 @@ public class TransferItem : INotifyPropertyChanged
                 OnPropertyChanged(nameof(IsPaused));
                 OnPropertyChanged(nameof(IsFailed));
                 OnPropertyChanged(nameof(IsCompleted));
+                OnPropertyChanged(nameof(CanRetry));
             }
         }
     }
@@ -137,6 +143,7 @@ public class TransferItem : INotifyPropertyChanged
     public bool IsPaused => Status == TransferStatus.Paused;
     public bool IsFailed => Status == TransferStatus.Failed;
     public bool IsCompleted => Status == TransferStatus.Completed;
+    public bool CanRetry => Status is TransferStatus.Failed or TransferStatus.Cancelled or TransferStatus.Paused;
 
     public string DirectionGlyph => Direction == TransferDirection.Upload ? "\uE895" : "\uE896";
     public string DirectionTooltip => Direction == TransferDirection.Upload ? "Yükleme (Upload)" : "İndirme (Download)";
@@ -229,8 +236,33 @@ public class TransferManager : INotifyPropertyChanged
     public bool IsTransferring => ActiveTransfersCount > 0;
     public bool BadgeVisibility => ActiveTransfersCount > 0;
 
+    public string? PersistenceError { get; private set; }
+    private readonly TransferJournal _journal = new(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HDrive", "transfers.json"));
     private TransferManager()
     {
+        try {
+            foreach (var record in _journal.Load()) {
+                var item = new TransferItem {
+                    Id = record.Id, FileName = record.FileName, RemotePath = record.RemotePath, LocalPath = record.LocalPath,
+                    Direction = record.Direction, ServerId = record.ServerId, StorageIdentity = record.StorageIdentity,
+                    TotalBytes = record.TotalBytes,
+                    Status = record.Status is TransferStatus.Completed or TransferStatus.Cancelled ? record.Status : TransferStatus.Paused
+                };
+                Items.Add(item); Watch(item);
+            }
+        } catch (Exception error) { PersistenceError = "Aktarım kuyruğu kurtarılamadı; kayıt korundu: " + error.Message; }
+        Items.CollectionChanged += (_, args) => {
+            if (args.NewItems != null) foreach (TransferItem item in args.NewItems) Watch(item);
+            SaveQueue();
+        };
+    }
+    private void Watch(TransferItem item) => item.PropertyChanged += (_, args) => {
+        if (args.PropertyName == nameof(TransferItem.Status)) SaveQueue();
+    };
+    private void SaveQueue() {
+        try { _journal.Save(Items.Where(item => item.Status is not (TransferStatus.Completed or TransferStatus.Cancelled)).Concat(Items.Where(item => item.Status is TransferStatus.Completed or TransferStatus.Cancelled).Take(100)).Select(item => new TransferRecord(item.Id, item.FileName, item.RemotePath,
+            item.LocalPath, item.Direction, item.Status, item.ServerId, item.StorageIdentity, item.TotalBytes)).ToList()); }
+        catch (Exception error) { PersistenceError = "Aktarım kuyruğu kaydedilemedi: " + error.Message; }
     }
 
     public TransferItem EnqueueDownload(string fileName, string remotePath, string localPath, WebDAVClient client, long totalBytes = 0)
@@ -249,13 +281,15 @@ public class TransferManager : INotifyPropertyChanged
             Direction = TransferDirection.Download,
             TotalBytes = totalBytes,
             Client = client,
+            ServerId = client.Config.Id,
+            StorageIdentity = WebDAVClient.StorageIdentity(client.Config),
             Status = TransferStatus.Queued
         };
 
         RunOnUI(() => Items.Insert(0, item));
         UpdateActiveCount();
 
-        _ = ProcessItemAsync(item);
+        item.ExecutionTask = ProcessItemAsync(item);
         return item;
     }
 
@@ -282,13 +316,15 @@ public class TransferManager : INotifyPropertyChanged
             Direction = TransferDirection.Upload,
             TotalBytes = size,
             Client = client,
+            ServerId = client.Config.Id,
+            StorageIdentity = WebDAVClient.StorageIdentity(client.Config),
             Status = TransferStatus.Queued
         };
 
         RunOnUI(() => Items.Insert(0, item));
         UpdateActiveCount();
 
-        _ = ProcessItemAsync(item);
+        item.ExecutionTask = ProcessItemAsync(item);
         return item;
     }
 
@@ -302,6 +338,10 @@ public class TransferManager : INotifyPropertyChanged
         {
             await _semaphore.WaitAsync(ct).ConfigureAwait(false);
             acquired = true;
+            var owner = CloudreveManager.Instance.Servers.FirstOrDefault(server => server.Id == item.ServerId && server.IsConnected);
+            if (owner == null || WebDAVClient.StorageIdentity(owner) != item.StorageIdentity)
+                throw new InvalidOperationException("Dosyanın ait olduğu hesabı yeniden bağlayın.");
+            item.Client = new WebDAVClient(owner);
             if (ct.IsCancellationRequested || item.Status == TransferStatus.Paused || item.Status == TransferStatus.Cancelled)
             {
                 return;
@@ -349,7 +389,7 @@ public class TransferManager : INotifyPropertyChanged
     {
         if (item.Client == null) throw new InvalidOperationException("İstemci bulunamadı.");
         var progress = new Progress<TransferProgress>(p => UpdateItemProgress(item, p.TransferredBytes, p.TotalBytes));
-        await item.Client.DownloadToAsync(item.RemotePath, item.LocalPath, progress, ct, item.FileName).ConfigureAwait(false);
+        await item.Client.DownloadToAsync(item.RemotePath, item.LocalPath, progress, ct, item.FileName, allowResume: true).ConfigureAwait(false);
         Complete(item);
     }
 
@@ -378,6 +418,7 @@ public class TransferManager : INotifyPropertyChanged
         RunOnUI(() =>
         {
             item.TransferredBytes = transferred;
+            if (total >= 0) item.TotalBytes = total;
             if (total > 0)
             {
                 item.ProgressPercent = Math.Min(100.0, (double)transferred / total * 100.0);
@@ -418,7 +459,7 @@ public class TransferManager : INotifyPropertyChanged
 
         RunOnUI(() => item.Status = TransferStatus.Queued);
         UpdateActiveCount();
-        _ = ProcessItemAsync(item);
+        _ = RestartAfterPreviousAsync(item);
     }
 
     public void CancelTask(Guid id)
@@ -438,7 +479,7 @@ public class TransferManager : INotifyPropertyChanged
     public void RetryTask(Guid id)
     {
         var item = Items.FirstOrDefault(i => i.Id == id);
-        if (item == null || item.Status is not (TransferStatus.Failed or TransferStatus.Cancelled)) return;
+        if (item == null || item.Status is not (TransferStatus.Failed or TransferStatus.Cancelled or TransferStatus.Paused)) return;
 
         RunOnUI(() =>
         {
@@ -448,7 +489,14 @@ public class TransferManager : INotifyPropertyChanged
             item.ErrorMessage = null;
         });
         UpdateActiveCount();
-        _ = ProcessItemAsync(item);
+        _ = RestartAfterPreviousAsync(item);
+    }
+
+    private async Task RestartAfterPreviousAsync(TransferItem item)
+    {
+        if (item.ExecutionTask != null) await item.ExecutionTask;
+        if (item.Status != TransferStatus.Queued) return;
+        item.ExecutionTask = ProcessItemAsync(item);
     }
 
     public void ClearCompleted()
@@ -535,5 +583,33 @@ public class ProgressStreamContent : HttpContent
             _content.Dispose();
         }
         base.Dispose(disposing);
+    }
+}
+
+
+internal record TransferRecord(Guid Id, string FileName, string RemotePath, string LocalPath,
+    TransferDirection Direction, TransferStatus Status, string ServerId, string StorageIdentity, long TotalBytes);
+
+internal sealed class TransferJournal(string path)
+{
+    private bool _readFailed;
+    private string? _previous;
+    internal List<TransferRecord> Load()
+    {
+        if (!File.Exists(path) && !File.Exists(path + ".bak")) return new();
+        try { return JsonSerializer.Deserialize<List<TransferRecord>>(File.ReadAllText(path)) ?? throw new InvalidDataException(); }
+        catch {
+            try { return JsonSerializer.Deserialize<List<TransferRecord>>(File.ReadAllText(path + ".bak")) ?? throw new InvalidDataException(); }
+            catch { _readFailed = true; throw; }
+        }
+    }
+    internal void Save(List<TransferRecord> records)
+    {
+        if (_readFailed) throw new IOException("Bozuk aktarım kaydının üzerine yazılmadı.");
+        var json = JsonSerializer.Serialize(records);
+        if (json == _previous) return;
+        AtomicFile.WriteAllText(path, json);
+        AtomicFile.WriteAllText(path + ".bak", json);
+        _previous = json;
     }
 }

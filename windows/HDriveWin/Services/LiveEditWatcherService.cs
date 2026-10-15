@@ -95,6 +95,7 @@ public class LiveEditWatcherService : IDisposable
                 LastKnownWriteTime = lastWrite
             };
 
+            WorkingCache.Protect(localFilePath);
             _watchedFiles[localFilePath] = entry;
 
             lock (_lock)

@@ -6,11 +6,13 @@ hdrive_output_dir="${HDRIVE_BUILD_OUTPUT:-build/macos}"
 hdrive_app="$hdrive_output_dir/HDrive.app"
 mkdir -p "$hdrive_app/Contents/MacOS" "$hdrive_app/Contents/Resources"
 cp -X macOS/Info.plist "$hdrive_app/Contents/Info.plist"
+cp -R Resources/Localization "$hdrive_app/Contents/Resources/"
 cp -X macOS/AppIcon.icns "$hdrive_app/Contents/Resources/AppIcon.icns"
 hdrive_sources=(
   iOS/HDrive/Models/FileItem.swift iOS/HDrive/Models/ServerConfig.swift
   iOS/HDrive/Models/NetworkUtils.swift iOS/HDrive/Models/KeychainHelper.swift
   iOS/HDrive/Models/NetworkMonitor.swift iOS/HDrive/Models/SyncLogManager.swift
+  iOS/HDrive/Models/FolderSync.swift
   iOS/HDrive/Models/StorageSecurity.swift iOS/HDrive/Models/S3Storage.swift
   iOS/HDrive/Server/BonjourPublisher.swift iOS/HDrive/Server/WebDAVHandler.swift
   iOS/HDrive/Server/WebDAVServer.swift iOS/HDrive/Server/WebDashboardEmbeddedAssets.swift
@@ -18,6 +20,7 @@ hdrive_sources=(
   macOS/HDriveMac/Services/TransferManager.swift macOS/HDriveMac/Services/BonjourBrowser.swift
   macOS/HDriveMac/Services/FileOpener.swift macOS/HDriveMac/Services/FilePreviewManager.swift
   macOS/HDriveMac/Services/FileIconProvider.swift macOS/HDriveMac/Views/TransferPopoverView.swift
+  iOS/HDrive/Views/WorkspaceViews.swift
   macOS/HDriveMac/Views/NativeExplorerView.swift macOS/HDriveMac/HDriveMacApp.swift
 )
 for hdrive_arch in arm64 x86_64; do

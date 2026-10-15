@@ -7,6 +7,7 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
+using System.Threading;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Storage;
 using Windows.Storage.Pickers;
@@ -29,6 +30,8 @@ public sealed partial class MainWindow : Window
     private readonly ObservableCollection<string> _breadcrumbs = new();
 
     private string _currentPath = "";
+    private CancellationTokenSource? _searchCancellation;
+    private List<FileItem>? _deepSearchItems;
     private readonly List<string> _history = new();
     private int _historyIndex = -1;
 
@@ -51,6 +54,12 @@ public sealed partial class MainWindow : Window
         try
         {
             this.InitializeComponent();
+            ((FrameworkElement)Content).SizeChanged += (_, args) => {
+                var compact = args.NewSize.Width < 1000;
+                NavView.PaneDisplayMode = compact ? NavigationViewPaneDisplayMode.LeftCompact : NavigationViewPaneDisplayMode.Left;
+                SearchBox.Width = compact ? Math.Max(140, args.NewSize.Width * 0.24) : 240;
+                if (PreviewPane != null) PreviewPane.Width = Math.Max(200, Math.Min(280, args.NewSize.Width * 0.27));
+            };
         }
         catch (Exception ex)
         {
@@ -541,6 +550,8 @@ public sealed partial class MainWindow : Window
 
     private async Task LoadDirectoryAsync(string path)
     {
+        _searchCancellation?.Cancel();
+        _deepSearchItems = null;
         var sessionId = ++_loadSessionId;
         try
         {
@@ -594,7 +605,13 @@ public sealed partial class MainWindow : Window
 
         var filtered = string.IsNullOrEmpty(trimmed)
             ? (IEnumerable<FileItem>)_allItems
-            : _allItems.Where(i => i.Name.Contains(trimmed, StringComparison.CurrentCultureIgnoreCase));
+            : (_deepSearchItems ?? _allItems).Where(i => i.Name.Contains(trimmed, StringComparison.CurrentCultureIgnoreCase));
+        if (string.IsNullOrEmpty(trimmed)) filtered = _deepSearchItems ?? _allItems;
+        var extension = SearchExtensionBox?.Text?.Trim().TrimStart('.') ?? "";
+        if (!string.IsNullOrEmpty(extension)) filtered = filtered.Where(i => !i.IsDirectory && string.Equals(System.IO.Path.GetExtension(i.Name).TrimStart('.'), extension, StringComparison.OrdinalIgnoreCase));
+        var minimum = SearchMinimumSizeBox?.Value ?? double.NaN;
+        if (!double.IsNaN(minimum) && minimum > 0) filtered = filtered.Where(i => !i.IsDirectory && i.Size >= minimum * 1024 * 1024);
+        if (SearchAfterDatePicker?.Date is DateTimeOffset date) filtered = filtered.Where(i => i.ModifiedDate >= date.Date);
 
         var sorted = filtered.OrderBy(item => _foldersFirst && !item.IsDirectory ? 1 : 0);
 
@@ -619,7 +636,7 @@ public sealed partial class MainWindow : Window
             _items.Add(item);
         }
 
-        ItemCountText.Text = $"{_items.Count} öğe";
+        ItemCountText.Text = _items.Count == 0 ? (string.IsNullOrEmpty(trimmed) && string.IsNullOrEmpty(extension) && (double.IsNaN(minimum) || minimum == 0) && SearchAfterDatePicker?.Date == null ? "Klasör boş" : "Sonuç bulunamadı · filtreleri değiştirin") : $"{_items.Count} öğe";
     }
 
     private async void FileItem_Clicked(object sender, ItemClickEventArgs e)
@@ -1684,17 +1701,16 @@ public sealed partial class MainWindow : Window
 
     private void SearchBox_TextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
     {
+        _searchCancellation?.Cancel();
+        _deepSearchItems = null;
         ApplySearchFilter(sender.Text);
     }
 
     private void SearchBox_LostFocus(object sender, RoutedEventArgs e)
     {
-        if (!string.IsNullOrEmpty(SearchBox.Text))
-        {
-            SearchBox.Text = "";
-            ApplySearchFilter("");
-        }
+        // The query remains active while the user selects or opens a result.
     }
+
 
     private async void SwitchToRemoteServer(string serverId)
     {
@@ -2549,9 +2565,11 @@ public sealed partial class MainWindow : Window
         if (itemsToDelete.Count == 0) return;
 
         var prompt = itemsToDelete.Count == 1
-            ? $"'{itemsToDelete[0].Name}' öğesini silmek istediğinizden emin misiniz?"
+            ? $"'{itemsToDelete[0].Name}' öğesini kalıcı olarak silmek istediğinizden emin misiniz?"
             : $"Seçili {itemsToDelete.Count} öğeyi kalıcı olarak silmek istediğinizden emin misiniz?";
 
+        if (CloudreveManager.Instance.ActiveServer?.Protocol == StorageProtocol.GoogleDrive)
+            prompt = $"Seçili {itemsToDelete.Count} öğe Google Drive çöp kutusuna taşınsın mı?";
         var confirmDialog = new ContentDialog
         {
             Title = "Silinsin mi?",
@@ -2568,18 +2586,21 @@ public sealed partial class MainWindow : Window
             LoadingRing.IsActive = true;
             var server = CloudreveManager.Instance.ActiveServer;
             if (server == null) { LoadingRing.IsActive = false; return; }
-
-            var client = new WebDAVClient(server);
-
-            foreach (var item in itemsToDelete)
+            var errors = new List<string>();
+            try
             {
-                await client.DeleteAsync(item.Path, item.IsDirectory);
+                var client = new WebDAVClient(server);
+                foreach (var item in itemsToDelete)
+                {
+                    try { if (!await client.MoveToTrashAsync(item.Path, item.IsDirectory)) errors.Add(item.Name); }
+                    catch (Exception error) { errors.Add(item.Name + ": " + error.Message); }
+                }
+                _selectedItem = null;
+                UpdatePreviewPane(null);
+                await LoadDirectoryAsync(_currentPath);
             }
-
-            _selectedItem = null;
-            UpdatePreviewPane(null);
-            LoadingRing.IsActive = false;
-            await LoadDirectoryAsync(_currentPath);
+            finally { LoadingRing.IsActive = false; }
+            if (errors.Count > 0) await ShowOperationErrorAsync("Bazı öğeler silinemedi", string.Join("\n", errors));
         }
     }
 
@@ -3125,57 +3146,61 @@ public sealed partial class MainWindow : Window
 
     #region Derin Arama (Deep Search)
 
-    private void SearchBox_QuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
+    private async void SearchBox_QuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
     {
-        ApplySearchFilter(args.QueryText);
+        if (SearchSubfoldersCheckBox.IsChecked == true) await PerformDeepSearchAsync(args.QueryText);
+        else ApplySearchFilter(args.QueryText);
+    }
+
+    private async void SearchOptionsApply_Click(object sender, RoutedEventArgs e)
+    {
+        SearchOptionsFlyout.Hide();
+        if (SearchSubfoldersCheckBox.IsChecked == true) await PerformDeepSearchAsync(SearchBox.Text);
+        else { _searchCancellation?.Cancel(); _deepSearchItems = null; ApplySearchFilter(SearchBox.Text); }
+    }
+
+    private async Task ShowOperationErrorAsync(string title, string message) {
+        await new ContentDialog { Title = title, Content = message, CloseButtonText = "Tamam", XamlRoot = Content.XamlRoot }.ShowAsync();
     }
 
     private async Task PerformDeepSearchAsync(string query)
     {
-        if (string.IsNullOrWhiteSpace(query))
-        {
-            ApplySearchFilter("");
-            return;
-        }
-
+        _searchCancellation?.Cancel();
+        var cancellation = _searchCancellation = new CancellationTokenSource();
         var config = CloudreveManager.Instance.ActiveServer;
         if (config == null) return;
-
+        var session = ++_loadSessionId;
+        var startPath = _currentPath;
         LoadingRing.IsActive = true;
-        _items.Clear();
-
+        _deepSearchItems = new List<FileItem>();
+        var errors = new List<string>();
         var client = new WebDAVClient(config);
-
-        async Task CrawlDirectoryAsync(string path, int depth)
+        var pending = new Queue<string>();
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        pending.Enqueue(startPath);
+        try
         {
-            if (depth > 4) return;
-            try
+            while (pending.Count > 0)
             {
-                var dirItems = await client.ListDirectoryAsync(path);
-                foreach (var it in dirItems)
+                cancellation.Token.ThrowIfCancellationRequested();
+                var path = pending.Dequeue();
+                if (!visited.Add(path)) continue;
+                try
                 {
-                    if (it.Name.Contains(query, StringComparison.CurrentCultureIgnoreCase))
-                    {
-                        DispatcherQueue.TryEnqueue(() =>
-                        {
-                            if (!_items.Contains(it)) _items.Add(it);
-                            ItemCountText.Text = $"{_items.Count} öğe (Derin Arama)";
-                        });
-                    }
-
-                    if (it.IsDirectory)
-                    {
-                        await CrawlDirectoryAsync(it.Path, depth + 1);
-                    }
+                    var entries = await client.ListDirectoryAsync(path).WaitAsync(cancellation.Token);
+                    if (session != _loadSessionId || config.Id != CloudreveManager.Instance.ActiveServer?.Id) return;
+                    _deepSearchItems.AddRange(entries);
+                    foreach (var folder in entries.Where(i => i.IsDirectory)) pending.Enqueue(folder.Path);
+                    ApplySearchFilter(query);
+                    ItemCountText.Text = $"{_items.Count} sonuç · {visited.Count} klasör tarandı";
                 }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception error) { errors.Add(path + ": " + error.Message); }
             }
-            catch { }
+            ItemCountText.Text = $"{_items.Count} sonuç" + (errors.Count > 0 ? $" · {errors.Count} klasör okunamadı" : "");
         }
-
-        await CrawlDirectoryAsync("", 0);
-
-        LoadingRing.IsActive = false;
-        ItemCountText.Text = $"{_items.Count} sonuç bulundu";
+        catch (OperationCanceledException) { }
+        finally { if (session == _loadSessionId) LoadingRing.IsActive = false; }
     }
 
     #endregion

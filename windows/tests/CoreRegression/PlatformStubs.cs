@@ -23,7 +23,7 @@ namespace HDriveWin.Models
         public string Path { get; set; } = "";
         public bool IsDirectory { get; set; }
         public long Size { get; set; }
-        public DateTime ModifiedDate { get; set; }
+        public DateTime? ModifiedDate { get; set; }
     }
 }
 namespace Windows.UI

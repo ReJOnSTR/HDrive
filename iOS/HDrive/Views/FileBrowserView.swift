@@ -31,6 +31,18 @@ public struct FileBrowserView: View {
     @State private var showingPhotoPicker = false
     @State private var selectedPhotos: [PhotosPickerItem] = []
     @State private var activeShareURL: URL?
+    @State private var errorMessage: String?
+    @State private var selection = Set<URL>()
+    @State private var selecting = false
+    @State private var pendingDeletion: [URL] = []
+    @State private var showDeleteConfirmation = false
+    @State private var showTrash = false
+    @State private var shareURLs: [URL] = []
+    @State private var showBulkShare = false
+    @State private var importQueue: [URL] = []
+    @State private var showCollision = false
+    @State private var lastTrashEntries: [LocalFileOperations.TrashEntry] = []
+    @State private var loadError: String?
     
     public init(directoryURL: URL? = nil, title: String = "Dosyalar") {
         if let dir = directoryURL {
@@ -51,7 +63,13 @@ public struct FileBrowserView: View {
             categoryFilterBar
             
             // 2. Dosya Listesi veya Izgara
-            if filteredItems.isEmpty {
+            if let loadError = loadError {
+                ContentUnavailableView {
+                    Label(L10n.text("Klasör açılamadı"), systemImage: "exclamationmark.triangle")
+                } description: { Text(loadError) } actions: {
+                    Button(L10n.text("Yeniden Dene"), action: loadFiles)
+                }
+            } else if filteredItems.isEmpty {
                 emptyFilesView
             } else if isGridView {
                 filesGridView
@@ -66,9 +84,11 @@ public struct FileBrowserView: View {
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 HStack(spacing: 12) {
+                    Button(selecting ? "Bitti" : "Seç") { selecting.toggle(); selection.removeAll() }
+                        .accessibilityHint("Birden çok dosyaya işlem uygulayın")
                     // Sıralama Menüsü
                     Menu {
-                        Section("Sıralama Ölçütü") {
+                        Section(L10n.text("Sıralama Ölçütü")) {
                             ForEach(FileSortField.allCases) { field in
                                 Button(action: { sortField = field }) {
                                     HStack {
@@ -81,16 +101,16 @@ public struct FileBrowserView: View {
                             }
                         }
                         
-                        Section("Sıralama Yönü") {
+                        Section(L10n.text("Sıralama Yönü")) {
                             Button(action: { sortAscending = true }) {
                                 HStack {
-                                    Text("Artan (A-Z)")
+                                    Text(L10n.text("Artan (A-Z)"))
                                     if sortAscending { Image(systemName: "checkmark") }
                                 }
                             }
                             Button(action: { sortAscending = false }) {
                                 HStack {
-                                    Text("Azalan (Z-A)")
+                                    Text(L10n.text("Azalan (Z-A)"))
                                     if !sortAscending { Image(systemName: "checkmark") }
                                 }
                             }
@@ -104,14 +124,15 @@ public struct FileBrowserView: View {
                     // Yeni Ekle & Görünüm Menüsü
                     Menu {
                         Button(action: { showingNewFolderAlert = true }) {
-                            Label("Yeni Klasör", systemImage: "folder.badge.plus")
+                            Label(L10n.text("Yeni Klasör"), systemImage: "folder.badge.plus")
                         }
                         Button(action: { showingDocPicker = true }) {
-                            Label("Dosya İçe Aktar...", systemImage: "doc.badge.plus")
+                            Label(L10n.text("Dosya İçe Aktar..."), systemImage: "doc.badge.plus")
                         }
                         Button(action: { showingPhotoPicker = true }) {
                             Label("Fotoğraf/Video Ekle...", systemImage: "photo.badge.plus")
                         }
+                        Button { showTrash = true } label: { Label(L10n.text("Çöp Kutusu"), systemImage: "trash") }
                         Divider()
                         Button(action: { isGridView.toggle() }) {
                             Label(isGridView ? "Liste Görünümü" : "Izgara Görünümü", systemImage: isGridView ? "list.bullet" : "square.grid.2x2")
@@ -126,18 +147,19 @@ public struct FileBrowserView: View {
         }
         .onAppear(perform: loadFiles)
         .alert("Yeni Klasör", isPresented: $showingNewFolderAlert) {
-            TextField("Klasör Adı", text: $newFolderName)
-            Button("Oluştur", action: createFolder)
-            Button("Vazgeç", role: .cancel) { newFolderName = "" }
+            TextField(L10n.text("Klasör Adı"), text: $newFolderName)
+            Button(L10n.text("Oluştur"), action: createFolder)
+            Button(L10n.text("Vazgeç"), role: .cancel) { newFolderName = "" }
         }
         .alert("Yeniden Adlandır", isPresented: $showingRenameAlert) {
-            TextField("Yeni İsim", text: $renamingName)
-            Button("Tamam", action: commitRename)
-            Button("İptal", role: .cancel) { renamingName = ""; itemToRename = nil }
+            TextField(L10n.text("Yeni İsim"), text: $renamingName)
+            Button(L10n.text("Tamam"), action: commitRename)
+            Button(L10n.text("İptal"), role: .cancel) { renamingName = ""; itemToRename = nil }
         }
         .sheet(isPresented: $showingDocPicker) {
-            DocumentPicker(targetDirectory: directoryURL) {
-                loadFiles()
+            DocumentPicker { urls in
+                importQueue = urls
+                processNextImport()
             }
         }
         .photosPicker(isPresented: $showingPhotoPicker, selection: $selectedPhotos, matching: .any(of: [.images, .videos]))
@@ -146,6 +168,37 @@ public struct FileBrowserView: View {
         }
         .sheet(item: $activeShareURL) { url in
             ShareSheet(activityItems: [url])
+        }
+        .sheet(isPresented: $showBulkShare) { ShareSheet(activityItems: shareURLs) }
+        .sheet(isPresented: $showTrash, onDismiss: loadFiles) { LocalTrashView() }
+        .alert("İşlem tamamlanamadı", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
+            Button(L10n.text("Tamam")) { errorMessage = nil }
+        } message: { Text(errorMessage ?? "") }
+        .confirmationDialog("Seçili \(pendingDeletion.count) öğe çöp kutusuna taşınsın mı?", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
+            Button(L10n.text("Çöp Kutusuna Taşı"), role: .destructive, action: trashPending)
+            Button(L10n.text("Vazgeç"), role: .cancel) { pendingDeletion = [] }
+        }
+        .confirmationDialog("Aynı adlı bir öğe var: \(importQueue.first?.lastPathComponent ?? "")", isPresented: $showCollision, titleVisibility: .visible) {
+            Button(L10n.text("Değiştir")) { importNext(policy: .replace) }
+            Button(L10n.text("İkisini Tut")) { importNext(policy: .keepBoth) }
+            Button(L10n.text("Atla")) { importNext(policy: .skip) }
+            Button("İçe Aktarmayı İptal Et", role: .cancel) { importQueue = [] }
+        }
+        .safeAreaInset(edge: .bottom) {
+            if selecting {
+                HStack {
+                    Text("\(selection.count) seçili").font(.caption)
+                    Spacer()
+                    Button { shareURLs = Array(selection); showBulkShare = true } label: { Label(L10n.text("Paylaş"), systemImage: "square.and.arrow.up") }.disabled(selection.isEmpty)
+                    Button(role: .destructive) { pendingDeletion = Array(selection); showDeleteConfirmation = true } label: { Label(L10n.text("Sil"), systemImage: "trash") }.disabled(selection.isEmpty)
+                }.padding().background(.regularMaterial)
+            } else if !lastTrashEntries.isEmpty {
+                HStack {
+                    Text("Çöp kutusuna taşındı").font(.caption)
+                    Spacer()
+                    Button(L10n.text("Geri Al"), action: undoTrash)
+                }.padding().background(.regularMaterial)
+            }
         }
     }
     
@@ -220,62 +273,48 @@ public struct FileBrowserView: View {
     private var filesListView: some View {
         List {
             ForEach(filteredItems) { item in
-                if item.isDirectory {
-                    NavigationLink(destination: FileBrowserView(directoryURL: item.url, title: item.name)) {
-                        fileRow(item)
-                    }
-                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                        deleteButton(for: item)
-                    }
-                    .swipeActions(edge: .leading) {
-                        renameButton(for: item)
-                    }
-                    .contextMenu {
-                        renameButton(for: item)
-                        deleteButton(for: item)
-                    }
-                } else {
-                    NavigationLink(destination: FileDetailView(file: item)) {
-                        fileRow(item)
-                    }
-                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                        deleteButton(for: item)
-                        shareButton(for: item)
-                    }
-                    .swipeActions(edge: .leading) {
-                        renameButton(for: item)
-                    }
-                    .contextMenu {
-                        renameButton(for: item)
-                        shareButton(for: item)
-                        deleteButton(for: item)
-                    }
-                }
+                itemLink(item, grid: false)
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) { deleteButton(for: item); shareButton(for: item) }
+                    .swipeActions(edge: .leading) { renameButton(for: item) }
             }
-        }
-        .listStyle(.plain)
+        }.listStyle(.plain)
     }
-    
-    // MARK: - Izgara Görünümü
+
     private var filesGridView: some View {
         ScrollView {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 105), spacing: 14)], spacing: 14) {
-                ForEach(filteredItems) { item in
-                    if item.isDirectory {
-                        NavigationLink(destination: FileBrowserView(directoryURL: item.url, title: item.name)) {
-                            fileGridCell(item)
-                        }
-                    } else {
-                        NavigationLink(destination: FileDetailView(file: item)) {
-                            fileGridCell(item)
-                        }
-                    }
-                }
-            }
-            .padding(16)
+                ForEach(filteredItems) { item in itemLink(item, grid: true) }
+            }.padding(16)
         }
     }
-    
+
+    @ViewBuilder private func itemLink(_ item: FileItem, grid: Bool) -> some View {
+        Group {
+            if selecting {
+                Button {
+                    if selection.contains(item.url) { selection.remove(item.url) } else { selection.insert(item.url) }
+                } label: {
+                    HStack {
+                        Image(systemName: selection.contains(item.url) ? "checkmark.circle.fill" : "circle")
+                        if grid { fileGridCell(item) } else { fileRow(item) }
+                    }
+                }.accessibilityLabel(item.name).accessibilityValue(selection.contains(item.url) ? "Seçili" : "Seçili değil")
+            } else if item.isDirectory {
+                NavigationLink(destination: FileBrowserView(directoryURL: item.url, title: item.name)) {
+                    if grid { fileGridCell(item) } else { fileRow(item) }
+                }
+            } else {
+                NavigationLink(destination: FileDetailView(file: item)) {
+                    if grid { fileGridCell(item) } else { fileRow(item) }
+                }
+            }
+        }.contextMenu {
+            renameButton(for: item)
+            shareButton(for: item)
+            deleteButton(for: item)
+        }
+    }
+
     private func fileRow(_ item: FileItem) -> some View {
         HStack(spacing: 14) {
             Image(systemName: item.systemIcon)
@@ -330,10 +369,10 @@ public struct FileBrowserView: View {
     
     private func deleteButton(for item: FileItem) -> some View {
         Button(role: .destructive) {
-            try? FileManager.default.removeItem(at: item.url)
-            loadFiles()
+            pendingDeletion = [item.url]
+            showDeleteConfirmation = true
         } label: {
-            Label("Sil", systemImage: "trash")
+            Label(L10n.text("Sil"), systemImage: "trash")
         }
     }
     
@@ -341,7 +380,7 @@ public struct FileBrowserView: View {
         Button {
             activeShareURL = item.url
         } label: {
-            Label("Paylaş", systemImage: "square.and.arrow.up")
+            Label(L10n.text("Paylaş"), systemImage: "square.and.arrow.up")
         }
         .tint(.blue)
     }
@@ -352,7 +391,7 @@ public struct FileBrowserView: View {
             renamingName = item.name
             showingRenameAlert = true
         } label: {
-            Label("Yeniden Adlandır", systemImage: "pencil")
+            Label(L10n.text("Yeniden Adlandır"), systemImage: "pencil")
         }
         .tint(.orange)
     }
@@ -364,9 +403,9 @@ public struct FileBrowserView: View {
             Image(systemName: "tray")
                 .font(.system(size: 50))
                 .foregroundColor(.secondary)
-            Text("Dosya Bulunmuyor")
+            Text(items.isEmpty ? "Bu Klasör Boş" : "Sonuç Bulunamadı")
                 .font(.headline)
-            Text("Yukarıdaki + butonunu kullanarak veya bilgisayarınızdan ağ sürücüsü ile dosya aktarabilirsiniz.")
+            Text(items.isEmpty ? "+ menüsünden dosya içe aktarabilir veya klasör oluşturabilirsiniz." : "Aramanızı veya kategori filtrenizi değiştirin.")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
@@ -377,6 +416,7 @@ public struct FileBrowserView: View {
     
     // MARK: - Veri İşlemleri
     private func loadFiles() {
+        loadError = nil
         do {
             let urls = try FileManager.default.contentsOfDirectory(at: directoryURL, includingPropertiesForKeys: [
                 .isDirectoryKey, .fileSizeKey, .contentModificationDateKey, .creationDateKey
@@ -388,17 +428,19 @@ public struct FileBrowserView: View {
                 return $0.name.localizedStandardCompare($1.name) == .orderedAscending
             }
         } catch {
-            self.items = []
+            loadError = error.localizedDescription
         }
     }
     
     private func createFolder() {
-        let name = newFolderName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else { return }
-        let newDir = directoryURL.appendingPathComponent(name, isDirectory: true)
-        try? FileManager.default.createDirectory(at: newDir, withIntermediateDirectories: true)
-        newFolderName = ""
-        loadFiles()
+        do {
+            let name = try LocalFileOperations.validName(newFolderName)
+            let newDir = directoryURL.appendingPathComponent(name, isDirectory: true)
+            guard !FileManager.default.fileExists(atPath: newDir.path) else { throw CocoaError(.fileWriteFileExists) }
+            try FileManager.default.createDirectory(at: newDir, withIntermediateDirectories: false)
+            newFolderName = ""
+            loadFiles()
+        } catch { errorMessage = error.localizedDescription }
     }
     
     private func commitRename() {
@@ -409,13 +451,50 @@ public struct FileBrowserView: View {
             renamingName = ""
             return
         }
-        let dest = item.url.deletingLastPathComponent().appendingPathComponent(newName)
-        try? FileManager.default.moveItem(at: item.url, to: dest)
+        do {
+            let name = try LocalFileOperations.validName(newName)
+            let dest = item.url.deletingLastPathComponent().appendingPathComponent(name)
+            try FileManager.default.moveItem(at: item.url, to: dest)
+        } catch { errorMessage = error.localizedDescription }
         itemToRename = nil
         renamingName = ""
         loadFiles()
     }
     
+    private func trashPending() {
+        var moved: [LocalFileOperations.TrashEntry] = []
+        var errors: [String] = []
+        for url in pendingDeletion {
+            do { moved.append(try LocalFileOperations.trash(url)) }
+            catch { errors.append("\(url.lastPathComponent): \(error.localizedDescription)") }
+        }
+        lastTrashEntries = moved
+        pendingDeletion = []; selection.removeAll(); loadFiles()
+        if !errors.isEmpty { errorMessage = errors.joined(separator: "\n") }
+    }
+    private func undoTrash() {
+        var remaining: [LocalFileOperations.TrashEntry] = []
+        for entry in lastTrashEntries {
+            do { try LocalFileOperations.restore(entry) }
+            catch { remaining.append(entry); errorMessage = error.localizedDescription }
+        }
+        lastTrashEntries = remaining; loadFiles()
+    }
+    private func processNextImport() {
+        guard let source = importQueue.first else { loadFiles(); return }
+        if FileManager.default.fileExists(atPath: directoryURL.appendingPathComponent(source.lastPathComponent).path) { showCollision = true }
+        else { importNext(policy: .fail) }
+    }
+    private func importNext(policy: FileCollisionPolicy) {
+        guard let source = importQueue.first else { return }
+        let access = source.startAccessingSecurityScopedResource()
+        defer { if access { source.stopAccessingSecurityScopedResource() } }
+        do { try LocalFileOperations.importFile(source, into: directoryURL, policy: policy) }
+        catch { errorMessage = "\(source.lastPathComponent): \(error.localizedDescription)" }
+        importQueue.removeFirst()
+        DispatchQueue.main.async { processNextImport() }
+    }
+
     private func importPhotos(_ photoItems: [PhotosPickerItem]) {
         for photoItem in photoItems {
             photoItem.loadTransferable(type: Data.self) { result in
@@ -424,12 +503,12 @@ public struct FileBrowserView: View {
                     guard let data = data else { return }
                     let filename = "IMG_\(Int(Date().timeIntervalSince1970))_\(UUID().uuidString.prefix(4)).jpg"
                     let target = self.directoryURL.appendingPathComponent(filename)
-                    try? data.write(to: target)
-                    DispatchQueue.main.async {
-                        self.loadFiles()
-                    }
+                    do {
+                        try data.write(to: target, options: .atomic)
+                        DispatchQueue.main.async { self.loadFiles() }
+                    } catch { DispatchQueue.main.async { self.errorMessage = error.localizedDescription } }
                 case .failure(let error):
-                    print("Fotoğraf aktarılamadı: \(error)")
+                    DispatchQueue.main.async { self.errorMessage = error.localizedDescription }
                 }
             }
         }
@@ -453,8 +532,7 @@ extension URL: @retroactive Identifiable {
 
 // MARK: - Belge Seçici (UIDocumentPickerViewController)
 struct DocumentPicker: UIViewControllerRepresentable {
-    let targetDirectory: URL
-    let onDismiss: () -> Void
+    let onSelect: ([URL]) -> Void
     
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -474,16 +552,43 @@ struct DocumentPicker: UIViewControllerRepresentable {
         init(_ parent: DocumentPicker) { self.parent = parent }
         
         func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
-            for sourceURL in urls {
-                let dest = parent.targetDirectory.appendingPathComponent(sourceURL.lastPathComponent)
-                try? FileManager.default.removeItem(at: dest)
-                try? FileManager.default.copyItem(at: sourceURL, to: dest)
-            }
-            parent.onDismiss()
+            parent.onSelect(urls)
         }
         
         func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
-            parent.onDismiss()
+            parent.onSelect([])
         }
+    }
+}
+
+struct LocalTrashView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var entries: [LocalFileOperations.TrashEntry] = []
+    @State private var errorMessage: String?
+    var body: some View {
+        NavigationStack {
+            List {
+                if entries.isEmpty { Text(L10n.text("Çöp kutusu boş")).foregroundStyle(.secondary) }
+                ForEach(entries) { entry in
+                    VStack(alignment: .leading) {
+                        Text(entry.name)
+                        Text(entry.deletedAt, style: .date).font(.caption).foregroundStyle(.secondary)
+                        Button(L10n.text("Geri Yükle")) {
+                            do { try LocalFileOperations.restore(entry); reload() }
+                            catch { errorMessage = error.localizedDescription }
+                        }
+                    }
+                }
+            }.navigationTitle("Çöp Kutusu")
+                .toolbar { Button(L10n.text("Bitti")) { dismiss() } }
+                .onAppear(perform: reload)
+                .alert("Geri yüklenemedi", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
+                    Button(L10n.text("Tamam")) { errorMessage = nil }
+                } message: { Text(errorMessage ?? "") }
+        }
+    }
+    private func reload() {
+        do { entries = try LocalFileOperations.trashEntries() }
+        catch { errorMessage = error.localizedDescription }
     }
 }

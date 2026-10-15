@@ -15,6 +15,7 @@ public struct TransferSheetView: View {
     public var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
+                if let error = transferManager.persistenceError { Text(error).font(.caption).foregroundStyle(.red).padding() }
                 if transferManager.items.isEmpty {
                     VStack(spacing: 16) {
                         Image(systemName: "tray.and.arrow.down")
@@ -123,35 +124,35 @@ struct IOSTransferRowView: View {
             HStack(spacing: 6) {
                 if item.status == .running {
                     Button(action: { TransferManager.shared.pauseTask(id: item.id) }) {
-                        Image(systemName: "pause.circle.fill")
+                        Image(systemName: "pause.circle.fill").accessibilityLabel("Aktarımı duraklat")
                             .font(.system(size: 20))
                             .foregroundColor(.secondary)
                     }
                     .buttonStyle(.plain)
                     
                     Button(action: { TransferManager.shared.cancelTask(id: item.id) }) {
-                        Image(systemName: "xmark.circle.fill")
+                        Image(systemName: "xmark.circle.fill").accessibilityLabel("Aktarımı iptal et")
                             .font(.system(size: 20))
                             .foregroundColor(.secondary)
                     }
                     .buttonStyle(.plain)
                 } else if item.status == .paused {
                     Button(action: { TransferManager.shared.resumeTask(id: item.id) }) {
-                        Image(systemName: "play.circle.fill")
+                        Image(systemName: "play.circle.fill").accessibilityLabel("Aktarımı sürdür")
                             .font(.system(size: 20))
                             .foregroundColor(.indigo)
                     }
                     .buttonStyle(.plain)
                     
                     Button(action: { TransferManager.shared.cancelTask(id: item.id) }) {
-                        Image(systemName: "xmark.circle.fill")
+                        Image(systemName: "xmark.circle.fill").accessibilityLabel("Aktarımı iptal et")
                             .font(.system(size: 20))
                             .foregroundColor(.secondary)
                     }
                     .buttonStyle(.plain)
                 } else if item.status == .failed {
                     Button(action: { TransferManager.shared.retryTask(id: item.id) }) {
-                        Image(systemName: "arrow.clockwise.circle.fill")
+                        Image(systemName: "arrow.clockwise.circle.fill").accessibilityLabel("Aktarımı yeniden dene")
                             .font(.system(size: 20))
                             .foregroundColor(.orange)
                     }

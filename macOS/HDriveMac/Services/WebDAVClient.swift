@@ -230,9 +230,10 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
         return "Basic \(loginData.base64EncodedString())"
     }
     
-    public init(config: CloudreveServerConfig) {
+    public init(config: CloudreveServerConfig, session: URLSession? = nil) {
         self.config = config
         super.init()
+        if let session = session { self.session = session }
     }
     
     private var s3Storage: S3Storage { S3Storage(config: config, session: session) }
@@ -1083,10 +1084,7 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
                     targetURL = targetURL.appendingPathExtension("pdf")
                 }
                 
-                if FileManager.default.fileExists(atPath: targetURL.path) {
-                    try? FileManager.default.removeItem(at: targetURL)
-                }
-                try FileManager.default.moveItem(at: tempURL, to: targetURL)
+                try SafeFileStorage.install(download: tempURL, destination: targetURL, response: response)
                 DispatchQueue.main.async { completion(nil) }
             } catch {
                 DispatchQueue.main.async { completion(error) }
@@ -1916,6 +1914,168 @@ final class WebDAVXMLParser: NSObject, XMLParserDelegate {
                 )
                 items.append(item)
             }
+        }
+    }
+}
+
+extension WebDAVClient {
+    public func cancelActiveTransfers() { session.getAllTasks { tasks in tasks.forEach { $0.cancel() } } }
+    private func actionData(_ method: String, _ address: String, body: [String: Any]? = nil) async throws -> Data {
+        let host = config.storageProtocol == .googleDrive ? "www.googleapis.com" : "graph.microsoft.com"
+        guard config.storageProtocol == .googleDrive || config.storageProtocol == .oneDrive,
+              let url = URL(string: address), url.scheme == "https", url.host == host,
+              url.port == nil || url.port == 443 else { throw URLError(.badURL) }
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        if let body = body {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
+        let (data, response) = try await authorizedData(request)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            throw NSError(domain: "HDrive.Action", code: (response as? HTTPURLResponse)?.statusCode ?? 0,
+                          userInfo: [NSLocalizedDescriptionKey: "İşlem tamamlanamadı (HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)). Erişim izinlerinizi kontrol edin."])
+        }
+        return data
+    }
+    public func renameItem(href: String, newName: String, parentPath: String, completion: @escaping (Error?) -> Void) {
+        let name: String
+        do { name = try LocalFileOperations.validName(newName) }
+        catch { completion(error); return }
+        if config.storageProtocol != .googleDrive && config.storageProtocol != .oneDrive {
+            let destination = parentPath.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "/" + name
+            move(from: href, to: destination, overwrite: false, completion: completion)
+            return
+        }
+        Task {
+            do {
+                let id = OAuthSession.encode(href.trimmingCharacters(in: CharacterSet(charactersIn: "/")))
+                let address = config.storageProtocol == .googleDrive
+                    ? "https://www.googleapis.com/drive/v3/files/\(id)?supportsAllDrives=true"
+                    : "https://graph.microsoft.com/v1.0/me/drive/items/\(id)"
+                _ = try await actionData("PATCH", address, body: ["name": name])
+                await MainActor.run { completion(nil) }
+            } catch { await MainActor.run { completion(error) } }
+        }
+    }
+    public func moveToTrash(href: String, isDirectory: Bool, completion: @escaping (Error?) -> Void) {
+        guard config.storageProtocol == .googleDrive else { delete(at: href, isDirectory: isDirectory, completion: completion); return }
+        Task {
+            do {
+                _ = try await actionData("PATCH", "https://www.googleapis.com/drive/v3/files/\(OAuthSession.encode(href))?supportsAllDrives=true", body: ["trashed": true])
+                await MainActor.run { completion(nil) }
+            } catch { await MainActor.run { completion(error) } }
+        }
+    }
+    public func readOnlyLink(href: String, allowPublicAccess: Bool = false) async throws -> URL {
+        let id = OAuthSession.encode(href)
+        let data: Data
+        if config.storageProtocol == .googleDrive {
+            if allowPublicAccess {
+                _ = try await actionData("POST", "https://www.googleapis.com/drive/v3/files/\(id)/permissions?supportsAllDrives=true", body: ["type": "anyone", "role": "reader"])
+            }
+            data = try await actionData("GET", "https://www.googleapis.com/drive/v3/files/\(id)?fields=webViewLink&supportsAllDrives=true")
+        } else if config.storageProtocol == .oneDrive {
+            data = try await actionData(allowPublicAccess ? "POST" : "GET",
+                "https://graph.microsoft.com/v1.0/me/drive/items/\(id)" + (allowPublicAccess ? "/createLink" : ""),
+                body: allowPublicAccess ? ["type": "view", "scope": "anonymous"] : nil)
+        } else { throw URLError(.unsupportedURL) }
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        let link = json["webViewLink"] as? String ?? json["webUrl"] as? String ?? (json["link"] as? [String: Any])?["webUrl"] as? String
+        guard let link = link, let url = URL(string: link), url.scheme == "https" else { throw URLError(.cannotParseResponse) }
+        return url
+    }
+    public func revokePublicLinks(href: String) async throws {
+        let id = OAuthSession.encode(href)
+        let base = config.storageProtocol == .googleDrive
+            ? "https://www.googleapis.com/drive/v3/files/\(id)/permissions"
+            : "https://graph.microsoft.com/v1.0/me/drive/items/\(id)/permissions"
+        guard config.storageProtocol == .googleDrive || config.storageProtocol == .oneDrive else { throw URLError(.unsupportedURL) }
+        let data = try await actionData("GET", base + (config.storageProtocol == .googleDrive ? "?fields=permissions(id,type)&supportsAllDrives=true" : ""))
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        let permissions = json[config.storageProtocol == .googleDrive ? "permissions" : "value"] as? [[String: Any]] ?? []
+        for permission in permissions {
+            let scope = (permission["link"] as? [String: Any])?["scope"] as? String
+            if permission["type"] as? String == "anyone" || scope == "anonymous", let permissionID = permission["id"] as? String {
+                _ = try await actionData("DELETE", base + "/" + OAuthSession.encode(permissionID) + (config.storageProtocol == .googleDrive ? "?supportsAllDrives=true" : ""))
+            }
+        }
+    }
+    public func versions(href: String) async throws -> [CloudFileVersion] {
+        let id = OAuthSession.encode(href)
+        let google = config.storageProtocol == .googleDrive
+        guard google || config.storageProtocol == .oneDrive else { throw URLError(.unsupportedURL) }
+        var address: String? = google
+            ? "https://www.googleapis.com/drive/v3/files/\(id)/revisions?fields=nextPageToken,revisions(id,modifiedTime,size)&pageSize=200"
+            : "https://graph.microsoft.com/v1.0/me/drive/items/\(id)/versions"
+        let initial = address!
+        var result: [CloudFileVersion] = [], seen = Set<String>()
+        while let page = address {
+            guard seen.insert(page).inserted else { throw URLError(.cannotParseResponse) }
+            let data = try await actionData("GET", page)
+            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+            for row in json[google ? "revisions" : "value"] as? [[String: Any]] ?? [] {
+                guard let id = row["id"] as? String else { continue }
+                result.append(CloudFileVersion(id: id, modified: row[google ? "modifiedTime" : "lastModifiedDateTime"] as? String ?? "", canRestore: !google))
+            }
+            if google, let token = json["nextPageToken"] as? String { address = initial + "&pageToken=" + OAuthSession.encode(token) }
+            else if !google { address = json["@odata.nextLink"] as? String }
+            else { address = nil }
+        }
+        return result
+    }
+    public func restoreVersion(href: String, version: String) async throws {
+        guard config.storageProtocol == .oneDrive else { throw URLError(.unsupportedURL) }
+        _ = try await actionData("POST", "https://graph.microsoft.com/v1.0/me/drive/items/\(OAuthSession.encode(href))/versions/\(OAuthSession.encode(version))/restoreVersion", body: [:])
+    }
+    public func trashedFiles() async throws -> [CloudTrashItem] {
+        guard config.storageProtocol == .googleDrive else { throw URLError(.unsupportedURL) }
+        let initial = "https://www.googleapis.com/drive/v3/files?q=trashed%3Dtrue&fields=nextPageToken,files(id,name)&pageSize=1000"
+        var address: String? = initial, result: [CloudTrashItem] = [], seen = Set<String>()
+        while let page = address {
+            guard seen.insert(page).inserted else { throw URLError(.cannotParseResponse) }
+            let data = try await actionData("GET", page)
+            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+            for row in json["files"] as? [[String: Any]] ?? [] {
+                if let id = row["id"] as? String, let name = row["name"] as? String { result.append(CloudTrashItem(id: id, name: name)) }
+            }
+            address = (json["nextPageToken"] as? String).map { initial + "&pageToken=" + OAuthSession.encode($0) }
+        }
+        return result
+    }
+    public func restoreTrash(href: String) async throws {
+        guard config.storageProtocol == .googleDrive else { throw URLError(.unsupportedURL) }
+        _ = try await actionData("PATCH", "https://www.googleapis.com/drive/v3/files/\(OAuthSession.encode(href))?supportsAllDrives=true", body: ["trashed": false])
+    }
+}
+
+extension WebDAVClient {
+    public func replaceFile(href: String, localURL: URL, completion: @escaping (Error?) -> Void) {
+        guard config.storageProtocol == .googleDrive || config.storageProtocol == .oneDrive else {
+            uploadFile(localFileURL: localURL, toRemotePath: href, completion: completion); return
+        }
+        Task {
+            do {
+                let google = config.storageProtocol == .googleDrive
+                let id = OAuthSession.encode(href.trimmingCharacters(in: CharacterSet(charactersIn: "/")))
+                let address = google ? "https://www.googleapis.com/upload/drive/v3/files/\(id)?uploadType=media&supportsAllDrives=true" : "https://graph.microsoft.com/v1.0/me/drive/items/\(id)/content"
+                var request = URLRequest(url: URL(string: address)!)
+                request.httpMethod = google ? "PATCH" : "PUT"
+                request.setValue(authHeader, forHTTPHeaderField: "Authorization")
+                request.setValue(UTType(filenameExtension: localURL.pathExtension)?.preferredMIMEType ?? "application/octet-stream", forHTTPHeaderField: "Content-Type")
+                let (_, first) = try await session.upload(for: request, fromFile: localURL)
+                var response = first
+                if (first as? HTTPURLResponse)?.statusCode == 401 {
+                    let resource = google ? "https://www.googleapis.com/drive/v3/files/\(id)?fields=id" : "https://graph.microsoft.com/v1.0/me/drive/items/\(id)?$select=id"
+                    _ = try await authorizedData(URLRequest(url: URL(string: resource)!))
+                    request.setValue(authHeader, forHTTPHeaderField: "Authorization")
+                    (_, response) = try await session.upload(for: request, fromFile: localURL)
+                }
+                guard let status = response as? HTTPURLResponse, (200...299).contains(status.statusCode) else {
+                    throw NSError(domain: "HDrive.Upload", code: (response as? HTTPURLResponse)?.statusCode ?? 0, userInfo: [NSLocalizedDescriptionKey: "Dosya güncellenemedi; erişim izinlerinizi kontrol edin."])
+                }
+                await MainActor.run { completion(nil) }
+            } catch { await MainActor.run { completion(error) } }
         }
     }
 }
