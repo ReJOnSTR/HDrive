@@ -16,6 +16,9 @@ public struct CloudreveMobileView: View {
     
     @State private var isConfiguring = false
     @State private var showFolderSync = false
+    @State private var showMove = false
+    @State private var shareLinks: [URL] = []
+    @State private var showBulkShare = false
     @State private var showCloudManagement = false
     @State private var cloudActionConfig: CloudreveServerConfig?
     @State private var cloudActionFile: RemoteFileItem?
@@ -97,6 +100,10 @@ public struct CloudreveMobileView: View {
                 Button(L10n.text("Vazgeç"), role: .cancel) { pendingDeletion = [] }
             }
 
+        .sheet(isPresented: $showMove) {
+            if let account = manager.activeServer { CloudFolderPicker(config: account) { target in moveSelected(to: target, account: account) } }
+        }
+        .sheet(isPresented: $showBulkShare) { ShareSheet(activityItems: shareLinks) }
         .sheet(isPresented: $showFolderSync) {
             if let account = manager.activeServer { FolderSyncView(config: account, remoteRoot: currentPath) }
         }
@@ -113,6 +120,10 @@ public struct CloudreveMobileView: View {
                     HStack {
                         Text("\(selectedIDs.count) seçili").font(.caption)
                         Spacer()
+                        Button("Taşı") { showMove = true }
+                        if manager.activeServer?.storageProtocol == .googleDrive || manager.activeServer?.storageProtocol == .oneDrive {
+                            Button(L10n.text("Paylaş")) { shareSelected() }
+                        }
                         Button { downloadSelected() } label: { Label("İndir", systemImage: "arrow.down.circle") }
                         Button(role: .destructive) {
                             pendingDeletion = remoteFiles.filter { selectedIDs.contains($0.id) }; showDeleteConfirmation = true
@@ -402,6 +413,41 @@ public struct CloudreveMobileView: View {
     }
     
     // MARK: - İşlemler
+    private func shareSelected() {
+        guard let account = manager.activeServer else { return }
+        let files = remoteFiles.filter { selectedIDs.contains($0.id) }
+        Task {
+            var links: [URL] = [], errors: [String] = []
+            let client = WebDAVClient(config: account)
+            for file in files {
+                do { links.append(try await client.readOnlyLink(href: file.href)) }
+                catch { errors.append(file.name + ": " + error.localizedDescription) }
+            }
+            let values = links, message = errors.joined(separator: "\n")
+            await MainActor.run {
+                if !message.isEmpty { operationError = message }
+                else { shareLinks = values; showBulkShare = !values.isEmpty }
+            }
+        }
+    }
+    private func moveSelected(to target: String, account: CloudreveServerConfig) {
+        let files = remoteFiles.filter { selectedIDs.contains($0.id) }
+        Task {
+            var errors: [String] = []
+            let client = WebDAVClient(config: account)
+            do {
+                let destinations: [RemoteFileItem] = try await withCheckedThrowingContinuation { continuation in client.listFiles(at: target) { continuation.resume(with: $0) } }
+                for file in files {
+                    if destinations.contains(where: { $0.name == file.name }) { errors.append(file.name + ": Hedefte aynı adlı öğe var."); continue }
+                    do { try await client.moveItem(href: file.href, name: file.name, toFolder: target) }
+                    catch { errors.append(file.name + ": " + error.localizedDescription) }
+                }
+            } catch { errors.append(error.localizedDescription) }
+            let message = errors.joined(separator: "\n")
+            await MainActor.run { if !message.isEmpty { operationError = message }; if manager.activeServer?.id == account.id { refreshFiles() } }
+        }
+    }
+
     private func activate(_ file: RemoteFileItem) {
         if selecting {
             if selectedIDs.contains(file.id) { selectedIDs.remove(file.id) } else { selectedIDs.insert(file.id) }

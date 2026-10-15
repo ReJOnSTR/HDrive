@@ -153,7 +153,7 @@ private final class S3ListParser: NSObject, XMLParserDelegate {
         if entry != nil {
             if name == "Key" || (name == "Prefix" && stack.dropLast().last == "CommonPrefixes") { entry?.key = text }
             if name == "Size" { entry?.size = Int64(text) ?? 0 }
-            if name == "LastModified" { entry?.modified = ISO8601DateFormatter().date(from: text) }
+            if name == "LastModified" { entry?.modified = CloudDate.parse(text) }
             if name == "Contents" || name == "CommonPrefixes" {
                 if var entry = entry, !entry.key.isEmpty { entry.isDirectory = entry.isDirectory || entry.key.hasSuffix("/"); entries.append(entry) }
                 entry = nil

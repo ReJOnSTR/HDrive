@@ -2588,7 +2588,7 @@ public struct NativeExplorerView: View {
         }
         
         isLoading = true
-        previewManager.resetForAccount(server)
+        previewManager.resetForAccount(server, force: true)
         let client = WebDAVClient(config: server)
         loadStorageQuota(for: server)
         

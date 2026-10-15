@@ -39,6 +39,7 @@ public struct FileBrowserView: View {
     @State private var showTrash = false
     @State private var shareURLs: [URL] = []
     @State private var showBulkShare = false
+    @State private var showMove = false
     @State private var importQueue: [URL] = []
     @State private var showCollision = false
     @State private var lastTrashEntries: [LocalFileOperations.TrashEntry] = []
@@ -169,6 +170,17 @@ public struct FileBrowserView: View {
         .sheet(item: $activeShareURL) { url in
             ShareSheet(activityItems: [url])
         }
+        .sheet(isPresented: $showMove) {
+            LocalFolderPicker { target in
+                var errors: [String] = []
+                for url in selection {
+                    do { try LocalFileOperations.moveFile(url, into: target) }
+                    catch { errors.append(url.lastPathComponent + ": " + error.localizedDescription) }
+                }
+                selection.removeAll(); loadFiles()
+                if !errors.isEmpty { errorMessage = errors.joined(separator: "\n") }
+            }
+        }
         .sheet(isPresented: $showBulkShare) { ShareSheet(activityItems: shareURLs) }
         .sheet(isPresented: $showTrash, onDismiss: loadFiles) { LocalTrashView() }
         .alert("İşlem tamamlanamadı", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
@@ -189,6 +201,7 @@ public struct FileBrowserView: View {
                 HStack {
                     Text("\(selection.count) seçili").font(.caption)
                     Spacer()
+                    Button("Taşı") { showMove = true }.disabled(selection.isEmpty)
                     Button { shareURLs = Array(selection); showBulkShare = true } label: { Label(L10n.text("Paylaş"), systemImage: "square.and.arrow.up") }.disabled(selection.isEmpty)
                     Button(role: .destructive) { pendingDeletion = Array(selection); showDeleteConfirmation = true } label: { Label(L10n.text("Sil"), systemImage: "trash") }.disabled(selection.isEmpty)
                 }.padding().background(.regularMaterial)
@@ -590,5 +603,35 @@ struct LocalTrashView: View {
     private func reload() {
         do { entries = try LocalFileOperations.trashEntries() }
         catch { errorMessage = error.localizedDescription }
+    }
+}
+
+struct LocalFolderPicker: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var current: URL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("HDriveFiles")
+    @State private var folders: [URL] = []
+    @State private var errorMessage: String?
+    let onSelect: (URL) -> Void
+    var body: some View {
+        NavigationStack {
+            List {
+                Text(current.lastPathComponent).font(.headline)
+                if current.standardizedFileURL != FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("HDriveFiles").standardizedFileURL {
+                    Button(L10n.text("Geri")) { current.deleteLastPathComponent(); load() }
+                }
+                ForEach(folders, id: \.self) { folder in Button { current = folder; load() } label: { Label(folder.lastPathComponent, systemImage: "folder") } }
+                if let errorMessage = errorMessage { Text(errorMessage).foregroundStyle(.red) }
+                Button("Seçili Öğeleri Buraya Taşı") { onSelect(current); dismiss() }
+                Text("Aynı adlı öğeler varsa her iki kopya korunur.").font(.caption).foregroundStyle(.secondary)
+            }.navigationTitle("Hedef Klasör").onAppear(perform: load)
+                .toolbar { Button(L10n.text("İptal")) { dismiss() } }
+        }
+    }
+    private func load() {
+        do {
+            folders = try FileManager.default.contentsOfDirectory(at: current, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey], options: [.skipsHiddenFiles]).filter {
+                let values = try $0.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]); return values.isDirectory == true && values.isSymbolicLink != true
+            }.sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+        } catch { errorMessage = error.localizedDescription }
     }
 }

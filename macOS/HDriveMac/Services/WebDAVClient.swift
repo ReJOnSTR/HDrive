@@ -699,7 +699,7 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
                     let mime = row["mimeType"] as? String ?? ""
                     return RemoteFileItem(id: id, name: CloudFileNaming.exportName(name, mime: mime), href: id, isDirectory: mime == "application/vnd.google-apps.folder",
                         size: Int64(row["size"] as? String ?? "0") ?? 0,
-                        modificationDate: ISO8601DateFormatter().date(from: row["modifiedTime"] as? String ?? ""),
+                        modificationDate: CloudDate.parse(row["modifiedTime"] as? String ?? ""),
                         contentType: mime, thumbnailURL: row["thumbnailLink"] as? String)
                 }
                 await MainActor.run { completion(.success(items)) }
@@ -716,7 +716,7 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
                     guard let id = row["id"] as? String, let name = row["name"] as? String else { return nil }
                     return RemoteFileItem(id: id, name: name, href: id, isDirectory: row["folder"] != nil,
                         size: (row["size"] as? NSNumber)?.int64Value ?? 0,
-                        modificationDate: ISO8601DateFormatter().date(from: row["lastModifiedDateTime"] as? String ?? ""),
+                        modificationDate: CloudDate.parse(row["lastModifiedDateTime"] as? String ?? ""),
                         contentType: (row["file"] as? [String: Any])?["mimeType"] as? String)
                 }
                 await MainActor.run { completion(.success(items)) }
@@ -2077,6 +2077,34 @@ extension WebDAVClient {
                 }
                 await MainActor.run { completion(nil) }
             } catch { await MainActor.run { completion(error) } }
+        }
+    }
+}
+
+extension WebDAVClient {
+    public func moveItem(href: String, name: String, toFolder: String) async throws {
+        let id = OAuthSession.encode(href.trimmingCharacters(in: CharacterSet(charactersIn: "/")))
+        if config.storageProtocol == .googleDrive {
+            let data = try await actionData("GET", "https://www.googleapis.com/drive/v3/files/\(id)?fields=parents&supportsAllDrives=true")
+            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+            let parents = json["parents"] as? [String] ?? []
+            let parent = toFolder.isEmpty ? "root" : toFolder
+            _ = try await actionData("PATCH", "https://www.googleapis.com/drive/v3/files/\(id)?addParents=\(OAuthSession.encode(parent))&removeParents=\(OAuthSession.encode(parents.joined(separator: ",")))&supportsAllDrives=true", body: [:])
+        } else if config.storageProtocol == .oneDrive {
+            var parent = toFolder
+            if parent.isEmpty || parent == "root" {
+                let data = try await actionData("GET", "https://graph.microsoft.com/v1.0/me/drive/root?$select=id")
+                let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+                guard let rootID = json["id"] as? String else { throw URLError(.cannotParseResponse) }; parent = rootID
+            }
+            _ = try await actionData("PATCH", "https://graph.microsoft.com/v1.0/me/drive/items/\(id)", body: ["parentReference": ["id": parent]])
+        } else {
+            let target = toFolder.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "/" + (try LocalFileOperations.validName(name))
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                move(from: href, to: target, overwrite: false) { error in
+                    if let error = error { continuation.resume(throwing: error) } else { continuation.resume() }
+                }
+            }
         }
     }
 }

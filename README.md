@@ -25,6 +25,18 @@ WebDAV hesabı, işletim sisteminin ağ sürücüsü araçlarıyla ayrıca bağl
 Hazır paketler [GitHub Releases](https://github.com/ReJOnSTR/HDrive/releases)
 sayfasındadır. Önceden yayımlanmış paketler yeni kaynak değişikliklerini içermez.
 
+## Dosyalar ve çalışma alanı
+
+- Çevrimdışı dosya kopyaları, korunan çalışma kopyaları ve önbellek yönetimi.
+- Yeniden açılışta geri gelen aktarım kuyruğu; Windows'ta doğrulayıcıyla korunan
+  kısmi indirmelere devam etme.
+- Klasör eşitleme önizlemesi, hariç tutma kuralları ve çakışma kararları.
+- Google Drive çöp kutusu; Google/OneDrive paylaşım bağlantıları ve sürüm listeleri.
+- iOS'ta güvenli içe aktarma, yerel çöp kutusu ve çoklu dosya işlemleri.
+
+Platformlara ve sağlayıcılara göre kapsam ve sınırlamalar:
+[UX-IMPLEMENTATION.md](docs/UX-IMPLEMENTATION.md).
+
 ## Geliştirme
 
 Windows için Visual Studio 2022, .NET 8 SDK ve Windows App SDK geliştirme

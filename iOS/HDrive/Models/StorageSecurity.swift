@@ -171,7 +171,10 @@ public enum LocalFileOperations {
             case .skip: return nil
             case .keepBoth: target = availableURL(target)
             case .fail: throw CocoaError(.fileWriteFileExists)
-            case .replace: break
+            case .replace:
+                let sourceDirectory = try source.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true
+                let targetDirectory = try target.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true
+                if sourceDirectory || targetDirectory { throw CocoaError(.fileWriteFileExists) }
             }
         }
         try SafeFileStorage.installFile(source: source, destination: target)
@@ -373,5 +376,25 @@ public enum CloudFileNaming {
         default: return name
         }
         return name.lowercased().hasSuffix(suffix) || name.lowercased().hasSuffix(".pdf") ? name : name + suffix
+    }
+}
+
+extension LocalFileOperations {
+    @discardableResult public static func moveFile(_ source: URL, into directory: URL) throws -> URL {
+        let canonicalSource = source.standardizedFileURL.resolvingSymlinksInPath()
+        let canonicalDirectory = directory.standardizedFileURL.resolvingSymlinksInPath()
+        if canonicalSource.deletingLastPathComponent() == canonicalDirectory { return source }
+        guard canonicalDirectory != canonicalSource, !canonicalDirectory.path.hasPrefix(canonicalSource.path + "/") else { throw CocoaError(.fileWriteInvalidFileName) }
+        guard let copy = try importFile(source, into: directory, policy: .keepBoth) else { throw CocoaError(.fileWriteUnknown) }
+        try FileManager.default.removeItem(at: source)
+        return copy
+    }
+}
+
+public enum CloudDate {
+    public static func parse(_ text: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.date(from: text) ?? ISO8601DateFormatter().date(from: text)
     }
 }

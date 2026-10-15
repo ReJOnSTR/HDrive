@@ -91,9 +91,10 @@ public final class FilePreviewManager: ObservableObject {
     private init() {}
     
     private var accountIdentity = ""
-    public func resetForAccount(_ config: CloudreveServerConfig) {
+    private var previewGeneration = UUID()
+    public func resetForAccount(_ config: CloudreveServerConfig, force: Bool = false) {
         let identity = OfflineStore.identity(config)
-        if accountIdentity != identity { accountIdentity = identity; cachedImages = [:]; loadingPreviewIDs = [] }
+        if force || accountIdentity != identity { accountIdentity = identity; previewGeneration = UUID(); cachedImages = [:]; loadingPreviewIDs = [] }
     }
     private func cacheURL(for file: RemoteFileItem, config: CloudreveServerConfig) -> URL {
         let key = S3Signing.hash(OfflineStore.identity(config) + "|" + file.href + "|" + String(file.size) + "|" + String(file.modificationDate?.timeIntervalSince1970 ?? -1))
@@ -113,6 +114,7 @@ public final class FilePreviewManager: ObservableObject {
         guard file.isImage || file.thumbnailURL != nil else { return }
         if let client = client { resetForAccount(client.config) }
         let identity = accountIdentity
+        let generation = previewGeneration
         
         // Zaten bellekte varsa tekrar indirme
         if cachedImages[file.id] != nil { return }
@@ -124,7 +126,7 @@ public final class FilePreviewManager: ObservableObject {
             URLSession.shared.dataTask(with: thumbURL) { [weak self] data, _, _ in
                 DispatchQueue.main.async {
                     self?.loadingPreviewIDs.remove(file.id)
-                    if self?.accountIdentity == identity, let data = data, let img = NSImage(data: data) {
+                    if self?.accountIdentity == identity, self?.previewGeneration == generation, let data = data, let img = NSImage(data: data) {
                         self?.cachedImages[file.id] = img
                     }
                 }
@@ -151,7 +153,7 @@ public final class FilePreviewManager: ObservableObject {
         client.downloadFile(href: file.href, to: destURL, progress: { _ in }) { [weak self] error in
             DispatchQueue.main.async {
                 self?.loadingPreviewIDs.remove(file.id)
-                if self?.accountIdentity == identity, error == nil, let img = NSImage(contentsOf: destURL) {
+                if self?.accountIdentity == identity, self?.previewGeneration == generation, error == nil, let img = NSImage(contentsOf: destURL) {
                     self?.cachedImages[file.id] = img
                 }
             }

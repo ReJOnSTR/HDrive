@@ -254,3 +254,36 @@ public struct FolderSyncView: View {
         busy = false
     }
 }
+
+public struct CloudFolderPicker: View {
+    let config: CloudreveServerConfig
+    let onSelect: (String) -> Void
+    @State private var current = ""
+    @State private var history: [String] = []
+    @State private var folders: [RemoteFileItem] = []
+    @State private var errorMessage: String?
+    @State private var loading = false
+    @Environment(\.dismiss) private var dismiss
+    public init(config: CloudreveServerConfig, onSelect: @escaping (String) -> Void) { self.config = config; self.onSelect = onSelect }
+    public var body: some View {
+        NavigationStack {
+            List {
+                if loading { ProgressView() }
+                if !history.isEmpty { Button(L10n.text("Geri")) { current = history.removeLast(); load() } }
+                ForEach(folders) { folder in
+                    Button { history.append(current); current = folder.href; load() } label: { Label(folder.name, systemImage: "folder") }
+                }
+                if let errorMessage = errorMessage { Text(errorMessage).foregroundStyle(.red) }
+                Button("Buraya Taşı") { onSelect(current); dismiss() }.disabled(loading || errorMessage != nil)
+            }.navigationTitle("Hedef Bulut Klasörü").onAppear(perform: load)
+                .toolbar { Button(L10n.text("İptal")) { dismiss() } }
+        }
+    }
+    private func load() {
+        loading = true; errorMessage = nil
+        WebDAVClient(config: config).listFiles(at: current) { result in
+            loading = false
+            switch result { case .success(let items): folders = items.filter { $0.isDirectory }; case .failure(let error): errorMessage = error.localizedDescription }
+        }
+    }
+}

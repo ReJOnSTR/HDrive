@@ -207,6 +207,19 @@ struct CoreRegression {
         try require(CloudFileNaming.exportName("Budget", mime: "application/vnd.google-apps.spreadsheet") == "Budget.xlsx", "Offline native document name lost its export extension")
         try require(CloudFileNaming.exportName("Report.docx", mime: "application/vnd.google-apps.document") == "Report.docx", "Native export extension duplicated")
         print("PASS: native cloud document exports retain the destination registered by offline storage")
+
+        try require(CloudDate.parse("2026-01-01T01:02:03.456Z") != nil && CloudDate.parse("2026-01-01T01:02:03Z") != nil, "Cloud modification timestamp was lost")
+        print("PASS: fractional cloud timestamps remain available for conflict detection")
+
+        let moveDestination = root.appendingPathComponent("moved")
+        try FileManager.default.createDirectory(at: moveDestination, withIntermediateDirectories: true)
+        try Data("existing-target".utf8).write(to: moveDestination.appendingPathComponent(recovered.lastPathComponent))
+        let moved = try LocalFileOperations.moveFile(recovered, into: moveDestination)
+        try require(moved.lastPathComponent != recovered.lastPathComponent && !FileManager.default.fileExists(atPath: recovered.path), "Local move overwrote a collision or left the source behind")
+        var refusedDescendant = false
+        do { try LocalFileOperations.moveFile(moveDestination, into: moveDestination.appendingPathComponent("child")) } catch { refusedDescendant = true }
+        try require(refusedDescendant, "Folder move into its own descendant was allowed")
+        print("PASS: batch move preserves name collisions and rejects descendant destinations")
         print("All Apple core regression checks passed.")
     }
 }
