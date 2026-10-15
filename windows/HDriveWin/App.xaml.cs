@@ -46,6 +46,9 @@ public partial class App : Application
         {
             MainWindowInstance = new MainWindow();
             MainWindowInstance.Activate();
+            var warning = Services.CloudreveManager.Instance.StartupWarning;
+            if (!string.IsNullOrEmpty(warning))
+                MessageBox(IntPtr.Zero, warning, "HDrive - Hesap kaydı", 0x00000030);
         }
         catch (Exception ex)
         {

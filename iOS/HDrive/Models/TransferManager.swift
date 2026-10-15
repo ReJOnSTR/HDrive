@@ -35,6 +35,9 @@ public final class TransferItem: ObservableObject, Identifiable {
     @Published public var speedBytesPerSec: Double = 0.0
     @Published public var errorMessage: String? = nil
     
+    public var accountID: UUID?
+    public var storageIdentity: String = ""
+    var executionID = UUID()
     public var resumeData: Data? = nil
     public weak var urlSessionTask: URLSessionTask? = nil
     
@@ -58,6 +61,8 @@ public final class TransferItem: ObservableObject, Identifiable {
         self.direction = direction
         self.totalBytes = totalBytes
         self.client = client
+        self.accountID = client?.config.id
+        self.storageIdentity = client.map { OfflineStore.identity($0.config) } ?? ""
     }
     
     public var formattedSize: String {
@@ -87,6 +92,8 @@ public final class TransferManager: NSObject, ObservableObject, URLSessionDownlo
     @Published public var isTransferring: Bool = false
     @Published public var overallProgress: Double = 0.0
     
+    @Published public var persistenceError: String?
+    private let journal = TransferJournal(url: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("HDrive/transfers.json"))
     private let maxConcurrentTransfers = 3
     private var session: URLSession!
     private var taskMap: [Int: TransferItem] = [:] // Task Identifier -> TransferItem
@@ -100,6 +107,18 @@ public final class TransferManager: NSObject, ObservableObject, URLSessionDownlo
         config.timeoutIntervalForResource = 3600
         self.session = URLSession(configuration: config, delegate: self, delegateQueue: OperationQueue.main)
         
+        do {
+            items = try journal.load().compactMap { record in
+                guard let direction = TransferDirection(rawValue: record.direction) else { return nil }
+                let item = TransferItem(id: record.id, fileName: record.fileName, remotePath: record.remotePath,
+                    localURL: URL(fileURLWithPath: record.localPath), direction: direction, totalBytes: record.totalBytes)
+                item.accountID = record.accountID; item.storageIdentity = record.identity
+                let saved = TransferStatus(rawValue: record.status) ?? .paused
+                item.status = saved == .completed || saved == .cancelled ? saved : .paused
+                return item
+            }
+        } catch { persistenceError = "Aktarım kuyruğu kurtarılamadı; kayıt korundu: " + error.localizedDescription }
+
         // Periyodik hız hesaplayıcı (Her 1 saniyede bir)
         self.speedTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             self?.calculateSpeeds()
@@ -116,7 +135,7 @@ public final class TransferManager: NSObject, ObservableObject, URLSessionDownlo
     public func enqueueDownload(fileName: String, remoteHref: String, localTargetURL: URL, client: WebDAVClient, expectedSize: Int64 = 0) -> TransferItem {
         lock.lock()
         // Eğer zaten aynı isimde aktif/kuyrukta bir transfer varsa onu dön
-        if let existing = items.first(where: { $0.remotePath == remoteHref && ($0.status == .running || $0.status == .queued) }) {
+        if let existing = items.first(where: { $0.direction == .download && $0.remotePath == remoteHref && $0.localURL == localTargetURL && $0.storageIdentity == OfflineStore.identity(client.config) && ($0.status == .running || $0.status == .queued) }) {
             lock.unlock()
             return existing
         }
@@ -189,12 +208,14 @@ public final class TransferManager: NSObject, ObservableObject, URLSessionDownlo
     }
     
     private func startTransfer(_ item: TransferItem) {
-        guard let client = item.client else {
-            item.status = .failed
-            item.errorMessage = "Sunucu bağlantısı bulunamadı."
-            return
+        guard let server = CloudreveManager.shared.servers.first(where: { $0.id == item.accountID && $0.isConnected }),
+              OfflineStore.identity(server) == item.storageIdentity else {
+            item.status = .failed; item.errorMessage = "Dosyanın ait olduğu hesabı yeniden bağlayın."
+            updateState(); return
         }
-        
+        let client = WebDAVClient(config: server)
+        item.client = client
+        item.executionID = UUID()
         item.status = .running
         item.errorMessage = nil
         item.lastSampleTime = Date()
@@ -208,7 +229,8 @@ public final class TransferManager: NSObject, ObservableObject, URLSessionDownlo
     }
     
     private func startDownloadTask(_ item: TransferItem, client: WebDAVClient) {
-        if client.config.storageProtocol == .googleDrive || client.config.storageProtocol == .oneDrive {
+        let executionID = item.executionID
+        if client.config.storageProtocol == .googleDrive || client.config.storageProtocol == .oneDrive || client.config.storageProtocol == .s3 {
             client.downloadFile(href: item.remotePath, to: item.localURL, progress: { [weak item] prog in
                 DispatchQueue.main.async {
                     item?.progress = prog
@@ -216,7 +238,7 @@ public final class TransferManager: NSObject, ObservableObject, URLSessionDownlo
                 }
             }) { [weak self, weak item] error in
                 DispatchQueue.main.async {
-                    guard let self = self, let item = item else { return }
+                    guard let self = self, let item = item, item.status == .running, item.executionID == executionID else { return }
                     if let error = error {
                         item.status = .failed
                         item.errorMessage = error.localizedDescription
@@ -259,10 +281,11 @@ public final class TransferManager: NSObject, ObservableObject, URLSessionDownlo
     }
     
     private func startUploadTask(_ item: TransferItem, client: WebDAVClient) {
-        if client.config.storageProtocol == .googleDrive || client.config.storageProtocol == .oneDrive {
+        let executionID = item.executionID
+        if client.config.storageProtocol == .googleDrive || client.config.storageProtocol == .oneDrive || client.config.storageProtocol == .s3 {
             client.uploadFile(localFileURL: item.localURL, toRemotePath: item.remotePath) { [weak self, weak item] error in
                 DispatchQueue.main.async {
-                    guard let self = self, let item = item else { return }
+                    guard let self = self, let item = item, item.status == .running, item.executionID == executionID else { return }
                     if let error = error {
                         item.status = .failed
                         item.errorMessage = error.localizedDescription
@@ -300,26 +323,21 @@ public final class TransferManager: NSObject, ObservableObject, URLSessionDownlo
     // MARK: - Eylemler (Pause, Resume, Cancel, Retry, Clear)
     
     public func pauseTask(id: UUID) {
-        guard let item = items.first(where: { $0.id == id }) else { return }
-        guard item.status == .running else { return }
-        
-        if let dt = item.urlSessionTask as? URLSessionDownloadTask {
-            dt.cancel { [weak self, weak item] data in
+        guard let item = items.first(where: { $0.id == id }), item.status == .running else { return }
+        item.status = .paused
+        item.speedBytesPerSec = 0
+        if let task = item.urlSessionTask as? URLSessionDownloadTask {
+            task.cancel { [weak self, weak item] data in
                 DispatchQueue.main.async {
-                    item?.resumeData = data
-                    item?.status = .paused
-                    item?.speedBytesPerSec = 0
-                    self?.processQueue()
+                    guard let item = item, item.status == .paused else { return }
+                    item.resumeData = data
+                    self?.updateState()
                 }
             }
-        } else {
-            item.urlSessionTask?.suspend()
-            item.status = .paused
-            item.speedBytesPerSec = 0
-            processQueue()
-        }
+        } else { item.urlSessionTask?.cancel(); item.client?.cancelActiveTransfers() }
+        processQueue()
     }
-    
+
     public func resumeTask(id: UUID) {
         guard let item = items.first(where: { $0.id == id }) else { return }
         guard item.status == .paused || item.status == .queued else { return }
@@ -330,14 +348,16 @@ public final class TransferManager: NSObject, ObservableObject, URLSessionDownlo
     
     public func cancelTask(id: UUID) {
         guard let item = items.first(where: { $0.id == id }) else { return }
-        item.urlSessionTask?.cancel()
         item.status = .cancelled
+        item.urlSessionTask?.cancel()
+        item.client?.cancelActiveTransfers()
         item.speedBytesPerSec = 0
         processQueue()
     }
     
     public func retryTask(id: UUID) {
         guard let item = items.first(where: { $0.id == id }) else { return }
+        guard item.status == .failed || item.status == .cancelled else { return }
         item.status = .queued
         item.transferredBytes = 0
         item.progress = 0
@@ -356,7 +376,7 @@ public final class TransferManager: NSObject, ObservableObject, URLSessionDownlo
     // MARK: - URLSession Delegates
     
     public func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
-        guard let item = taskMap[downloadTask.taskIdentifier] else { return }
+        guard let item = taskMap[downloadTask.taskIdentifier], item.urlSessionTask?.taskIdentifier == downloadTask.taskIdentifier, item.status == .running else { return }
         DispatchQueue.main.async {
             item.transferredBytes = totalBytesWritten
             if totalBytesExpectedToWrite > 0 {
@@ -367,14 +387,13 @@ public final class TransferManager: NSObject, ObservableObject, URLSessionDownlo
     }
     
     public func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
-        guard let item = taskMap[downloadTask.taskIdentifier] else { return }
+        guard let item = taskMap[downloadTask.taskIdentifier], item.urlSessionTask?.taskIdentifier == downloadTask.taskIdentifier, item.status == .running else { return }
         
         do {
             let parent = item.localURL.deletingLastPathComponent()
             try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
-            try? FileManager.default.removeItem(at: item.localURL)
-            try FileManager.default.moveItem(at: location, to: item.localURL)
-            
+            try SafeFileStorage.install(download: location, destination: item.localURL, response: downloadTask.response)
+
             DispatchQueue.main.async {
                 item.status = .completed
                 item.progress = 1.0
@@ -393,7 +412,7 @@ public final class TransferManager: NSObject, ObservableObject, URLSessionDownlo
     }
     
     public func urlSession(_ session: URLSession, task: URLSessionTask, didSendBodyData bytesSent: Int64, totalBytesSent: Int64, totalBytesExpectedToSend: Int64) {
-        guard let item = taskMap[task.taskIdentifier] else { return }
+        guard let item = taskMap[task.taskIdentifier], item.urlSessionTask?.taskIdentifier == task.taskIdentifier, item.status == .running else { taskMap.removeValue(forKey: task.taskIdentifier); return }
         DispatchQueue.main.async {
             item.transferredBytes = totalBytesSent
             if totalBytesExpectedToSend > 0 {
@@ -404,7 +423,7 @@ public final class TransferManager: NSObject, ObservableObject, URLSessionDownlo
     }
     
     public func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        guard let item = taskMap[task.taskIdentifier] else { return }
+        guard let item = taskMap[task.taskIdentifier], item.urlSessionTask?.taskIdentifier == task.taskIdentifier, item.status == .running else { taskMap.removeValue(forKey: task.taskIdentifier); return }
         
         DispatchQueue.main.async {
             if let error = error as? URLError, error.code == .cancelled {
@@ -455,6 +474,16 @@ public final class TransferManager: NSObject, ObservableObject, URLSessionDownlo
     }
     
     private func updateState() {
+        let retained = items.filter { $0.status != .completed && $0.status != .cancelled } + items.filter { $0.status == .completed || $0.status == .cancelled }.prefix(100)
+        let records = retained.compactMap { item -> TransferRecord? in
+            guard let accountID = item.accountID else { return nil }
+            return TransferRecord(id: item.id, accountID: accountID, identity: item.storageIdentity, fileName: item.fileName,
+                remotePath: item.remotePath, localPath: item.localURL.path, direction: item.direction.rawValue,
+                status: item.status.rawValue, totalBytes: item.totalBytes)
+        }
+        do { try journal.save(records) }
+        catch { persistenceError = "Aktarım kuyruğu kaydedilemedi: " + error.localizedDescription }
+
         let active = items.filter { $0.status == .running || $0.status == .queued }
         self.activeTransfersCount = active.count
         self.isTransferring = !active.isEmpty

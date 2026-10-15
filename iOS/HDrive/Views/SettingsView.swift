@@ -9,11 +9,20 @@ public struct SettingsView: View {
     @ObservedObject var config = ServerConfig.shared
     @State private var portString: String = "8080"
     @State private var showingRestartAlert = false
+    @AppStorage("HDriveLanguage") private var language = "system"
     
     public init() {}
     
     public var body: some View {
         Form {
+            Section(L10n.text("Dil")) {
+                Picker(L10n.text("Dil"), selection: $language) {
+                    Text(L10n.text("Sistem Dili")).tag("system")
+                    Text("Türkçe").tag("tr")
+                    Text("English").tag("en")
+                }
+                Text("Dil değişikliği sonraki açılışta tüm ekranlara uygulanır.").font(.caption)
+            }
             Section(header: Text("Sunucu Yapılandırması")) {
                 HStack {
                     Text("Port")
@@ -60,11 +69,14 @@ public struct SettingsView: View {
                 }
             }
             
-            Section(header: Text("Uygulama Hakkında")) {
+            Section(L10n.text("Dosyalar")) {
+                NavigationLink("Çevrimdışı Dosyalar, Önbellek ve Çöp Kutusu") { WorkspaceSettingsView() }
+            }
+            Section(header: Text(L10n.text("Uygulama Hakkında"))) {
                 HStack {
-                    Text("Sürüm")
+                    Text(L10n.text("Sürüm"))
                     Spacer()
-                    Text("1.0.0")
+                    Text(AppVersion.display)
                         .foregroundColor(.secondary)
                 }
                 HStack {

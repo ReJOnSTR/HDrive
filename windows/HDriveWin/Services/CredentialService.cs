@@ -15,6 +15,8 @@ public static class CredentialService
     {
         if (string.IsNullOrEmpty(key)) return;
 
+        bool stored = false;
+        Exception? storageError = null;
         // 1. Güvenli Yerel Şifrelenmiş DPAPI (Windows Kullanıcı Seviyesinde Şifreleme)
         try
         {
@@ -33,10 +35,17 @@ public static class CredentialService
             {
                 var plainBytes = Encoding.UTF8.GetBytes(password);
                 var encrypted = ProtectedData.Protect(plainBytes, null, DataProtectionScope.CurrentUser);
-                File.WriteAllBytes(filePath, encrypted);
+                var temporary = filePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+                try
+                {
+                    File.WriteAllBytes(temporary, encrypted);
+                    File.Move(temporary, filePath, true);
+                }
+                finally { if (File.Exists(temporary)) File.Delete(temporary); }
             }
+            stored = true;
         }
-        catch { }
+        catch (Exception ex) { storageError = ex; }
 
         // 2. İsteğe bağlı Windows PasswordVault (hata verirse yutulur)
         try
@@ -53,8 +62,10 @@ public static class CredentialService
             {
                 vault.Add(new PasswordCredential(ResourceName, key, password));
             }
+            stored = true;
         }
-        catch { }
+        catch (Exception ex) { storageError = ex; }
+        if (!stored) throw new IOException("Kimlik bilgileri güvenli kasaya kaydedilemedi.", storageError);
     }
 
     public static string? GetPassword(string key)

@@ -17,9 +17,6 @@ public final class KeychainHelper {
         guard let data = password.data(using: .utf8) else { return false }
         let svc = service ?? defaultService
         
-        // Önce mevcut anahtarı sil
-        delete(account: account, service: svc)
-        
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: svc,
@@ -28,8 +25,12 @@ public final class KeychainHelper {
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock
         ]
         
-        let status = SecItemAdd(query as CFDictionary, nil)
-        return status == errSecSuccess
+        let lookup: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+                                     kSecAttrService as String: svc, kSecAttrAccount as String: account]
+        let updated = SecItemUpdate(lookup as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+        if updated == errSecSuccess { return true }
+        guard updated == errSecItemNotFound else { return false }
+        return SecItemAdd(query as CFDictionary, nil) == errSecSuccess
     }
     
     public func get(account: String, service: String? = nil) -> String? {

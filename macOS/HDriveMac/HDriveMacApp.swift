@@ -8,12 +8,19 @@ import AppKit
 
 @main
 struct HDriveMacApp: App {
+    @Environment(\.openWindow) private var openWindow
     @StateObject private var cloudreveManager = CloudreveManager.shared
     
     var body: some Scene {
         // 1. Ana Dosya Gezgini Penceresi (Finder / Explorer Görünümü)
+        Window("Dosyalar ve Depolama", id: "workspace") { WorkspaceSettingsView().frame(minWidth: 520, minHeight: 500) }
         WindowGroup("HDrive") {
             NativeExplorerView()
+                .alert("Hesap kaydı", isPresented: Binding(
+                    get: { cloudreveManager.lastError != nil },
+                    set: { if !$0 { cloudreveManager.lastError = nil } })) {
+                    Button("Tamam") { cloudreveManager.lastError = nil }
+                } message: { Text(cloudreveManager.lastError ?? "") }
         }
         .windowStyle(.titleBar)
         .windowToolbarStyle(.unified)
@@ -24,6 +31,7 @@ struct HDriveMacApp: App {
                     SettingsWindowManager.shared.showSettings()
                 }
                 .keyboardShortcut(",", modifiers: .command)
+                Button("Çevrimdışı Dosyalar ve Önbellek...") { openWindow(id: "workspace") }
             }
             CommandMenu("Görüntü") {
                 Button("Araç Çubuğunu Özelleştir...") {

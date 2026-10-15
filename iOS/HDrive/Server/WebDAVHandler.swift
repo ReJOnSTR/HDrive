@@ -177,7 +177,7 @@ public final class WebDAVHandler {
     
     // MARK: - WebDAV: PROPFIND (Windows & Mac Klasör Listeleme Çekirdeği)
     private func handlePropfind(request: HTTPRequest) -> HTTPResponse {
-        let localURL = resolveLocalURL(for: request.path)
+        guard let localURL = resolveLocalURL(for: request.path) else { return forbiddenPath() }
         
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: localURL.path, isDirectory: &isDir) else {
@@ -286,7 +286,7 @@ public final class WebDAVHandler {
         }
         
         // 4. Fiziksel Dosya İndirme / Görüntüleme
-        let localURL = resolveLocalURL(for: path)
+        guard let localURL = resolveLocalURL(for: path) else { return forbiddenPath() }
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: localURL.path, isDirectory: &isDir) else {
             return HTTPResponse(statusCode: 404, statusMessage: "Not Found")
@@ -350,14 +350,14 @@ public final class WebDAVHandler {
             return HTTPResponse(statusCode: 403, statusMessage: "Forbidden - Read Only")
         }
         
-        let localURL = resolveLocalURL(for: request.path)
+        guard let localURL = resolveLocalURL(for: request.path) else { return forbiddenPath() }
         let parentURL = localURL.deletingLastPathComponent()
         try? FileManager.default.createDirectory(at: parentURL, withIntermediateDirectories: true)
         
         let fileExisted = FileManager.default.fileExists(atPath: localURL.path)
         
         do {
-            try request.body.write(to: localURL)
+            try request.body.write(to: localURL, options: .atomic)
             ServerConfig.shared.totalBytesReceived += Int64(request.body.count)
             return HTTPResponse(statusCode: fileExisted ? 204 : 201, statusMessage: fileExisted ? "No Content" : "Created")
         } catch {
@@ -370,7 +370,7 @@ public final class WebDAVHandler {
         guard ServerConfig.shared.allowWrite else {
             return HTTPResponse(statusCode: 403, statusMessage: "Forbidden")
         }
-        let localURL = resolveLocalURL(for: request.path)
+        guard let localURL = resolveLocalURL(for: request.path) else { return forbiddenPath() }
         do {
             try FileManager.default.createDirectory(at: localURL, withIntermediateDirectories: true)
             return HTTPResponse(statusCode: 201, statusMessage: "Created")
@@ -384,7 +384,8 @@ public final class WebDAVHandler {
         guard ServerConfig.shared.allowWrite else {
             return HTTPResponse(statusCode: 403, statusMessage: "Forbidden")
         }
-        let localURL = resolveLocalURL(for: request.path)
+        guard let localURL = resolveLocalURL(for: request.path) else { return forbiddenPath() }
+        guard localURL.path != rootDirectoryURL.standardizedFileURL.resolvingSymlinksInPath().path else { return forbiddenPath() }
         guard FileManager.default.fileExists(atPath: localURL.path) else {
             return HTTPResponse(statusCode: 404, statusMessage: "Not Found")
         }
@@ -398,55 +399,33 @@ public final class WebDAVHandler {
     }
     
     // MARK: - WebDAV: MOVE / RENAME
-    private func handleMove(request: HTTPRequest) -> HTTPResponse {
-        guard ServerConfig.shared.allowWrite else {
-            return HTTPResponse(statusCode: 403, statusMessage: "Forbidden")
-        }
-        guard let destHeader = request.headers["destination"] else {
-            return HTTPResponse(statusCode: 400, statusMessage: "Missing Destination Header")
-        }
-        
-        let sourceURL = resolveLocalURL(for: request.path)
-        guard let destParsed = URL(string: destHeader) else {
-            return HTTPResponse(statusCode: 400, statusMessage: "Invalid Destination")
-        }
-        
-        let destURL = resolveLocalURL(for: destParsed.path)
-        let existed = FileManager.default.fileExists(atPath: destURL.path)
-        
-        if existed {
-            try? FileManager.default.removeItem(at: destURL)
-        }
-        
-        do {
-            try FileManager.default.moveItem(at: sourceURL, to: destURL)
-            return HTTPResponse(statusCode: existed ? 204 : 201, statusMessage: existed ? "No Content" : "Created")
-        } catch {
-            return HTTPResponse(statusCode: 500, statusMessage: "Move Error: \(error.localizedDescription)")
-        }
-    }
-    
+    private func handleMove(request: HTTPRequest) -> HTTPResponse { copyOrMove(request: request, move: true) }
+
     // MARK: - WebDAV: COPY
-    private func handleCopy(request: HTTPRequest) -> HTTPResponse {
-        guard let destHeader = request.headers["destination"] else {
-            return HTTPResponse(statusCode: 400, statusMessage: "Missing Destination Header")
+    private func handleCopy(request: HTTPRequest) -> HTTPResponse { copyOrMove(request: request, move: false) }
+
+    private func copyOrMove(request: HTTPRequest, move: Bool) -> HTTPResponse {
+        guard ServerConfig.shared.allowWrite else { return forbiddenPath() }
+        guard let destination = request.headers["destination"], let parsed = URL(string: destination) else {
+            return HTTPResponse(statusCode: 400, statusMessage: "Missing or Invalid Destination")
         }
-        let sourceURL = resolveLocalURL(for: request.path)
-        guard let destParsed = URL(string: destHeader) else {
-            return HTTPResponse(statusCode: 400, statusMessage: "Invalid Destination")
-        }
-        let destURL = resolveLocalURL(for: destParsed.path)
-        if FileManager.default.fileExists(atPath: destURL.path) {
-            try? FileManager.default.removeItem(at: destURL)
+        guard let source = resolveLocalURL(for: request.path), let target = resolveLocalURL(for: parsed.path),
+              source != target, source.path != rootDirectoryURL.standardizedFileURL.resolvingSymlinksInPath().path,
+              !target.path.hasPrefix(source.path + "/"), target.path != rootDirectoryURL.standardizedFileURL.resolvingSymlinksInPath().path else { return forbiddenPath() }
+        guard FileManager.default.fileExists(atPath: source.path) else { return HTTPResponse(statusCode: 404, statusMessage: "Not Found") }
+        let exists = FileManager.default.fileExists(atPath: target.path)
+        if exists && request.headers["overwrite"]?.uppercased() == "F" {
+            return HTTPResponse(statusCode: 412, statusMessage: "Precondition Failed")
         }
         do {
-            try FileManager.default.copyItem(at: sourceURL, to: destURL)
-            return HTTPResponse(statusCode: 201, statusMessage: "Created")
+            try SafeFileStorage.installFile(source: source, destination: target)
+            if move { try FileManager.default.removeItem(at: source) }
+            return HTTPResponse(statusCode: exists ? 204 : 201, statusMessage: exists ? "No Content" : "Created")
         } catch {
-            return HTTPResponse(statusCode: 500, statusMessage: "Copy Error")
+            return HTTPResponse(statusCode: 500, statusMessage: "Copy or Move Failed")
         }
     }
-    
+
     // MARK: - WebDAV: LOCK (Windows Explorer Lock Desteği)
     private func handleLock(request: HTTPRequest) -> HTTPResponse {
         let lockToken = UUID().uuidString
@@ -496,7 +475,7 @@ public final class WebDAVHandler {
     // MARK: - Web Dashboard JSON API'leri
     private func handleAPIFiles(request: HTTPRequest) -> HTTPResponse {
         let subPath = request.queryParams["path"] ?? "/"
-        let targetURL = resolveLocalURL(for: subPath)
+        guard let targetURL = resolveLocalURL(for: subPath) else { return forbiddenPath() }
         
         guard let files = try? FileManager.default.contentsOfDirectory(at: targetURL, includingPropertiesForKeys: [
             .isDirectoryKey, .fileSizeKey, .contentModificationDateKey
@@ -563,16 +542,11 @@ public final class WebDAVHandler {
     }
     
     // MARK: - Güvenli Dosya Yolu Çözümleme (Path Traversal Koruması)
-    public func resolveLocalURL(for webPath: String) -> URL {
-        var clean = webPath.removingPercentEncoding ?? webPath
-        if clean.hasPrefix("/") { clean = String(clean.dropFirst()) }
-        
-        // Güvenlik: ../ engelleme
-        clean = clean.replacingOccurrences(of: "../", with: "")
-        
-        if clean.isEmpty {
-            return rootDirectoryURL
-        }
-        return rootDirectoryURL.appendingPathComponent(clean)
+    private func forbiddenPath() -> HTTPResponse {
+        HTTPResponse(statusCode: 403, statusMessage: "Forbidden")
+    }
+
+    public func resolveLocalURL(for webPath: String) -> URL? {
+        SafeFileStorage.resolve(root: rootDirectoryURL, path: webPath)
     }
 }

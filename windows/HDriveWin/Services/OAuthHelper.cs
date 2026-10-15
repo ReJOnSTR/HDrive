@@ -13,6 +13,7 @@ namespace HDriveWin.Services;
 
 public class OAuthHelper
 {
+    internal static Func<HttpClient> HttpClientFactory { get; set; } = () => new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
     public const string DefaultOneDriveClientId = "232843cb-b028-4bbf-97d4-039b8a611dbd";
 
     public static string GetDefaultGoogleClientId()
@@ -84,209 +85,98 @@ public class OAuthHelper
     }
 
     public static async Task<(bool Success, string Token, string RefreshToken, string Message)> StartOAuthLoginAsync(
-        StorageProtocol protocol, 
-        string? customClientId = null, 
-        string? customClientSecret = null)
+        StorageProtocol protocol, string? customClientId = null, string? customClientSecret = null)
     {
-        using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(2.5));
-        HttpListener? listener = null;
-
+        if (protocol is not (StorageProtocol.GoogleDrive or StorageProtocol.OneDrive))
+            return (false, "", "", "Bu hesap OAuth kullanmıyor.");
+        var google = protocol == StorageProtocol.GoogleDrive;
+        var clientId = !string.IsNullOrWhiteSpace(customClientId) ? customClientId.Trim()
+            : google ? GetDefaultGoogleClientId() : DefaultOneDriveClientId;
+        if (string.IsNullOrEmpty(clientId)) return (false, "", "", "OAuth Client ID bulunamadı.");
+        var secret = customClientSecret ?? (google ? GetDefaultGoogleClientSecret() : "");
+        var redirect = google ? "http://127.0.0.1:8080/oauth/callback" : "http://localhost:8080";
+        var session = new OAuthLoginSession();
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMinutes(2.5));
+        using var listener = new HttpListener();
         try
         {
-            listener = new HttpListener();
-            
-            // Google ve OneDrive redirect URI uyumu
-            var redirectUri = (protocol == StorageProtocol.GoogleDrive) 
-                ? "http://127.0.0.1:8080/oauth/callback" 
-                : "http://localhost:8080/";
-
-            if (protocol == StorageProtocol.GoogleDrive)
-            {
-                listener.Prefixes.Add("http://127.0.0.1:8080/");
-            }
-            else
-            {
-                listener.Prefixes.Add("http://localhost:8080/");
-            }
-
+            listener.Prefixes.Add(google ? "http://127.0.0.1:8080/" : "http://localhost:8080/");
             listener.Start();
-
-            string authUrl;
-            string effectiveClientId;
-            string effectiveClientSecret = "";
-
-            if (protocol == StorageProtocol.GoogleDrive)
+            var parameters = new System.Collections.Generic.Dictionary<string, string> {
+                ["client_id"] = clientId, ["response_type"] = "code", ["redirect_uri"] = redirect,
+                ["scope"] = google ? "https://www.googleapis.com/auth/drive" : "offline_access Files.ReadWrite User.Read",
+                ["state"] = session.State, ["code_challenge"] = session.Challenge, ["code_challenge_method"] = "S256"
+            };
+            if (google) { parameters["access_type"] = "offline"; parameters["prompt"] = "consent"; }
+            using var query = new FormUrlEncodedContent(parameters);
+            var endpoint = google ? "https://accounts.google.com/o/oauth2/v2/auth" : "https://login.microsoftonline.com/common/oauth2/v2.0/authorize";
+            var url = endpoint + "?" + await query.ReadAsStringAsync();
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+            while (true)
             {
-                effectiveClientId = !string.IsNullOrWhiteSpace(customClientId) ? customClientId.Trim() : GetDefaultGoogleClientId();
-                effectiveClientSecret = !string.IsNullOrWhiteSpace(customClientSecret) ? customClientSecret.Trim() : GetDefaultGoogleClientSecret();
-
-                if (string.IsNullOrEmpty(effectiveClientId))
+                var context = await listener.GetContextAsync().WaitAsync(cancellation.Token);
+                var expectedPath = google ? "/oauth/callback" : "/";
+                if (context.Request.HttpMethod != "GET" || context.Request.Url?.AbsolutePath != expectedPath ||
+                    !session.Matches(context.Request.QueryString["state"]))
                 {
-                    listener.Stop();
-                    return (false, "", "", "Google OAuth Client ID bulunamadı. Lütfen Ayarlar formundaki Client ID alanına kimliğinizi girin.");
+                    context.Response.StatusCode = 400;
+                    context.Response.Close();
+                    continue; // A favicon or a forged callback cannot terminate the real login.
                 }
-
-                var encClientId = Uri.EscapeDataString(effectiveClientId);
-                authUrl = $"https://accounts.google.com/o/oauth2/v2/auth?client_id={encClientId}&response_type=code&redirect_uri=http%3A%2F%2F127.0.0.1%3A8080%2Foauth%2Fcallback&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive&access_type=offline&prompt=consent";
-            }
-            else if (protocol == StorageProtocol.OneDrive)
-            {
-                effectiveClientId = !string.IsNullOrWhiteSpace(customClientId) ? customClientId.Trim() : DefaultOneDriveClientId;
-                var encClientId = Uri.EscapeDataString(effectiveClientId);
-                authUrl = $"https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id={encClientId}&response_type=code&redirect_uri=http%3A%2F%2Flocalhost%3A8080&scope=offline_access%20Files.ReadWrite%20User.Read";
-            }
-            else
-            {
-                listener.Stop();
-                return (false, "", "", "Bu protokol için tarayıcı OAuth girişi desteklenmiyor.");
-            }
-
-            // Varsayılan tarayıcıda yetkilendirme sayfasını aç
-            Process.Start(new ProcessStartInfo(authUrl) { UseShellExecute = true });
-
-            // Tarayıcıdan gelecek yönlendirmeyi dinle
-            var contextTask = listener.GetContextAsync();
-            var completedTask = await Task.WhenAny(contextTask, Task.Delay(-1, cts.Token));
-
-            if (completedTask != contextTask)
-            {
-                listener.Stop();
-                return (false, "", "", "Oturum açma süresi doldu veya iptal edildi.");
-            }
-
-            var context = await contextTask;
-            var request = context.Request;
-            var query = request.QueryString;
-            var code = query["code"];
-
-            // Tarayıcıya kullanıcı dostu başarılı HTML yanıtı döndür
-            const string responseHtml = "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>HDrive</title></head><body style=\"font-family:system-ui,-apple-system;text-align:center;padding:60px 20px;background:#f8fafc;\"><div style=\"max-width:440px;margin:auto;background:white;padding:40px;border-radius:16px;box-shadow:0 10px 25px rgba(0,0,0,0.06);\"><h2 style=\"color:#10b981;margin-bottom:8px;\">✅ Giriş Başarılı!</h2><p style=\"color:#64748b;font-size:15px;line-height:1.5;\">HDrive bulut oturumunuzu başarıyla doğruladı.<br>Bu sekmeyi kapatıp uygulamaya dönebilirsiniz.</p></div></body></html>";
-            var buffer = Encoding.UTF8.GetBytes(responseHtml);
-            context.Response.ContentLength64 = buffer.Length;
-            context.Response.ContentType = "text/html; charset=utf-8";
-            await context.Response.OutputStream.WriteAsync(buffer, 0, buffer.Length);
-            context.Response.OutputStream.Close();
-            listener.Stop();
-
-            if (string.IsNullOrEmpty(code))
-            {
-                var errorDesc = query["error_description"] ?? query["error"] ?? "Yetkilendirme kodu alınamadı.";
-                return (false, "", "", errorDesc);
-            }
-
-            // Kodu erişim tokenı ile takas et
-            using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
-
-            if (protocol == StorageProtocol.GoogleDrive)
-            {
-                var tokenReq = new HttpRequestMessage(HttpMethod.Post, "https://oauth2.googleapis.com/token");
-                var bodyContent = $"code={Uri.EscapeDataString(code)}&client_id={Uri.EscapeDataString(effectiveClientId)}&client_secret={Uri.EscapeDataString(effectiveClientSecret)}&redirect_uri=http%3A%2F%2F127.0.0.1%3A8080%2Foauth%2Fcallback&grant_type=authorization_code";
-                tokenReq.Content = new StringContent(bodyContent, Encoding.UTF8, "application/x-www-form-urlencoded");
-
-                var resp = await httpClient.SendAsync(tokenReq);
-                var respJson = await resp.Content.ReadAsStringAsync();
-                using var doc = JsonDocument.Parse(respJson);
-
-                var accessToken = doc.RootElement.TryGetProperty("access_token", out var tokenProp) ? tokenProp.GetString() ?? "" : "";
-                var refreshToken = doc.RootElement.TryGetProperty("refresh_token", out var rtProp) ? rtProp.GetString() ?? "" : "";
-
-                if (!string.IsNullOrEmpty(accessToken))
+                var code = context.Request.QueryString["code"];
+                if (string.IsNullOrEmpty(code))
                 {
-                    return (true, accessToken, refreshToken, "Google Drive oturumu başarıyla açıldı!");
+                    context.Response.StatusCode = 400;
+                    context.Response.Close();
+                    return (false, "", "", context.Request.QueryString["error_description"] ?? "Yetkilendirme iptal edildi.");
                 }
-
-                var errMsg = doc.RootElement.TryGetProperty("error_description", out var ed) ? ed.GetString() : "Token alınamadı.";
-                return (false, "", "", $"Google yetkilendirme hatası: {errMsg}");
-            }
-            else // OneDrive
-            {
-                var tokenReq = new HttpRequestMessage(HttpMethod.Post, "https://login.microsoftonline.com/common/oauth2/v2.0/token");
-                var bodyContent = $"client_id={Uri.EscapeDataString(effectiveClientId)}&grant_type=authorization_code&code={Uri.EscapeDataString(code)}&redirect_uri=http%3A%2F%2Flocalhost%3A8080";
-                tokenReq.Content = new StringContent(bodyContent, Encoding.UTF8, "application/x-www-form-urlencoded");
-
-                var resp = await httpClient.SendAsync(tokenReq);
-                var respJson = await resp.Content.ReadAsStringAsync();
-                using var doc = JsonDocument.Parse(respJson);
-
-                var accessToken = doc.RootElement.TryGetProperty("access_token", out var tokenProp) ? tokenProp.GetString() ?? "" : "";
-                var refreshToken = doc.RootElement.TryGetProperty("refresh_token", out var rtProp) ? rtProp.GetString() ?? "" : "";
-
-                if (!string.IsNullOrEmpty(accessToken))
-                {
-                    return (true, accessToken, refreshToken, "Microsoft OneDrive oturumu başarıyla açıldı!");
-                }
-
-                var errMsg = doc.RootElement.TryGetProperty("error_description", out var ed) ? ed.GetString() : "OneDrive tokenı alınamadı.";
-                return (false, "", "", $"Microsoft yetkilendirme hatası: {errMsg}");
+                var tokenValues = new System.Collections.Generic.Dictionary<string, string> {
+                    ["client_id"] = clientId, ["code"] = code, ["grant_type"] = "authorization_code",
+                    ["redirect_uri"] = redirect, ["code_verifier"] = session.Verifier
+                };
+                if (google && !string.IsNullOrEmpty(secret)) tokenValues["client_secret"] = secret;
+                var result = await RequestTokensAsync(google, tokenValues, cancellation.Token);
+                var html = "<!doctype html><html lang=tr><meta charset=utf-8><title>HDrive</title><body><h2>" +
+                    (result.Success ? "Oturum açıldı. Uygulamaya dönebilirsiniz." : "Oturum açılamadı. Uygulamadaki hata mesajını kontrol edin.") + "</h2></body></html>";
+                var bytes = Encoding.UTF8.GetBytes(html);
+                context.Response.ContentType = "text/html; charset=utf-8";
+                context.Response.ContentLength64 = bytes.Length;
+                await context.Response.OutputStream.WriteAsync(bytes, cancellation.Token);
+                context.Response.Close();
+                return result;
             }
         }
-        catch (Exception ex)
-        {
-            try { listener?.Stop(); } catch { }
-            return (false, "", "", $"Tarayıcı ile oturum açma hatası: {ex.Message}");
-        }
+        catch (OperationCanceledException) { return (false, "", "", "Oturum açma süresi doldu."); }
+        catch (Exception error) { return (false, "", "", "Oturum açılamadı: " + error.Message); }
+        finally { listener.Stop(); }
     }
 
-    public static async Task<(bool Success, string NewAccessToken, string Message)> RefreshOAuthTokenAsync(
-        StorageProtocol protocol,
-        string refreshToken,
-        string? customClientId = null,
-        string? customClientSecret = null)
+    private static async Task<(bool Success, string Token, string RefreshToken, string Message)> RequestTokensAsync(
+        bool google, System.Collections.Generic.Dictionary<string, string> values, CancellationToken ct)
     {
-        if (string.IsNullOrEmpty(refreshToken))
-        {
-            return (false, "", "Yenileme tokenı (refresh_token) bulunamadı.");
-        }
+        using var client = HttpClientFactory();
+        using var body = new FormUrlEncodedContent(values);
+        var endpoint = google ? "https://oauth2.googleapis.com/token" : "https://login.microsoftonline.com/common/oauth2/v2.0/token";
+        using var response = await client.PostAsync(endpoint, body, ct);
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+        if (response.IsSuccessStatusCode && json.RootElement.TryGetProperty("access_token", out var token))
+            return (true, token.GetString() ?? "", json.RootElement.TryGetProperty("refresh_token", out var refresh) ? refresh.GetString() ?? "" : "", "Oturum doğrulandı.");
+        return (false, "", "", json.RootElement.TryGetProperty("error_description", out var error) ? error.GetString() ?? "Yetkilendirme başarısız." : "Yetkilendirme başarısız.");
+    }
 
-        try
-        {
-            using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(25) };
-
-            if (protocol == StorageProtocol.GoogleDrive)
-            {
-                var effectiveClientId = !string.IsNullOrWhiteSpace(customClientId) ? customClientId.Trim() : GetDefaultGoogleClientId();
-                var effectiveClientSecret = !string.IsNullOrWhiteSpace(customClientSecret) ? customClientSecret.Trim() : GetDefaultGoogleClientSecret();
-
-                var tokenReq = new HttpRequestMessage(HttpMethod.Post, "https://oauth2.googleapis.com/token");
-                var bodyContent = $"client_id={Uri.EscapeDataString(effectiveClientId)}&client_secret={Uri.EscapeDataString(effectiveClientSecret)}&refresh_token={Uri.EscapeDataString(refreshToken)}&grant_type=refresh_token";
-                tokenReq.Content = new StringContent(bodyContent, Encoding.UTF8, "application/x-www-form-urlencoded");
-
-                var resp = await httpClient.SendAsync(tokenReq);
-                var respJson = await resp.Content.ReadAsStringAsync();
-                using var doc = JsonDocument.Parse(respJson);
-
-                if (doc.RootElement.TryGetProperty("access_token", out var tokenProp))
-                {
-                    return (true, tokenProp.GetString() ?? "", "Token yenilendi.");
-                }
-
-                return (false, "", "Google token yenileme başarısız.");
-            }
-            else if (protocol == StorageProtocol.OneDrive)
-            {
-                var effectiveClientId = !string.IsNullOrWhiteSpace(customClientId) ? customClientId.Trim() : DefaultOneDriveClientId;
-
-                var tokenReq = new HttpRequestMessage(HttpMethod.Post, "https://login.microsoftonline.com/common/oauth2/v2.0/token");
-                var bodyContent = $"client_id={Uri.EscapeDataString(effectiveClientId)}&grant_type=refresh_token&refresh_token={Uri.EscapeDataString(refreshToken)}&redirect_uri=http%3A%2F%2Flocalhost%3A8080";
-                tokenReq.Content = new StringContent(bodyContent, Encoding.UTF8, "application/x-www-form-urlencoded");
-
-                var resp = await httpClient.SendAsync(tokenReq);
-                var respJson = await resp.Content.ReadAsStringAsync();
-                using var doc = JsonDocument.Parse(respJson);
-
-                if (doc.RootElement.TryGetProperty("access_token", out var tokenProp))
-                {
-                    return (true, tokenProp.GetString() ?? "", "Token yenilendi.");
-                }
-
-                return (false, "", "OneDrive token yenileme başarısız.");
-            }
-
-            return (false, "", "Desteklenmeyen protokol.");
-        }
-        catch (Exception ex)
-        {
-            return (false, "", $"Token yenileme hatası: {ex.Message}");
-        }
+    public static async Task<(bool Success, string NewAccessToken, string NewRefreshToken, string Message)> RefreshOAuthTokenAsync(
+        StorageProtocol protocol, string refreshToken, string? customClientId = null, string? customClientSecret = null)
+    {
+        if (string.IsNullOrEmpty(refreshToken)) return (false, "", "", "Yenileme token'ı bulunamadı.");
+        if (protocol is not (StorageProtocol.GoogleDrive or StorageProtocol.OneDrive)) return (false, "", "", "Bu hesap OAuth kullanmıyor.");
+        var google = protocol == StorageProtocol.GoogleDrive;
+        var values = new System.Collections.Generic.Dictionary<string, string> {
+            ["grant_type"] = "refresh_token", ["refresh_token"] = refreshToken,
+            ["client_id"] = !string.IsNullOrWhiteSpace(customClientId) ? customClientId.Trim() : google ? GetDefaultGoogleClientId() : DefaultOneDriveClientId
+        };
+        var secret = customClientSecret ?? (google ? GetDefaultGoogleClientSecret() : "");
+        if (google && !string.IsNullOrEmpty(secret)) values["client_secret"] = secret;
+        try { return await RequestTokensAsync(google, values, CancellationToken.None); }
+        catch (Exception error) { return (false, "", "", "Token yenilenemedi: " + error.Message); }
     }
 }

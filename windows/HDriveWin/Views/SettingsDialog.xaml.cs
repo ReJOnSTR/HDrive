@@ -17,6 +17,7 @@ public sealed partial class SettingsDialog : ContentDialog
     public SettingsDialog()
     {
         this.InitializeComponent();
+        AppVersionText.Text = "Sürüm " + typeof(App).Assembly.GetName().Version?.ToString(3) + " (Windows)";
         _editingServer = CloudreveManager.Instance.ActiveServer ?? new ServerConfig();
 
         ServersListView.ItemsSource = CloudreveManager.Instance.Servers;

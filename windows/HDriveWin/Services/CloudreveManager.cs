@@ -12,62 +12,44 @@ public class CloudreveManager
 {
     private static CloudreveManager? _instance;
     public static CloudreveManager Instance => _instance ??= new CloudreveManager();
-
     private readonly string _serversFilePath;
     private readonly string _legacyConfigFilePath;
     private readonly string _activeIdFilePath;
-
+    private bool _loadFailed;
+    public string? StartupWarning { get; private set; }
     public ObservableCollection<ServerConfig> Servers { get; } = new();
+    public ServerConfig? ActiveServer { get; private set; }
 
-    private ServerConfig? _activeServer;
-    public ServerConfig? ActiveServer
+    private CloudreveManager() : this(Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HDrive")) { }
+
+    internal CloudreveManager(string directory)
     {
-        get => _activeServer;
-        private set => _activeServer = value;
-    }
-
-    private CloudreveManager()
-    {
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        var dir = Path.Combine(appData, "HDrive");
-        Directory.CreateDirectory(dir);
-        _serversFilePath = Path.Combine(dir, "servers.json");
-        _activeIdFilePath = Path.Combine(dir, "active_server_id.txt");
-        _legacyConfigFilePath = Path.Combine(dir, "config.json");
-
+        Directory.CreateDirectory(directory);
+        _serversFilePath = Path.Combine(directory, "servers.json");
+        _activeIdFilePath = Path.Combine(directory, "active_server_id.txt");
+        _legacyConfigFilePath = Path.Combine(directory, "config.json");
         LoadServers();
     }
 
     public void SaveServer(ServerConfig config)
     {
+        SaveSecrets(config); // Never remove plaintext until secure storage succeeds.
         config.IsConnected = true;
-
-        if (!string.IsNullOrEmpty(config.Password))
-        {
-            CredentialService.SavePassword(config.Id, config.Password);
-            if (!string.IsNullOrEmpty(config.Username))
-            {
-                CredentialService.SavePassword(config.Username, config.Password);
-            }
-        }
-
-        if (!string.IsNullOrEmpty(config.RefreshToken))
-        {
-            CredentialService.SavePassword($"{config.Id}_rt", config.RefreshToken);
-        }
-
         var existing = Servers.FirstOrDefault(s => s.Id == config.Id);
-        if (existing != null)
-        {
-            var idx = Servers.IndexOf(existing);
-            Servers[idx] = config;
-        }
-        else
-        {
-            Servers.Add(config);
-        }
-
+        if (existing != null) Servers[Servers.IndexOf(existing)] = config;
+        else Servers.Add(config);
         ActiveServer = config;
+        Persist();
+    }
+
+    public void UpdateCredentials(ServerConfig config)
+    {
+        var saved = Servers.FirstOrDefault(s => s.Id == config.Id);
+        if (saved == null || !saved.IsConnected || saved.Protocol != config.Protocol || saved.ServerURL != config.ServerURL || saved.Username != config.Username || saved.BucketName != config.BucketName || saved.SmbShareName != config.SmbShareName) return;
+        saved.Password = config.Password;
+        saved.RefreshToken = config.RefreshToken;
+        saved.ClientSecret = config.ClientSecret;
         Persist();
     }
 
@@ -75,181 +57,134 @@ public class CloudreveManager
 
     public void SetActiveServer(ServerConfig config)
     {
-        config.IsConnected = true;
-        ActiveServer = config;
+        var saved = Servers.FirstOrDefault(s => s.Id == config.Id)
+            ?? throw new InvalidOperationException("Hesap artık kayıtlı değil.");
+        saved.IsConnected = true;
+        ActiveServer = saved;
         Persist();
     }
 
-    public void ConnectServer(ServerConfig config)
+    public void ClearActiveSelection()
     {
-        SetActiveServer(config);
+        ActiveServer = null;
+        Persist();
     }
+
+    public void ConnectServer(ServerConfig config) => SetActiveServer(config);
 
     public void DisconnectServer(ServerConfig config)
     {
         config.IsConnected = false;
         if (ActiveServer?.Id == config.Id)
-        {
             ActiveServer = Servers.FirstOrDefault(s => s.IsConnected && s.Id != config.Id);
-        }
         Persist();
     }
 
     public void DisconnectActiveServer()
     {
-        if (ActiveServer != null)
-        {
-            DisconnectServer(ActiveServer);
-        }
-        else
-        {
-            ActiveServer = null;
-            Persist();
-        }
+        if (ActiveServer != null) DisconnectServer(ActiveServer);
     }
 
     public void DeleteServer(ServerConfig config)
     {
-        CredentialService.DeletePassword(config.Id);
-        CredentialService.DeletePassword($"{config.Id}_rt");
-        if (!string.IsNullOrEmpty(config.Username))
-        {
-            CredentialService.DeletePassword(config.Username);
-        }
-
-        Servers.Remove(config);
+        var existing = Servers.FirstOrDefault(server => server.Id == config.Id);
+        if (existing == null) return;
+        Servers.Remove(existing);
         if (ActiveServer?.Id == config.Id)
-        {
             ActiveServer = Servers.FirstOrDefault(s => s.IsConnected);
-        }
-        Persist();
+        Persist(); // Save the deletion before removing credentials.
+        foreach (var key in new[] { config.Id, config.Id + "_rt", config.Id + "_cs" })
+            CredentialService.DeletePassword(key);
+        if (!string.IsNullOrEmpty(config.Username) && !Servers.Any(s => s.Username == config.Username))
+            CredentialService.DeletePassword(config.Username);
     }
+
+    private static void SaveSecrets(ServerConfig config)
+    {
+        if (!string.IsNullOrEmpty(config.Password) && CredentialService.GetPassword(config.Id) != config.Password) CredentialService.SavePassword(config.Id, config.Password);
+        if (!string.IsNullOrEmpty(config.RefreshToken) && CredentialService.GetPassword(config.Id + "_rt") != config.RefreshToken) CredentialService.SavePassword(config.Id + "_rt", config.RefreshToken);
+        if (!string.IsNullOrEmpty(config.ClientSecret) && CredentialService.GetPassword(config.Id + "_cs") != config.ClientSecret) CredentialService.SavePassword(config.Id + "_cs", config.ClientSecret);
+    }
+
+    private static ServerConfig WithoutSecrets(ServerConfig s) => new()
+    {
+        Id = s.Id, Name = s.Name, ServerURL = s.ServerURL, Username = s.Username,
+        Protocol = s.Protocol, BucketName = s.BucketName, Region = s.Region,
+        SmbShareName = s.SmbShareName, ClientId = s.ClientId,
+        Password = "", ClientSecret = "", RefreshToken = "",
+        AutoSyncEnabled = s.AutoSyncEnabled, IsConnected = s.IsConnected
+    };
 
     public void Persist()
     {
-        try
-        {
-            var sanitized = Servers.Select(s => new ServerConfig
-            {
-                Id = s.Id,
-                Name = s.Name,
-                ServerURL = s.ServerURL,
-                Username = s.Username,
-                Password = "", // Güvenlik: Düz metin şifre JSON'a yazılmaz, CredentialManager kullanılır
-                Protocol = s.Protocol,
-                BucketName = s.BucketName,
-                Region = s.Region,
-                SmbShareName = s.SmbShareName,
-                ClientId = s.ClientId,
-                ClientSecret = s.ClientSecret,
-                RefreshToken = s.RefreshToken,
-                AutoSyncEnabled = s.AutoSyncEnabled,
-                IsConnected = s.IsConnected
-            }).ToList();
+        if (_loadFailed)
+            throw new IOException("Hesap dosyası okunamadığı için üzerine yazılmadı. Dosyayı ve yedeğini kontrol edin.");
+        foreach (var server in Servers) SaveSecrets(server);
+        var json = JsonSerializer.Serialize(Servers.Select(WithoutSecrets).ToList(), new JsonSerializerOptions { WriteIndented = true });
+        AtomicFile.WriteAllText(_serversFilePath, json);
+        // Backups are sanitized too; never copy an old plaintext credential file.
+        AtomicFile.WriteAllText(_serversFilePath + ".bak", json);
+        if (ActiveServer is { IsConnected: true }) AtomicFile.WriteAllText(_activeIdFilePath, ActiveServer.Id);
+        else if (File.Exists(_activeIdFilePath)) File.Delete(_activeIdFilePath);
+    }
 
-            var json = JsonSerializer.Serialize(sanitized, new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(_serversFilePath, json);
-
-            if (ActiveServer != null && ActiveServer.IsConnected)
-            {
-                File.WriteAllText(_activeIdFilePath, ActiveServer.Id);
-            }
-            else
-            {
-                if (File.Exists(_activeIdFilePath))
-                {
-                    File.Delete(_activeIdFilePath);
-                }
-            }
-        }
-        catch { }
+    private void LoadSecrets(ServerConfig server)
+    {
+        var password = CredentialService.GetPassword(server.Id);
+        if (string.IsNullOrEmpty(password) && !string.IsNullOrEmpty(server.Username))
+            password = CredentialService.GetPassword(server.Username);
+        if (!string.IsNullOrEmpty(password)) server.Password = password;
+        server.RefreshToken = CredentialService.GetPassword(server.Id + "_rt") ?? server.RefreshToken;
+        server.ClientSecret = CredentialService.GetPassword(server.Id + "_cs") ?? server.ClientSecret;
+        SaveSecrets(server);
     }
 
     private void LoadServers()
     {
         try
         {
-            if (File.Exists(_serversFilePath))
+            List<ServerConfig> accounts;
+            var modernExists = File.Exists(_serversFilePath) || File.Exists(_serversFilePath + ".bak");
+            if (modernExists)
             {
-                var json = File.ReadAllText(_serversFilePath);
-                var list = JsonSerializer.Deserialize<List<ServerConfig>>(json);
-                if (list != null && list.Count > 0)
+                try { accounts = ReadAccounts(_serversFilePath); }
+                catch (Exception error)
                 {
-                    Servers.Clear();
-                    foreach (var s in list)
-                    {
-                        // Sadece geçersiz veya sahte cloudreve domainlerini filtrele, Google Drive ve OneDrive'ı ASLA atlama!
-                        if (s.Protocol != StorageProtocol.GoogleDrive && s.Protocol != StorageProtocol.OneDrive)
-                        {
-                            if (string.IsNullOrWhiteSpace(s.ServerURL) || s.ServerURL.Contains("your-cloudreve-domain.com") || s.ServerURL.Contains("driver-cloudreve"))
-                            {
-                                continue;
-                            }
-                        }
-
-                        // Parolayı/Tokenı CredentialService'den yükle (önce Id ile, sonra Username ile)
-                        var pass = CredentialService.GetPassword(s.Id);
-                        if (string.IsNullOrEmpty(pass) && !string.IsNullOrEmpty(s.Username))
-                        {
-                            pass = CredentialService.GetPassword(s.Username);
-                        }
-                        if (!string.IsNullOrEmpty(pass))
-                        {
-                            s.Password = pass;
-                        }
-
-                        var rt = CredentialService.GetPassword($"{s.Id}_rt");
-                        if (!string.IsNullOrEmpty(rt))
-                        {
-                            s.RefreshToken = rt;
-                        }
-
-                        Servers.Add(s);
-                    }
-
-                    if (Servers.Count > 0)
-                    {
-                        string? activeId = null;
-                        if (File.Exists(_activeIdFilePath))
-                        {
-                            activeId = File.ReadAllText(_activeIdFilePath).Trim();
-                        }
-
-                        _activeServer = Servers.FirstOrDefault(s => s.Id == activeId && s.IsConnected) 
-                                     ?? Servers.FirstOrDefault(s => s.Id == activeId)
-                                     ?? Servers.FirstOrDefault(s => s.IsConnected) 
-                                     ?? Servers.FirstOrDefault();
-                        return;
-                    }
+                    accounts = ReadAccounts(_serversFilePath + ".bak");
+                    StartupWarning = "Hesap dosyası yedekten kurtarıldı: " + error.Message;
                 }
+                // An empty modern list is authoritative: do not resurrect config.json.
             }
-        }
-        catch { }
+            else if (File.Exists(_legacyConfigFilePath))
+            {
+                var legacy = JsonSerializer.Deserialize<ServerConfig>(File.ReadAllText(_legacyConfigFilePath))
+                    ?? throw new InvalidDataException("Eski hesap dosyası boş.");
+                accounts = new List<ServerConfig> { legacy };
+            }
+            else return;
 
-        // Eski config.json'dan geçiş (Migration)
-        try
+            foreach (var account in accounts)
+            {
+                if (string.IsNullOrWhiteSpace(account.Id)) account.Id = Guid.NewGuid().ToString();
+                LoadSecrets(account);
+                Servers.Add(account);
+            }
+            var activeId = File.Exists(_activeIdFilePath) ? File.ReadAllText(_activeIdFilePath).Trim() : null;
+            ActiveServer = Servers.FirstOrDefault(s => s.Id == activeId && s.IsConnected)
+                ?? Servers.FirstOrDefault(s => s.IsConnected);
+            Persist();
+            if (!modernExists && File.Exists(_legacyConfigFilePath))
+                AtomicFile.WriteAllText(_legacyConfigFilePath,
+                    JsonSerializer.Serialize(WithoutSecrets(accounts.Single())));
+        }
+        catch (Exception error)
         {
-            if (File.Exists(_legacyConfigFilePath))
-            {
-                var json = File.ReadAllText(_legacyConfigFilePath);
-                var legacy = JsonSerializer.Deserialize<ServerConfig>(json);
-                if (legacy != null && (legacy.Protocol == StorageProtocol.GoogleDrive || legacy.Protocol == StorageProtocol.OneDrive || (!string.IsNullOrWhiteSpace(legacy.ServerURL) && !legacy.ServerURL.Contains("your-cloudreve-domain.com"))))
-                {
-                    var pass = CredentialService.GetPassword(legacy.Id) ?? CredentialService.GetPassword(legacy.Username);
-                    if (!string.IsNullOrEmpty(pass)) legacy.Password = pass;
-                    legacy.IsConnected = true;
-                    Servers.Clear();
-                    Servers.Add(legacy);
-                    _activeServer = legacy;
-                    Persist();
-                    return;
-                }
-            }
+            _loadFailed = true;
+            StartupWarning = "Hesaplar yüklenemedi; mevcut dosyalar korundu. " + error.Message;
         }
-        catch { }
-
-        // Varsayılan sahte sunucu eklenmez, liste temiz bırakılır
-        Servers.Clear();
-        _activeServer = null;
     }
+
+    private static List<ServerConfig> ReadAccounts(string path) =>
+        JsonSerializer.Deserialize<List<ServerConfig>>(File.ReadAllText(path))
+            ?? throw new InvalidDataException("Hesap dosyası geçersiz.");
 }

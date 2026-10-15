@@ -1,65 +1,72 @@
-# HDrive 🚀
-> Cloudreve ve Uzak WebDAV Sunucularına Bağlanan, **Mac Finder ve Windows Dosya Gezgini içerisine doğrudan bir disk (Z:\ / Volumes) olarak bağlanabilen**, hem iOS hem de macOS native Swift masaüstü uygulaması.
+# HDrive
 
----
+HDrive; Google Drive, OneDrive, WebDAV, Amazon S3 uyumlu depolar ve SMB hesapları
+üzerindeki dosyaları yerel bir arayüzden yönetmek için geliştirilmiş bir masaüstü
+ve iOS istemcisidir.
 
-## 🌟 Öne Çıkan Özellikler
+| Platform | Teknoloji | Kaynak / geliştirme hedefi |
+| --- | --- | --- |
+| Windows | C# / .NET 8 / WinUI 3 | `windows/HDriveWin`, x64 dağıtımı |
+| macOS | Swift / SwiftUI / AppKit | `macOS/HDriveMac`, macOS 14+, Universal (arm64 ve x86_64) geliştirme derlemesi |
+| iOS | Swift / SwiftUI | `iOS/HDrive.xcodeproj`, iOS simülatörü ve cihaz projesi |
 
-- ☁️ **Cloudreve & Uzak WebDAV Entegrasyonu:**
-  - Sunucunuzdaki Cloudreve sistemine WebDAV (`/dav`) protokolü üzerinden güvenli (HTTPS / Basic Auth) bağlanır.
-  - **PC'de Doğrudan Disk Olarak Açma:**
-    - **macOS:** Tek tıkla Cloudreve'i Mac Finder'a `/Volumes/` altına gerçek bir harici disk gibi bağlar. Dosyaları doğrudan Mac Finder'da açabilir, sürükle-bırak yapabilir, silebilirsiniz.
-    - **Windows:** Tek komutla (`net use Z: https://cloudreve.com/dav /user:...`) Windows Gezgini'ne `Z:\` sürücüsü olarak ekler.
-- 📱 **Native Swift iOS Uygulaması (`iOS/HDrive.xcodeproj`):**
-  - iPhone'unuzdan Cloudreve sunucunuza bağlanıp dosyalara göz atma, fotoğraf ve videoları doğrudan sunucuya yedekleme/yükleme.
-  - İki yönlü yerel Wi-Fi WebDAV paylaşımı.
-- 💻 **Native macOS Masaüstü Uygulaması (`macOS/HDrive.app`):**
-  - SwiftUI & AppKit ile yazılmış gerçek masaüstü penceresi + Menü Çubuğu (Menu Bar Tray) simgesi.
-  - Cloudreve bağlantı yöneticisi, kimlik doğrulama testi ve Finder disk mount motoru.
+## Dosya işlemleri
 
----
+- Birden çok hesabı kaydetme, hesap değiştirme ve bağlantıyı kesme.
+- Bulut klasörlerini sayfalayarak listeleme; dosya yükleme ve indirme.
+- Google Docs/Sheets/Slides dosyalarını uygun Office/PDF formatında dışa aktarma.
+- Windows'ta harici uygulamada kaydedilen dosyayı açıldığı hesaba ve özgün uzak
+  dosyaya geri yükleme.
+- S3 Signature Version 4 istekleri, bucket/prefix listeleme ve nesne işlemleri.
+- iOS kaynaklarında yerel WebDAV paylaşımı; paylaşım klasörü ve yazma izinlerinin
+  GET/PUT/COPY/MOVE/DELETE işlemlerinde denetlenmesi.
 
-## 🚀 Cloudreve Kurulum ve Kullanım Adımları
+WebDAV hesabı, işletim sisteminin ağ sürücüsü araçlarıyla ayrıca bağlanabilir.
+Hazır paketler [GitHub Releases](https://github.com/ReJOnSTR/HDrive/releases)
+sayfasındadır. Önceden yayımlanmış paketler yeni kaynak değişikliklerini içermez.
 
-### 1. Cloudreve WebDAV Bilgilerinizi Alma
-1. Cloudreve web panelinize giriş yapın.
-2. Sağ üst profil simgenize tıklayıp **WebDAV** veya **Hesap Ayarları** bölümüne gidin.
-3. Bir WebDAV hesabı oluşturun veya var olan hesap bilgilerinizi alın:
-   - **WebDAV Adresi:** `https://siteniz.com/dav`
-   - **Kullanıcı Adı:** E-posta adresiniz veya WebDAV kullanıcı adınız
-   - **Şifre:** WebDAV şifreniz (veya uygulama şifresi)
+## Dosyalar ve çalışma alanı
 
----
+- Çevrimdışı dosya kopyaları, korunan çalışma kopyaları ve önbellek yönetimi.
+- Yeniden açılışta geri gelen aktarım kuyruğu; Windows'ta doğrulayıcıyla korunan
+  kısmi indirmelere devam etme.
+- Klasör eşitleme önizlemesi, hariç tutma kuralları ve çakışma kararları.
+- Google Drive çöp kutusu; Google/OneDrive paylaşım bağlantıları ve sürüm listeleri.
+- iOS'ta güvenli içe aktarma, yerel çöp kutusu ve çoklu dosya işlemleri.
 
-### 2. Mac Bilgisayarınızda Cloudreve'i Finder'a Bağlama
+Platformlara ve sağlayıcılara göre kapsam ve sınırlamalar:
+[UX-IMPLEMENTATION.md](docs/UX-IMPLEMENTATION.md).
 
-1. Bilgisayarınızdaki **HDrive** masaüstü uygulamasını açın:
-   - Dosya yolu: `macOS/HDrive.app`
-2. **Cloudreve Sunucusu** sekmesine gelin.
-3. Sunucu adresi, kullanıcı adı ve WebDAV şifrenizi girin.
-4. **"Bağlantıyı Test Et"** butonuna basarak sunucunun yanıt verdiğini doğrulayın.
-5. **"Finder'a Disk Olarak Bağla"** butonuna tıklayın!
-6. 🎉 **Cloudreve sunucunuz Mac Finder yan menüsünde ve masaüstünüzde harici bir sabit disk gibi açılacaktır!**
-   - Dosyaları sanki bilgisayarınızın kendi klasöründeymiş gibi açabilir, düzenleyebilir ve içine dosya sürükleyebilirsiniz.
+## Geliştirme
 
----
+Windows için Visual Studio 2022, .NET 8 SDK ve Windows App SDK geliştirme
+araçları gerekir. Çalıştırma ve teşhis bilgileri: [Windows README](windows/README.md).
 
-### 3. Windows PC'den Cloudreve'e Ağ Sürücüsü Olarak Bağlanma
+macOS üzerinde Xcode kuruluysa:
 
-Windows yüklü bir bilgisayardan Cloudreve'e doğrudan Dosya Gezgini üzerinden bağlanmak için:
+```sh
+bash macOS/build-macos.sh
+```
 
-1. **Komut İstemi (CMD)** veya **PowerShell**'i açın.
-2. Şu komutu yazıp Enter'a basın:
-   ```cmd
-   net use Z: https://siteniz.com/dav /user:KULLANICI_ADI SIFRENIZ /persistent:yes
-   ```
-3. Dosya Gezgini'ni açtığınızda **`Z:\`** harfinde Cloudreve sunucunuz yer alacaktır!
+Universal uygulama `build/macos/HDrive.app` altında oluşturulur. iOS projesi
+Xcode'da açılabilir veya imzalama gerektirmeyen simülatör derlemesi alınabilir:
 
----
+```sh
+xcodebuild -project iOS/HDrive.xcodeproj -scheme HDrive -sdk iphonesimulator \
+  -configuration Debug -destination 'generic/platform=iOS Simulator' \
+  CODE_SIGNING_ALLOWED=NO build
+```
 
-### 4. iPhone Üzerinden Cloudreve'e Bağlanma
+## Hesap güvenliği ve testler
 
-1. `iOS/HDrive.xcodeproj` projesini Mac'inizde Xcode ile açıp iPhone'unuza yükleyin.
-2. İlk sekme olan **Cloudreve** sekmesine gelin.
-3. Sunucu WebDAV adresinizi ve bilgilerinizi kaydedin.
-4. Telefondan tüm Cloudreve dosyalarınıza anında erişin, fotoğraf arşivinizden sunucuya tek dokunuşla yükleme yapın.
+Windows parola, token ve istemci sırlarını DPAPI/Windows kasasında; Apple
+istemcileri Keychain'de saklar. Hesap dosyaları sır içermez. Eski hesaplar güvenli
+kayda taşınır; kayıt hatasında mevcut dosya korunur ve hata kullanıcıya bildirilir.
+
+```sh
+dotnet run --project windows/tests/CoreRegression/CoreRegression.csproj
+bash macOS/test-regressions.sh
+```
+
+Testler geçici hesaplar ve yerel HTTP fixture'ları kullanır. Yayın imzalama
+kurulumu ve doğrulama sınırları: [RELEASE-SIGNING.md](docs/RELEASE-SIGNING.md).

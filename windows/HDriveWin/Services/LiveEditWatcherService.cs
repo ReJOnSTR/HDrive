@@ -2,6 +2,8 @@ using System;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
+using HDriveWin.Models;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -23,6 +25,13 @@ public class FileSyncedEventArgs : EventArgs
 
 public class WatchedFileEntry
 {
+    public string ServerId { get; set; } = string.Empty;
+    public string ServerURL { get; set; } = string.Empty;
+    public string Username { get; set; } = string.Empty;
+    public string BucketName { get; set; } = string.Empty;
+    public string SmbShareName { get; set; } = string.Empty;
+    public StorageProtocol Protocol { get; set; }
+    public SemaphoreSlim UploadGate { get; } = new(1, 1);
     public string LocalPath { get; set; } = string.Empty;
     public string RemoteFilePath { get; set; } = string.Empty;
     public string RemoteDirectory { get; set; } = string.Empty;
@@ -34,20 +43,35 @@ public class WatchedFileEntry
 /// Harici uygulamalarda (Excel, Word, Photoshop, VS Code, Not Defteri vb.) açılan dosyaları izler;
 /// kullanıcı harici uygulamada Ctrl+S ile kaydettiği anda değişikliği yakalayıp Cloudreve'e otomatik geri yükler.
 /// </summary>
-public class LiveEditWatcherService
+public class LiveEditWatcherService : IDisposable
 {
     private static LiveEditWatcherService? _instance;
     public static LiveEditWatcherService Instance => _instance ??= new LiveEditWatcherService();
 
     private readonly ConcurrentDictionary<string, WatchedFileEntry> _watchedFiles = new(StringComparer.OrdinalIgnoreCase);
-    private FileSystemWatcher? _watcher;
+    private readonly ConcurrentDictionary<string, FileSystemWatcher> _watchers = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _lock = new();
 
     public event EventHandler<FileSyncedEventArgs>? FileAutoSynced;
 
-    private LiveEditWatcherService() { }
+    private readonly Func<string, ServerConfig?> _resolveServer;
+    private readonly Func<ServerConfig, WebDAVClient> _createClient;
+    private LiveEditWatcherService() : this(
+        id => CloudreveManager.Instance.Servers.FirstOrDefault(s => s.Id == id), config => new WebDAVClient(config)) { }
+    internal LiveEditWatcherService(Func<string, ServerConfig?> resolveServer, Func<ServerConfig, WebDAVClient> createClient)
+    { _resolveServer = resolveServer; _createClient = createClient; }
 
-    public void WatchFile(string localFilePath, string remoteFilePath, string remoteDirectory)
+    internal Task SyncFileAsync(string path) => _watchedFiles.TryGetValue(path, out var entry)
+        ? HandleAutoUploadAsync(entry) : Task.CompletedTask;
+
+    public void Dispose()
+    {
+        foreach (var watcher in _watchers.Values) watcher.Dispose();
+        foreach (var entry in _watchedFiles.Values) entry.DebounceTimer?.Dispose();
+        _watchers.Clear(); _watchedFiles.Clear();
+    }
+
+    public void WatchFile(string localFilePath, string remoteFilePath, string remoteDirectory, ServerConfig server)
     {
         try
         {
@@ -59,27 +83,36 @@ public class LiveEditWatcherService
 
             var entry = new WatchedFileEntry
             {
+                ServerId = server.Id,
+                ServerURL = server.ServerURL,
+                Username = server.Username,
+                BucketName = server.BucketName,
+                SmbShareName = server.SmbShareName,
+                Protocol = server.Protocol,
                 LocalPath = localFilePath,
                 RemoteFilePath = remoteFilePath,
                 RemoteDirectory = remoteDirectory,
                 LastKnownWriteTime = lastWrite
             };
 
+            WorkingCache.Protect(localFilePath);
             _watchedFiles[localFilePath] = entry;
 
             lock (_lock)
             {
-                if (_watcher == null)
+                var cacheRoot = Path.Combine(Path.GetTempPath(), "HDriveCache");
+                var watchRoot = localFilePath.StartsWith(cacheRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ? cacheRoot : directory;
+                if (!_watchers.ContainsKey(watchRoot))
                 {
-                    _watcher = new FileSystemWatcher(directory)
-                    {
+                    var watcher = new FileSystemWatcher(watchRoot) {
                         NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size | NotifyFilters.FileName,
-                        IncludeSubdirectories = false,
-                        EnableRaisingEvents = true
+                        IncludeSubdirectories = true
                     };
-
-                    _watcher.Changed += OnFileChanged;
-                    _watcher.Created += OnFileChanged;
+                    watcher.Changed += OnFileChanged;
+                    watcher.Created += OnFileChanged;
+                    watcher.Renamed += (sender, args) => OnFileChanged(sender, args);
+                    _watchers[watchRoot] = watcher;
+                    watcher.EnableRaisingEvents = true;
                 }
             }
         }
@@ -110,7 +143,14 @@ public class LiveEditWatcherService
 
     private async Task HandleAutoUploadAsync(WatchedFileEntry entry)
     {
-        // Dosyanın harici program tarafından kilitlenmediğinden emin ol (3 deneme)
+        await entry.UploadGate.WaitAsync();
+        try { await UploadWhenReadyAsync(entry); }
+        finally { entry.UploadGate.Release(); }
+    }
+
+    private async Task UploadWhenReadyAsync(WatchedFileEntry entry)
+    {
+        // Serialize saves of the same file and wait for external writers.
         bool ready = false;
         for (int i = 0; i < 5; i++)
         {
@@ -126,13 +166,15 @@ public class LiveEditWatcherService
 
         try
         {
-            entry.LastKnownWriteTime = File.GetLastWriteTimeUtc(entry.LocalPath);
-
-            var config = CloudreveManager.Instance.ActiveServer;
-            if (config == null) return;
-
-            var client = new WebDAVClient(config);
-            var success = await client.UploadFileAsync(entry.LocalPath, entry.RemoteDirectory);
+            var written = File.GetLastWriteTimeUtc(entry.LocalPath);
+            if (written <= entry.LastKnownWriteTime) return;
+            var config = _resolveServer(entry.ServerId);
+            if (config == null || !config.IsConnected || config.ServerURL != entry.ServerURL || config.Protocol != entry.Protocol || config.Username != entry.Username || config.BucketName != entry.BucketName || config.SmbShareName != entry.SmbShareName)
+                throw new InvalidOperationException("Dosyanın ait olduğu hesabın bağlantısı kesildi.");
+            var client = _createClient(config);
+            await client.UploadAsync(entry.LocalPath, entry.RemoteDirectory, existingRemotePath: entry.RemoteFilePath);
+            entry.LastKnownWriteTime = written;
+            var success = true;
 
             FileAutoSynced?.Invoke(this, new FileSyncedEventArgs(Path.GetFileName(entry.LocalPath), entry.RemoteDirectory, success));
         }
@@ -148,7 +190,7 @@ public class LiveEditWatcherService
         try
         {
             using var inputStream = File.Open(filename, FileMode.Open, FileAccess.Read, FileShare.None);
-            return inputStream.Length > 0;
+            return true;
         }
         catch (IOException)
         {
