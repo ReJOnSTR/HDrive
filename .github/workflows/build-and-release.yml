@@ -2,56 +2,55 @@ name: Build and Release HDrive
 
 on:
   push:
-    tags:
-      - 'v*'
-    branches:
-      - main
+    tags: ['v*']
+    branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  # -----------------------------------------------------------
-  # 1. Windows (WinUI 3 / .NET 8 Self-Contained) Derleme
-  # -----------------------------------------------------------
-  build-windows:
-    runs-on: windows-latest
+  core-regression:
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Setup MSBuild
-        uses: microsoft/setup-msbuild@v2
-
-      - name: Setup .NET 8
-        uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
-
-      - name: Build Windows App (WinUI 3 x64)
-        run: |
-          cd windows/HDriveWin
-          dotnet publish -c Release -p:Platform=x64 -r win-x64 --self-contained -p:PublishSingleFile=false -p:PublishTrimmed=false -p:PublishReadyToRun=false -p:WindowsAppSDKSelfContained=true -o publish_x64
-
       - name: Verify Account Serialization
         run: dotnet run --project windows/tests/AccountSerialization/AccountSerialization.csproj -c Release
+      - name: Verify Accounts, Transfers, OAuth and S3
+        run: dotnet run --project windows/tests/CoreRegression/CoreRegression.csproj -c Release
 
+  build-windows:
+    needs: core-regression
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      HDRIVE_REQUIRE_SIGNING: ${{ startsWith(github.ref, 'refs/tags/v') }}
+      WINDOWS_SIGNING_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_BASE64 }}
+      WINDOWS_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: microsoft/setup-msbuild@v2
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build Windows App
+        run: dotnet publish windows/HDriveWin/HDriveWin.csproj -c Release -p:Platform=x64 -r win-x64 --self-contained true -p:PublishSingleFile=false -p:PublishTrimmed=false -p:PublishReadyToRun=false -p:WindowsAppSDKSelfContained=true -o windows/HDriveWin/publish_x64
+      - name: Sign Windows App
+        shell: pwsh
+        run: ./windows/sign-release.ps1 -PublishDirectory ./windows/HDriveWin/publish_x64 -RequireSignature:($env:HDRIVE_REQUIRE_SIGNING -eq 'true')
       - name: Verify Windows App Opens Its Main Window
         shell: pwsh
-        run: |
-          ./windows/test-startup.ps1 -ExePath ./windows/HDriveWin/publish_x64/HDrive.exe -ReportDirectory ./windows/startup-report
-
-      - name: Setup Python for Upgrade Fixture
-        uses: actions/setup-python@v5
+        run: ./windows/test-startup.ps1 -ExePath ./windows/HDriveWin/publish_x64/HDrive.exe -ReportDirectory ./windows/startup-report
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-
       - name: Verify v1.2.7 Account Migration and Restart
         shell: pwsh
-        run: |
-          ./windows/test-startup-upgrade.ps1 -ExePath ./windows/HDriveWin/publish_x64/HDrive.exe -VerifyMigration
-
+        run: ./windows/test-startup-upgrade.ps1 -ExePath ./windows/HDriveWin/publish_x64/HDrive.exe -VerifyMigration
       - name: Upload Windows Startup Report
         if: always()
         uses: actions/upload-artifact@v4
@@ -61,121 +60,91 @@ jobs:
             windows/startup-report/
             windows/upgrade-report/
           if-no-files-found: ignore
-
-      - name: Build Windows Setup Installer (HDrive-Setup.exe)
+      - name: Build Windows Setup Installer
         shell: pwsh
         run: |
-          if (-not (Get-Command iscc -ErrorAction SilentlyContinue)) {
-            choco install innosetup -y --no-progress
-            echo "C:\Program Files (x86)\Inno Setup 6" >> $env:GITHUB_PATH
-            $env:Path += ";C:\Program Files (x86)\Inno Setup 6"
-          }
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" windows/installer.iss
+          if (-not (Test-Path 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe')) { choco install innosetup -y --no-progress }
+          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' windows/installer.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Installer build failed.' }
+          ./windows/sign-release.ps1 -InstallerPath ./windows/Output/HDrive-Setup.exe -RequireSignature:($env:HDRIVE_REQUIRE_SIGNING -eq 'true')
           Copy-Item windows/Output/HDrive-Setup.exe ./HDrive-Setup.exe
-
       - name: Package Windows Portable Binary
         shell: pwsh
-        run: |
-          Compress-Archive -Path windows/HDriveWin/publish_x64/* -DestinationPath HDrive-Windows-x64.zip
-
-      - name: Upload Windows Artifacts
-        uses: actions/upload-artifact@v4
+        run: Compress-Archive -Path windows/HDriveWin/publish_x64/* -DestinationPath HDrive-Windows-x64.zip
+      - uses: actions/upload-artifact@v4
         with:
           name: HDrive-Windows
           path: |
             HDrive-Setup.exe
             HDrive-Windows-x64.zip
 
-  # -----------------------------------------------------------
-  # 2. macOS (Native Apple Silicon / Universal) Derleme
-  # -----------------------------------------------------------
   build-macos:
+    needs: core-regression
     runs-on: macos-14
+    timeout-minutes: 25
+    env:
+      HDRIVE_REQUIRE_SIGNING: ${{ startsWith(github.ref, 'refs/tags/v') }}
+      MACOS_SIGNING_CERTIFICATE_BASE64: ${{ secrets.MACOS_SIGNING_CERTIFICATE_BASE64 }}
+      MACOS_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_SIGNING_CERTIFICATE_PASSWORD }}
+      APPLE_NOTARY_KEY_BASE64: ${{ secrets.APPLE_NOTARY_KEY_BASE64 }}
+      APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+      APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Build macOS App
-        run: |
-          mkdir -p macOS/HDrive.app/Contents/MacOS
-          mkdir -p macOS/HDrive.app/Contents/Resources
-          cp macOS/Info.plist macOS/HDrive.app/Contents/Info.plist 2>/dev/null || true
-          cp macOS/AppIcon.icns macOS/HDrive.app/Contents/Resources/AppIcon.icns 2>/dev/null || true
-
-          swiftc -parse-as-library \
-            iOS/HDrive/Models/FileItem.swift \
-            iOS/HDrive/Models/ServerConfig.swift \
-            iOS/HDrive/Models/NetworkUtils.swift \
-            iOS/HDrive/Models/KeychainHelper.swift \
-            iOS/HDrive/Models/NetworkMonitor.swift \
-            iOS/HDrive/Models/SyncLogManager.swift \
-            iOS/HDrive/Server/BonjourPublisher.swift \
-            iOS/HDrive/Server/WebDAVHandler.swift \
-            iOS/HDrive/Server/WebDAVServer.swift \
-            iOS/HDrive/Server/WebDashboardEmbeddedAssets.swift \
-            macOS/HDriveMac/Services/WebDAVClient.swift \
-            macOS/HDriveMac/Services/CloudreveManager.swift \
-            macOS/HDriveMac/Services/TransferManager.swift \
-            macOS/HDriveMac/Services/BonjourBrowser.swift \
-            macOS/HDriveMac/Services/FileOpener.swift \
-            macOS/HDriveMac/Services/FilePreviewManager.swift \
-            macOS/HDriveMac/Services/FileIconProvider.swift \
-            macOS/HDriveMac/Views/TransferPopoverView.swift \
-            macOS/HDriveMac/Views/NativeExplorerView.swift \
-            macOS/HDriveMac/HDriveMacApp.swift \
-            -o "macOS/HDrive.app/Contents/MacOS/HDrive"
-
-      - name: Create DMG & ZIP
-        run: |
-          hdiutil create -volname "HDrive" -srcfolder macOS/HDrive.app -ov -format UDZO HDrive-macOS.dmg
-          zip -r -y HDrive-macOS.zip macOS/HDrive.app
-
-      - name: Upload macOS Artifacts
-        uses: actions/upload-artifact@v4
+      - uses: actions/checkout@v4
+      - name: Verify Apple Account and Storage Regressions
+        run: bash macOS/test-regressions.sh
+      - name: Build Universal macOS App
+        run: bash macOS/build-macos.sh
+      - name: Sign macOS App with Developer ID
+        run: bash macOS/sign-release.sh sign build/macos/HDrive.app
+      - name: Create DMG
+        run: hdiutil create -volname HDrive -srcfolder build/macos/HDrive.app -ov -format UDZO HDrive-macOS.dmg
+      - name: Notarize and Staple
+        run: bash macOS/sign-release.sh notarize build/macos/HDrive.app HDrive-macOS.dmg
+      - name: Create ZIP
+        run: ditto -c -k --keepParent build/macos/HDrive.app HDrive-macOS.zip
+      - uses: actions/upload-artifact@v4
         with:
           name: HDrive-macOS
           path: |
             HDrive-macOS.dmg
             HDrive-macOS.zip
 
-  # -----------------------------------------------------------
-  # 3. Otomatik GitHub Release Yayınlama
-  # -----------------------------------------------------------
-  release:
-    needs: [build-windows, build-macos]
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+  build-ios:
+    needs: core-regression
+    runs-on: macos-latest
+    timeout-minutes: 20
     steps:
-      - name: Download Windows Builds
-        uses: actions/download-artifact@v4
+      - uses: actions/checkout@v4
+      - name: Build iOS Simulator App
+        run: xcodebuild -project iOS/HDrive.xcodeproj -scheme HDrive -sdk iphonesimulator -configuration Debug -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+
+  release:
+    needs: [build-windows, build-macos, build-ios]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
         with:
           name: HDrive-Windows
-
-      - name: Download macOS Builds
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: HDrive-macOS
-
-      - name: Create or Update GitHub Release
-        uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name || 'v1.0.0' }}
-          name: HDrive ${{ github.ref_name || 'v1.0.0' }}
+          tag_name: ${{ github.ref_name }}
+          name: HDrive ${{ github.ref_name }}
           fail_on_unmatched_files: true
           body: |
-            v1.2.7 hesaplarının taşınması sırasında oluşan Windows açılış hatası düzeltildi.
+            Dosya aktarımı ve hesap güvenliği iyileştirildi.
 
-            - Ana pencere başlatılamazsa hata bildirildikten sonra uygulama başarısız çıkış koduyla kapanır.
-            - Windows paketlerine `diagnose-windows.ps1` eklendi; açılış durumunu, hata kayıtlarını ve ilgili Windows olaylarını toplar.
-            - Windows paketi yayınlanmadan önce ana pencerenin açılması ve açık kalması otomatik olarak kontrol edilir.
-            - Hesapların kayıt işlemi arayüz alanlarını değerlendirmez; v1.2.7 hesap geçişi ve yeniden açılış da yayın öncesinde test edilir.
-
-            **İndirmeler**
-
-            - [Windows x64 kurulum programı](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/HDrive-Setup.exe)
-            - [Windows x64 taşınabilir paket](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/HDrive-Windows-x64.zip) — ZIP'in tüm içeriğini aynı klasöre çıkarın.
-            - [macOS DMG](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/HDrive-macOS.dmg)
-            - [macOS ZIP](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/HDrive-macOS.zip)
+            - Hesaplar birbirinden ayrılır; token ve istemci sırları güvenli kasada saklanır.
+            - Bulut aktarımı, tüm klasör sayfaları ve imzalı S3 istekleri desteklenir.
+            - WebDAV paylaşım klasörü ve yazma izinleri denetlenir.
+            - macOS paketi Apple Silicon ve Intel mimarilerini içerir.
+            - Yayın öncesinde regresyon, Windows açılış ve iOS derleme kontrolleri çalışır.
           files: |
             HDrive-Setup.exe
             HDrive-Windows-x64.zip

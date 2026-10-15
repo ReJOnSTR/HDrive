@@ -1,143 +1,148 @@
-//
-//  CloudreveManager.swift
-//  HDriveMac
-//
-
 import Foundation
+import Combine
 
 public final class CloudreveManager: ObservableObject {
     public static let shared = CloudreveManager()
-    
+    private let defaults: UserDefaults
+    private let saveSecret: (String, String) -> Bool
+    private let readSecret: (String) -> String?
+    private let deleteSecret: (String) -> Bool
+    private var loadFailed = false
     private let userDefaultsKey = "HDrive_SavedCloudreveServers"
-    
     @Published public var servers: [CloudreveServerConfig] = []
+    @Published public var lastError: String?
     @Published public var activeServer: CloudreveServerConfig? {
         didSet {
-            if let id = activeServer?.id {
-                UserDefaults.standard.set(id.uuidString, forKey: "HDrive_ActiveServerID")
+            if let server = activeServer, server.isConnected {
+                defaults.set(server.id.uuidString, forKey: "HDrive_ActiveServerID")
             } else {
-                UserDefaults.standard.removeObject(forKey: "HDrive_ActiveServerID")
+                defaults.removeObject(forKey: "HDrive_ActiveServerID")
             }
         }
     }
-    
-    private init() {
-        loadServers()
-        if let activeIDStr = UserDefaults.standard.string(forKey: "HDrive_ActiveServerID"),
-           let uuid = UUID(uuidString: activeIDStr),
-           let found = servers.first(where: { $0.id == uuid && $0.isConnected }) {
-            activeServer = found
-        } else {
-            activeServer = servers.first(where: { $0.isConnected }) ?? servers.first
-        }
-    }
-    
-    public func saveServer(_ server: CloudreveServerConfig) {
-        var s = server
-        s.isConnected = true
-        if !s.password.isEmpty {
-            KeychainHelper.shared.save(password: s.password, for: s.id.uuidString)
-        }
-        if !s.refreshToken.isEmpty {
-            KeychainHelper.shared.save(password: s.refreshToken, for: "\(s.id.uuidString)_rt")
-        }
-        
-        if let index = servers.firstIndex(where: { $0.id == s.id }) {
-            servers[index] = s
-        } else {
-            servers.append(s)
-        }
-        activeServer = s
-        persist()
-    }
-    
-    public func deleteServer(_ server: CloudreveServerConfig) {
-        KeychainHelper.shared.delete(account: server.id.uuidString)
-        KeychainHelper.shared.delete(account: "\(server.id.uuidString)_rt")
-        servers.removeAll { $0.id == server.id }
-        if activeServer?.id == server.id {
-            activeServer = servers.first(where: { $0.isConnected })
-        }
-        persist()
-    }
-    
-    public func setActiveServer(_ server: CloudreveServerConfig) {
-        if let index = servers.firstIndex(where: { $0.id == server.id }) {
-            servers[index].isConnected = true
-            activeServer = servers[index]
-            persist()
-        } else {
-            activeServer = server
-        }
-    }
-    
-    public func connectServer(_ server: CloudreveServerConfig) {
-        setActiveServer(server)
-    }
-    
-    public func disconnectServer(_ server: CloudreveServerConfig) {
-        if let index = servers.firstIndex(where: { $0.id == server.id }) {
-            servers[index].isConnected = false
-            if activeServer?.id == server.id {
-                activeServer = servers.first(where: { $0.isConnected && $0.id != server.id })
-            }
-            persist()
-        }
-    }
-    
-    public func disconnectActiveServer() {
-        if let act = activeServer {
-            disconnectServer(act)
-        } else {
-            activeServer = nil
-        }
-    }
-    
-    private func persist() {
-        // Düz metin parola asla UserDefaults'a yazılmaz; Keychain kullanılır!
-        let sanitized = servers.map { server -> CloudreveServerConfig in
-            var s = server
-            s.password = ""
-            return s
-        }
-        if let data = try? JSONEncoder().encode(sanitized) {
-            UserDefaults.standard.set(data, forKey: userDefaultsKey)
-        }
-    }
-    
-    private func loadServers() {
-        guard let data = UserDefaults.standard.data(forKey: userDefaultsKey),
-              let saved = try? JSONDecoder().decode([CloudreveServerConfig].self, from: data) else {
-            return
-        }
-        
-        var valid: [CloudreveServerConfig] = []
-        for server in saved {
-            if server.serverURL.contains("your-cloudreve-domain.com") {
-                continue
-            }
-            let trimmed = server.serverURL.trimmingCharacters(in: .whitespacesAndNewlines)
-            let proto = server.storageProtocol
-            if !trimmed.isEmpty || proto == .googleDrive || proto == .oneDrive {
-                valid.append(server)
-            }
-        }
 
-        self.servers = valid.map { server in
-            var s = server
-            // Keychain'den güvenli parolayı / tokenı çek
-            if let pass = KeychainHelper.shared.get(account: server.id.uuidString) {
-                s.password = pass
-            } else if !server.password.isEmpty {
-                KeychainHelper.shared.save(password: server.password, for: server.id.uuidString)
-                s.password = server.password
+    internal init(defaults: UserDefaults = .standard,
+                  saveSecret: @escaping (String, String) -> Bool = { KeychainHelper.shared.save(password: $1, for: $0) },
+                  readSecret: @escaping (String) -> String? = { KeychainHelper.shared.get(account: $0) },
+                  deleteSecret: @escaping (String) -> Bool = { KeychainHelper.shared.delete(account: $0) }) {
+        self.defaults = defaults
+        self.saveSecret = saveSecret
+        self.readSecret = readSecret
+        self.deleteSecret = deleteSecret
+        let activeID = defaults.string(forKey: "HDrive_ActiveServerID")
+        loadServers()
+        activeServer = servers.first { $0.id.uuidString == activeID && $0.isConnected }
+            ?? servers.first { $0.isConnected }
+    }
+
+    private func storeSecrets(_ server: CloudreveServerConfig) -> Bool {
+        for (suffix, value) in [("", server.password), ("_rt", server.refreshToken), ("_cs", server.clientSecret)] {
+            if !value.isEmpty && readSecret(server.id.uuidString + suffix) != value && !saveSecret(server.id.uuidString + suffix, value) {
+                lastError = "Kimlik bilgileri güvenli kasaya kaydedilemedi. Mevcut hesap kaydı korundu."
+                return false
             }
-            
-            // Refresh token'ı Keychain'den yükle
-            if let rt = KeychainHelper.shared.get(account: "\(server.id.uuidString)_rt") {
-                s.refreshToken = rt
+        }
+        return true
+    }
+
+    @discardableResult public func saveServer(_ server: CloudreveServerConfig) -> Bool {
+        guard storeSecrets(server) else { return false }
+        let oldServers = servers, oldActive = activeServer
+        var connected = server
+        connected.isConnected = true
+        if let index = servers.firstIndex(where: { $0.id == server.id }) { servers[index] = connected }
+        else { servers.append(connected) }
+        activeServer = connected
+        guard persist() else { servers = oldServers; activeServer = oldActive; return false }
+        return true
+    }
+
+    @discardableResult public func updateCredentials(_ server: CloudreveServerConfig) -> Bool {
+        guard let index = servers.firstIndex(where: { $0.id == server.id }), servers[index].isConnected else { return false }
+        guard storeSecrets(server) else { return false }
+        let old = servers[index]
+        servers[index].password = server.password
+        servers[index].refreshToken = server.refreshToken
+        servers[index].clientSecret = server.clientSecret
+        if !persist() { servers[index] = old; return false }
+        if activeServer?.id == server.id { activeServer = servers[index] }
+        return true
+    }
+
+    public func deleteServer(_ server: CloudreveServerConfig) {
+        let oldServers = servers, oldActive = activeServer
+        servers.removeAll { $0.id == server.id }
+        if activeServer?.id == server.id { activeServer = servers.first { $0.isConnected } }
+        guard persist() else { servers = oldServers; activeServer = oldActive; return }
+        for suffix in ["", "_rt", "_cs"] {
+            if !deleteSecret(server.id.uuidString + suffix) { lastError = "Hesap silindi ancak güvenli kasa temizlenemedi." }
+        }
+    }
+
+    public func setActiveServer(_ server: CloudreveServerConfig) {
+        guard let index = servers.firstIndex(where: { $0.id == server.id }) else { return }
+        let oldServers = servers, oldActive = activeServer
+        servers[index].isConnected = true
+        activeServer = servers[index]
+        if !persist() { servers = oldServers; activeServer = oldActive }
+    }
+
+    public func connectServer(_ server: CloudreveServerConfig) { setActiveServer(server) }
+
+    public func disconnectServer(_ server: CloudreveServerConfig) {
+        guard let index = servers.firstIndex(where: { $0.id == server.id }) else { return }
+        let oldServers = servers, oldActive = activeServer
+        servers[index].isConnected = false
+        if activeServer?.id == server.id { activeServer = servers.first { $0.isConnected } }
+        if !persist() { servers = oldServers; activeServer = oldActive }
+    }
+
+    public func disconnectActiveServer() {
+        if let active = activeServer { disconnectServer(active) }
+    }
+
+    @discardableResult private func persist() -> Bool {
+        guard !loadFailed else { lastError = "Hesap kaydı okunamadığı için üzerine yazılmadı. Kaydı veya yedeğini kurtarın."; return false }
+        guard servers.allSatisfy({ storeSecrets($0) }) else { return false }
+        let sanitized = servers.map { server -> CloudreveServerConfig in
+            var safe = server
+            safe.password = ""
+            safe.refreshToken = ""
+            safe.clientSecret = ""
+            return safe
+        }
+        do {
+            let data = try JSONEncoder().encode(sanitized)
+            defaults.set(data, forKey: userDefaultsKey)
+            defaults.set(data, forKey: userDefaultsKey + "_backup")
+            return true
+        } catch {
+            lastError = "Hesaplar kaydedilemedi: " + error.localizedDescription
+            return false
+        }
+    }
+
+    private func loadServers() {
+        guard let data = defaults.data(forKey: userDefaultsKey) else { return }
+        do {
+            let saved: [CloudreveServerConfig]
+            do { saved = try JSONDecoder().decode([CloudreveServerConfig].self, from: data) }
+            catch {
+                guard let backup = defaults.data(forKey: userDefaultsKey + "_backup") else { throw error }
+                saved = try JSONDecoder().decode([CloudreveServerConfig].self, from: backup)
+                lastError = "Hesap kaydı yedekten kurtarıldı."
             }
-            return s
+            servers = saved.map { server in
+                var restored = server
+                restored.password = readSecret(server.id.uuidString) ?? server.password
+                restored.refreshToken = readSecret(server.id.uuidString + "_rt") ?? server.refreshToken
+                restored.clientSecret = readSecret(server.id.uuidString + "_cs") ?? server.clientSecret
+                return restored
+            }
+            persist() // Migrate old plaintext values only after secure storage succeeds.
+        } catch {
+            loadFailed = true
+            lastError = "Hesap kaydı okunamadı; dosya korundu: " + error.localizedDescription
         }
     }
 }

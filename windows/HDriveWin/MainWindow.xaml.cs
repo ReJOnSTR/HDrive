@@ -331,10 +331,11 @@ public sealed partial class MainWindow : Window
             {
                 if (string.IsNullOrEmpty(state.CurrentPath))
                 {
-                    tab.Header = GetRootTitle();
+                    var owner = CloudreveManager.Instance.Servers.FirstOrDefault(server => server.Id == state.ServerId);
+                    tab.Header = owner?.Name ?? "Bulut Sürücüsü";
                     if (tab.IconSource is FontIconSource icon)
                     {
-                        icon.Glyph = GetRootGlyph();
+                        icon.Glyph = owner?.GlyphIcon ?? "\uE753";
                     }
                 }
             }
@@ -345,6 +346,7 @@ public sealed partial class MainWindow : Window
     {
         var state = new ExplorerTabState
         {
+            ServerId = CloudreveManager.Instance.ActiveServer?.Id,
             CurrentPath = path,
             History = new List<string> { path },
             HistoryIndex = 0
@@ -418,7 +420,22 @@ public sealed partial class MainWindow : Window
     {
         if (ExplorerTabs.SelectedItem is TabViewItem tab && tab.Tag is ExplorerTabState state)
         {
-            if (_currentPath != state.CurrentPath || _items.Count == 0)
+            var accountChanged = false;
+            if (state.ServerId != null)
+            {
+                var server = CloudreveManager.Instance.Servers.FirstOrDefault(s => s.Id == state.ServerId && s.IsConnected);
+                if (server == null)
+                {
+                    ++_loadSessionId;
+                    CloudreveManager.Instance.ClearActiveSelection();
+                    _items.Clear(); _allItems.Clear(); ItemCountText.Text = "Hesabın bağlantısı kesildi";
+                    LoadingRing.IsActive = false;
+                    return;
+                }
+                accountChanged = CloudreveManager.Instance.ActiveServer?.Id != server.Id;
+                if (accountChanged) CloudreveManager.Instance.SetActiveServer(server);
+            }
+            if (accountChanged || _currentPath != state.CurrentPath || _items.Count == 0)
             {
                 _currentPath = state.CurrentPath;
                 _history.Clear();
@@ -539,11 +556,13 @@ public sealed partial class MainWindow : Window
                 return;
             }
 
+            if (ExplorerTabs.SelectedItem is TabViewItem selected && selected.Tag is ExplorerTabState tabState && tabState.ServerId == null)
+                tabState.ServerId = config.Id;
             var client = new WebDAVClient(config);
             var list = await client.ListDirectoryAsync(path);
 
             // Eğer başka bir gezinme başladıysa bu eski isteğin sonucunu yoksay
-            if (sessionId != _loadSessionId) return;
+            if (sessionId != _loadSessionId || config.Id != CloudreveManager.Instance.ActiveServer?.Id || !config.IsConnected) return;
 
             _allItems.Clear();
             var uniqueList = list.GroupBy(x => x.Path, StringComparer.OrdinalIgnoreCase)
@@ -560,10 +579,11 @@ public sealed partial class MainWindow : Window
         catch (Exception ex)
         {
             App.LogCrash("MainWindow.LoadDirectoryAsync", ex);
+            if (sessionId == _loadSessionId && ItemCountText != null) ItemCountText.Text = "Klasör yüklenemedi: " + ex.Message;
         }
         finally
         {
-            if (LoadingRing != null) LoadingRing.IsActive = false;
+            if (sessionId == _loadSessionId && LoadingRing != null) LoadingRing.IsActive = false;
         }
     }
 
@@ -836,7 +856,7 @@ public sealed partial class MainWindow : Window
                     });
 
                     // Canlı Harici Düzenleme Takibi: Harici programda Ctrl+S yapıldığında Cloudreve'e otomatik geri yükle
-                    LiveEditWatcherService.Instance.WatchFile(localPath, item.Path, _currentPath);
+                    LiveEditWatcherService.Instance.WatchFile(localPath, item.Path, _currentPath, config);
                 }
                 catch (Exception ex)
                 {
@@ -848,7 +868,7 @@ public sealed partial class MainWindow : Window
                         UseShellExecute = true
                     });
 
-                    LiveEditWatcherService.Instance.WatchFile(localPath, item.Path, _currentPath);
+                    LiveEditWatcherService.Instance.WatchFile(localPath, item.Path, _currentPath, config);
                 }
             }
         }
@@ -1684,9 +1704,13 @@ public sealed partial class MainWindow : Window
             CloudreveManager.Instance.SetActiveServer(target);
             UpdateSidebar();
             UpdateTabHeaders();
-            UpdateBreadcrumbs("");
+            var existingTab = ExplorerTabs.TabItems.OfType<TabViewItem>()
+                .FirstOrDefault(tab => tab.Tag is ExplorerTabState state && state.ServerId == target.Id);
+            if (existingTab != null) ExplorerTabs.SelectedItem = existingTab;
+            else OpenNewTab("");
+            UpdateBreadcrumbs(_currentPath);
             _ = RefreshStorageQuotaAsync();
-            await LoadDirectoryAsync("");
+            await LoadDirectoryAsync(_currentPath);
         }
     }
 
@@ -3161,6 +3185,7 @@ public sealed partial class MainWindow : Window
 
 public class ExplorerTabState
 {
+    public string? ServerId { get; set; }
     public string CurrentPath { get; set; } = "";
     public List<string> History { get; set; } = new() { "" };
     public int HistoryIndex { get; set; } = 0;

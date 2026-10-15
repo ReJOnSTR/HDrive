@@ -3822,32 +3822,45 @@ public class GoogleOAuthHelper {
            let val = json["client_secret"] as? String, !val.isEmpty {
             return val
         }
-        return UserDefaults.standard.string(forKey: "GoogleOAuthClientSecret") ?? ""
+        let key = "HDrive_DefaultGoogleClientSecret"
+        if let saved = KeychainHelper.shared.get(account: key) { return saved }
+        let legacy = UserDefaults.standard.string(forKey: "GoogleOAuthClientSecret") ?? ""
+        if !legacy.isEmpty && KeychainHelper.shared.save(password: legacy, for: key) {
+            UserDefaults.standard.removeObject(forKey: "GoogleOAuthClientSecret")
+        }
+        return legacy
     }
     
     public static let redirectUri = "http://127.0.0.1:8080/oauth/callback"
     
     public static let shared = GoogleOAuthHelper()
     private var listener: NWListener?
-    
-    public func startListener(onCodeReceived: @escaping (String) -> Void) {
+    private var loginSession: OAuthSession?
+    private var loginTimeout: DispatchWorkItem?
+    public var securityQuery: String { loginSession?.query ?? "" }
+    public var codeVerifier: String { loginSession?.verifier ?? "" }
+
+    public func startListener(path: String = "/oauth/callback", onCodeReceived: @escaping (String) -> Void) {
         stopListener()
+        loginSession = OAuthSession()
+        let timeout = DispatchWorkItem { [weak self] in self?.stopListener() }
+        loginTimeout = timeout
+        DispatchQueue.main.asyncAfter(deadline: .now() + 150, execute: timeout)
         do {
             let params = NWParameters.tcp
+            params.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: 8080)
             guard let port = NWEndpoint.Port(rawValue: 8080) else { return }
             listener = try NWListener(using: params, on: port)
             listener?.newConnectionHandler = { connection in
                 connection.start(queue: .main)
                 connection.receive(minimumIncompleteLength: 1, maximumLength: 4096) { data, _, _, _ in
                     if let data = data, let req = String(data: data, encoding: .utf8) {
-                        if let range = req.range(of: "code=") {
-                            let sub = req[range.upperBound...]
-                            let rawCode = sub.prefix { $0 != "&" && $0 != " " && $0 != "\r" && $0 != "\n" }
-                            // HTTP path'teki kod URL-encoded gelir; decode et
-                            let codeStr = (String(rawCode).removingPercentEncoding ?? String(rawCode))
-                                .trimmingCharacters(in: .whitespacesAndNewlines)
-                            
-                            let html = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nConnection: close\r\n\r\n<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>HDrive</title></head><body style=\"font-family:system-ui,-apple-system;text-align:center;padding:60px 20px;background:#f8fafc;\"><div style=\"max-width:440px;margin:auto;background:white;padding:40px;border-radius:16px;box-shadow:0 10px 25px rgba(0,0,0,0.06);\"><h2 style=\"color:#10b981;margin-bottom:8px;\">✅ Giriş Başarılı!</h2><p style=\"color:#64748b;font-size:15px;line-height:1.5;\">HDrive bulut oturumunuzu başarıyla doğruladı.<br>Bu sekmeyi kapatıp uygulamaya dönebilirsiniz.</p></div></body></html>"
+                        let line = req.components(separatedBy: "\r\n").first ?? ""
+                        let parts = line.components(separatedBy: " ")
+                        if parts.count >= 2, parts[0] == "GET", let url = URLComponents(string: parts[1]), url.path == path,
+                           self.loginSession?.matches(url.queryItems?.first(where: { $0.name == "state" })?.value) == true,
+                           let codeStr = url.queryItems?.first(where: { $0.name == "code" })?.value, !codeStr.isEmpty {
+                            let html = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nConnection: close\r\n\r\n<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>HDrive</title></head><body style=\"font-family:system-ui,-apple-system;text-align:center;padding:60px 20px;background:#f8fafc;\"><div style=\"max-width:440px;margin:auto;background:white;padding:40px;border-radius:16px;box-shadow:0 10px 25px rgba(0,0,0,0.06);\"><h2 style=\"color:#10b981;margin-bottom:8px;\">Yetkilendirme alındı</h2><p style=\"color:#64748b;font-size:15px;line-height:1.5;\">HDrive oturumunuzu uygulamada doğruluyor.<br>Bu sekmeyi kapatıp uygulamaya dönebilirsiniz.</p></div></body></html>"
                             connection.send(content: html.data(using: .utf8), completion: .contentProcessed({ _ in
                                 connection.cancel()
                             }))
@@ -3869,6 +3882,8 @@ public class GoogleOAuthHelper {
     }
     
     public func stopListener() {
+        loginTimeout?.cancel()
+        loginTimeout = nil
         listener?.cancel()
         listener = nil
     }
@@ -3885,7 +3900,7 @@ public class GoogleOAuthHelper {
         let cId = clientId.isEmpty ? GoogleOAuthHelper.defaultClientId : clientId
         let cSec = clientSecret.isEmpty ? GoogleOAuthHelper.defaultClientSecret : clientSecret
         
-        let body = "code=\(code.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? code)&client_id=\(cId)&client_secret=\(cSec)&redirect_uri=http%3A%2F%2F127.0.0.1%3A8080%2Foauth%2Fcallback&grant_type=authorization_code"
+        let body = "code=\(OAuthSession.encode(code))&client_id=\(OAuthSession.encode(cId))&client_secret=\(OAuthSession.encode(cSec))&redirect_uri=http%3A%2F%2F127.0.0.1%3A8080%2Foauth%2Fcallback&grant_type=authorization_code&code_verifier=\(OAuthSession.encode(codeVerifier))"
         req.httpBody = body.data(using: .utf8)
         
         URLSession.shared.dataTask(with: req) { data, response, error in
@@ -4849,7 +4864,7 @@ public struct HDriveSettingsView: View {
                 }
             }
             
-            let authUrlStr = "https://accounts.google.com/o/oauth2/v2/auth?client_id=\(encodedClientId)&response_type=code&redirect_uri=http%3A%2F%2F127.0.0.1%3A8080%2Foauth%2Fcallback&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive&access_type=offline&prompt=consent"
+            let authUrlStr = "https://accounts.google.com/o/oauth2/v2/auth?client_id=\(encodedClientId)&response_type=code&redirect_uri=http%3A%2F%2F127.0.0.1%3A8080%2Foauth%2Fcallback&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive&access_type=offline&prompt=consent&\(GoogleOAuthHelper.shared.securityQuery)"
             if let url = URL(string: authUrlStr) {
                 NSWorkspace.shared.open(url)
             }
@@ -4861,7 +4876,7 @@ public struct HDriveSettingsView: View {
             isTesting = true
             isTestSuccess = true
             
-            GoogleOAuthHelper.shared.startListener { code in
+            GoogleOAuthHelper.shared.startListener(path: "/") { code in
                 DispatchQueue.main.async {
                     self.testResult = "⏳ Microsoft yetkilendirme kodu alındı, erişim tokenı talep ediliyor..."
                     self.exchangeOneDriveCode(raw: code) { result in
@@ -4883,7 +4898,7 @@ public struct HDriveSettingsView: View {
                 }
             }
             
-            let authEndpoint = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=\(encodedClientId)&response_type=code&redirect_uri=http%3A%2F%2Flocalhost%3A8080&scope=offline_access%20Files.ReadWrite%20User.Read"
+            let authEndpoint = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=\(encodedClientId)&response_type=code&redirect_uri=http%3A%2F%2Flocalhost%3A8080&scope=offline_access%20Files.ReadWrite%20User.Read&\(GoogleOAuthHelper.shared.securityQuery)"
             if let url = URL(string: authEndpoint) {
                 NSWorkspace.shared.open(url)
             }
@@ -4953,7 +4968,7 @@ public struct HDriveSettingsView: View {
         strictChars.insert(charactersIn: "-._~")
         let encCode = code.addingPercentEncoding(withAllowedCharacters: strictChars) ?? code
         let redirectUri = isNativeClient ? "https%3A%2F%2Flogin.microsoftonline.com%2Fcommon%2Foauth2%2Fnativeclient" : "http%3A%2F%2Flocalhost%3A8080"
-        let body = "client_id=\(cId)&grant_type=authorization_code&code=\(encCode)&redirect_uri=\(redirectUri)"
+        let body = "client_id=\(OAuthSession.encode(cId))&grant_type=authorization_code&code=\(encCode)&redirect_uri=\(redirectUri)&code_verifier=\(OAuthSession.encode(GoogleOAuthHelper.shared.codeVerifier))"
         req.httpBody = body.data(using: .utf8)
         
         URLSession.shared.dataTask(with: req) { data, response, error in
@@ -5023,7 +5038,11 @@ public struct HDriveSettingsView: View {
         cfg.clientSecret = clientSecret.trimmingCharacters(in: .whitespacesAndNewlines)
         cfg.refreshToken = refreshToken
         
-        manager.saveServer(cfg)
+        guard manager.saveServer(cfg) else {
+            isTestSuccess = false
+            testResult = manager.lastError ?? "Hesap kaydedilemedi."
+            return
+        }
         manager.setActiveServer(cfg)
         onSave?()
         connectionMode = .list

@@ -15,24 +15,33 @@ using HDriveWin.Models;
 
 namespace HDriveWin.Services;
 
-public class WebDAVClient
+public partial class WebDAVClient
 {
     private readonly ServerConfig _config;
+    private readonly ServerConfig _sourceConfig;
     private readonly HttpClient _httpClient;
     public ServerConfig Config => _config;
     public HttpClient HttpClient => _httpClient;
+    internal Action<ServerConfig> PersistCredentials { get; set; } = config => CloudreveManager.Instance.UpdateCredentials(config);
 
-    public WebDAVClient(ServerConfig config)
+    public WebDAVClient(ServerConfig config, HttpClient? httpClient = null)
     {
-        _config = config;
+        _sourceConfig = config;
+        _config = new ServerConfig {
+            Id = config.Id, Name = config.Name, ServerURL = config.ServerURL, Username = config.Username,
+            Password = config.Password, Protocol = config.Protocol, BucketName = config.BucketName,
+            Region = config.Region, SmbShareName = config.SmbShareName, ClientId = config.ClientId,
+            ClientSecret = config.ClientSecret, RefreshToken = config.RefreshToken,
+            AutoSyncEnabled = config.AutoSyncEnabled, IsConnected = config.IsConnected
+        };
         var handler = new HttpClientHandler
         {
             AllowAutoRedirect = true
         };
 
-        _httpClient = new HttpClient(handler)
+        _httpClient = httpClient ?? new HttpClient(handler)
         {
-            Timeout = TimeSpan.FromSeconds(60)
+            Timeout = TimeSpan.FromMinutes(30)
         };
 
         if (_config.Protocol == StorageProtocol.GoogleDrive || _config.Protocol == StorageProtocol.OneDrive)
@@ -42,7 +51,7 @@ public class WebDAVClient
                 _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _config.Password);
             }
         }
-        else if (!string.IsNullOrEmpty(_config.Username) && !string.IsNullOrEmpty(_config.Password))
+        else if (_config.Protocol != StorageProtocol.S3 && !string.IsNullOrEmpty(_config.Username) && !string.IsNullOrEmpty(_config.Password))
         {
             var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_config.Username}:{_config.Password}"));
             _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", credentials);
@@ -55,7 +64,7 @@ public class WebDAVClient
 
         try
         {
-            var (success, newToken, _) = await OAuthHelper.RefreshOAuthTokenAsync(
+            var (success, newToken, newRefreshToken, _) = await OAuthHelper.RefreshOAuthTokenAsync(
                 _config.Protocol, 
                 _config.RefreshToken, 
                 _config.ClientId, 
@@ -64,7 +73,13 @@ public class WebDAVClient
             if (success && !string.IsNullOrEmpty(newToken))
             {
                 _config.Password = newToken;
-                CloudreveManager.Instance.SaveServer(_config);
+                if (!string.IsNullOrEmpty(newRefreshToken)) _config.RefreshToken = newRefreshToken;
+                PersistCredentials(_config);
+                if (_sourceConfig.ServerURL == _config.ServerURL && _sourceConfig.Protocol == _config.Protocol && _sourceConfig.Username == _config.Username)
+                {
+                    _sourceConfig.Password = _config.Password;
+                    _sourceConfig.RefreshToken = _config.RefreshToken;
+                }
                 _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", newToken);
                 return true;
             }
@@ -80,7 +95,11 @@ public class WebDAVClient
         if (trimmed.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
             trimmed.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
         {
-            return new Uri(trimmed);
+            var absolute = new Uri(trimmed);
+            var origin = new Uri(_config.ServerURL);
+            if (absolute.Scheme != origin.Scheme || absolute.Host != origin.Host || absolute.Port != origin.Port)
+                throw new InvalidOperationException("Hesap kimliği farklı bir sunucuya gönderilemez.");
+            return absolute;
         }
 
         var baseUriStr = _config.ServerURL.TrimEnd('/');
@@ -235,14 +254,8 @@ public class WebDAVClient
 
             if (_config.Protocol == StorageProtocol.S3)
             {
-                var s3Uri = BuildUri("/");
-                var s3Req = new HttpRequestMessage(HttpMethod.Get, s3Uri);
-                var s3Resp = await _httpClient.SendAsync(s3Req);
-                if (s3Resp.IsSuccessStatusCode || s3Resp.StatusCode == System.Net.HttpStatusCode.Forbidden || (int)s3Resp.StatusCode == 400)
-                {
-                    return (true, "Amazon S3 / MinIO uç noktasına bağlanıldı!");
-                }
-                return (false, $"S3 sunucu yanıtı: {(int)s3Resp.StatusCode}");
+                await ListS3DirectoryAsync("");
+                return (true, "S3 hesabı doğrulandı ve bucket listelendi.");
             }
 
             if (_config.Protocol == StorageProtocol.GoogleDrive)
@@ -322,6 +335,7 @@ public class WebDAVClient
 
     public async Task<List<FileItem>> ListDirectoryAsync(string relativePath)
     {
+        if (_config.Protocol == StorageProtocol.S3) return await ListS3DirectoryAsync(relativePath);
         if (_config.Protocol == StorageProtocol.GoogleDrive)
         {
             return await ListGoogleDriveDirectoryAsync(relativePath);
@@ -470,143 +484,16 @@ public class WebDAVClient
 
     public async Task<string?> DownloadFileToCacheAsync(string remotePath, string? preferredFileName = null)
     {
-        string filename;
-        if (!string.IsNullOrWhiteSpace(preferredFileName))
-        {
-            filename = preferredFileName.Trim();
-        }
-        else
-        {
-            filename = Path.GetFileName(remotePath.TrimEnd('/'));
-        }
-
-        if (string.IsNullOrEmpty(filename))
-        {
-            filename = "file_" + Guid.NewGuid().ToString("N").Substring(0, 8);
-        }
-
-        var safePrefix = (remotePath ?? "").Trim('/').Replace('/', '_').Replace('\\', '_');
-        if (safePrefix.Length > 32) safePrefix = safePrefix.Substring(0, 32);
-        var cachedFileName = $"{safePrefix}_{filename}";
-
-        var cacheDir = Path.Combine(Path.GetTempPath(), "HDriveCache");
-        Directory.CreateDirectory(cacheDir);
-        var localPath = Path.Combine(cacheDir, cachedFileName);
-
-        if (File.Exists(localPath) && new FileInfo(localPath).Length > 0)
-        {
-            return localPath;
-        }
-
-        if (_config.Protocol == StorageProtocol.SMB)
-        {
-            await EnsureSmbConnectedAsync();
-            return await Task.Run(() =>
-            {
-                try
-                {
-                    var unc = GetUncPath(remotePath ?? "");
-                    File.Copy(unc, localPath, true);
-                    return localPath;
-                }
-                catch
-                {
-                    return null;
-                }
-            });
-        }
-
+        var name = SafeFileName(preferredFileName ?? Path.GetFileName(remotePath.TrimEnd('/')));
         if (_config.Protocol == StorageProtocol.GoogleDrive)
         {
-            try
-            {
-                var cleanId = (remotePath ?? "").Trim().Trim('/');
-                var ext = Path.GetExtension(filename).ToLowerInvariant();
-                string url;
-                if (string.IsNullOrEmpty(ext))
-                {
-                    filename += ".docx";
-                    cachedFileName += ".docx";
-                    localPath = Path.Combine(cacheDir, cachedFileName);
-                    var exportMime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-                    url = $"https://www.googleapis.com/drive/v3/files/{cleanId}/export?mimeType={Uri.EscapeDataString(exportMime)}";
-                }
-                else
-                {
-                    url = $"https://www.googleapis.com/drive/v3/files/{cleanId}?alt=media&supportsAllDrives=true";
-                }
-
-                var response = await _httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
-
-                if (!response.IsSuccessStatusCode && (int)response.StatusCode == 403)
-                {
-                    var exportMime = "application/pdf";
-                    if (filename.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase))
-                        exportMime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-                    else if (filename.EndsWith(".pptx", StringComparison.OrdinalIgnoreCase))
-                        exportMime = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
-                    else if (filename.EndsWith(".docx", StringComparison.OrdinalIgnoreCase))
-                        exportMime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-
-                    url = $"https://www.googleapis.com/drive/v3/files/{cleanId}/export?mimeType={Uri.EscapeDataString(exportMime)}";
-                    response = await _httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
-                }
-
-                response.EnsureSuccessStatusCode();
-
-                using var stream = await response.Content.ReadAsStreamAsync();
-                using var fileStream = new FileStream(localPath, FileMode.Create, FileAccess.Write, FileShare.None);
-                await stream.CopyToAsync(fileStream);
-
-                return localPath;
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"GoogleDrive download error: {ex.Message}");
-                return null;
-            }
+            var info = await GoogleMetadataAsync(remotePath);
+            if (string.IsNullOrWhiteSpace(preferredFileName) && !string.IsNullOrWhiteSpace(info.Name)) name = SafeFileName(info.Name);
+            name = NativeFileName(name, info.Mime);
         }
-
-        if (_config.Protocol == StorageProtocol.OneDrive)
-        {
-            try
-            {
-                var cleanId = (remotePath ?? "").Trim().Trim('/');
-                var url = $"https://graph.microsoft.com/v1.0/me/drive/items/{cleanId}/content";
-                var response = await _httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
-                response.EnsureSuccessStatusCode();
-
-                using var stream = await response.Content.ReadAsStreamAsync();
-                using var fileStream = new FileStream(localPath, FileMode.Create, FileAccess.Write, FileShare.None);
-                await stream.CopyToAsync(fileStream);
-
-                return localPath;
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"OneDrive download error: {ex.Message}");
-                return null;
-            }
-        }
-
-        var uri = BuildUri(remotePath ?? "");
-
-        try
-        {
-            var response = await _httpClient.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead);
-            response.EnsureSuccessStatusCode();
-
-            using var stream = await response.Content.ReadAsStreamAsync();
-            using var fileStream = new FileStream(localPath, FileMode.Create, FileAccess.Write, FileShare.None);
-            await stream.CopyToAsync(fileStream);
-
-            return localPath;
-        }
-        catch (Exception ex)
-        {
-            Debug.WriteLine($"WebDAV download error: {ex.Message}");
-            return null;
-        }
+        var destination = CachePath(remotePath, name);
+        await DownloadToAsync(remotePath, destination, fileName: name);
+        return destination;
     }
 
     public async Task<string?> DownloadFolderToCacheAsync(string remotePath)
@@ -614,7 +501,7 @@ public class WebDAVClient
         var folderName = Path.GetFileName(remotePath.TrimEnd('/'));
         if (string.IsNullOrEmpty(folderName)) folderName = "HDriveFolder";
         var cacheDir = Path.Combine(Path.GetTempPath(), "HDriveCache");
-        var localFolder = Path.Combine(cacheDir, folderName);
+        var localFolder = Path.Combine(Path.GetDirectoryName(CachePath(remotePath, "folder"))!, SafeFileName(folderName));
         Directory.CreateDirectory(localFolder);
 
         await DownloadFolderRecursiveInternalAsync(remotePath, localFolder);
@@ -624,42 +511,11 @@ public class WebDAVClient
     private async Task DownloadFolderRecursiveInternalAsync(string remotePath, string localFolder)
     {
         Directory.CreateDirectory(localFolder);
-        var items = await ListDirectoryAsync(remotePath);
-        foreach (var item in items)
+        foreach (var item in await ListDirectoryAsync(remotePath))
         {
-            if (item.IsDirectory)
-            {
-                var subFolder = Path.Combine(localFolder, item.Name);
-                await DownloadFolderRecursiveInternalAsync(item.Path, subFolder);
-            }
-            else
-            {
-                var destFile = Path.Combine(localFolder, item.Name);
-                if (_config.Protocol == StorageProtocol.SMB)
-                {
-                    try
-                    {
-                        var unc = GetUncPath(item.Path);
-                        File.Copy(unc, destFile, true);
-                    }
-                    catch { }
-                }
-                else
-                {
-                    var uri = BuildUri(item.Path);
-                    try
-                    {
-                        var response = await _httpClient.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead);
-                        if (response.IsSuccessStatusCode)
-                        {
-                            using var stream = await response.Content.ReadAsStreamAsync();
-                            using var fileStream = new FileStream(destFile, FileMode.Create, FileAccess.Write, FileShare.None);
-                            await stream.CopyToAsync(fileStream);
-                        }
-                    }
-                    catch { }
-                }
-            }
+            var destination = Path.Combine(localFolder, SafeFileName(item.Name));
+            if (item.IsDirectory) await DownloadFolderRecursiveInternalAsync(item.Path, destination);
+            else await DownloadToAsync(item.Path, destination, fileName: item.Name);
         }
     }
 
@@ -668,18 +524,18 @@ public class WebDAVClient
         var folderName = Path.GetFileName(localFolderPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
         if (string.IsNullOrEmpty(folderName)) folderName = "YeniKlasor";
         var remoteFolder = remoteParentPath.TrimEnd('/') + "/" + folderName;
-        await CreateFolderAsync(remoteFolder);
+        if (!await CreateFolderAsync(remoteFolder)) return false;
 
         try
         {
             foreach (var file in Directory.GetFiles(localFolderPath))
             {
-                await UploadFileAsync(file, remoteFolder);
+                if (!await UploadFileAsync(file, remoteFolder)) return false;
             }
 
             foreach (var subDir in Directory.GetDirectories(localFolderPath))
             {
-                await UploadFolderRecursiveAsync(subDir, remoteFolder);
+                if (!await UploadFolderRecursiveAsync(subDir, remoteFolder)) return false;
             }
             return true;
         }
@@ -691,91 +547,13 @@ public class WebDAVClient
 
     public async Task<bool> UploadFileAsync(string localFilePath, string remoteDirectoryPath)
     {
-        var filename = Path.GetFileName(localFilePath);
-        var remotePath = remoteDirectoryPath.TrimEnd('/') + "/" + filename;
-
-        if (_config.Protocol == StorageProtocol.SMB)
-        {
-            await EnsureSmbConnectedAsync();
-            return await Task.Run(() =>
-            {
-                try
-                {
-                    var uncDest = GetUncPath(remotePath);
-                    var dir = Path.GetDirectoryName(uncDest);
-                    if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
-                    {
-                        Directory.CreateDirectory(dir);
-                    }
-                    File.Copy(localFilePath, uncDest, true);
-                    return true;
-                }
-                catch
-                {
-                    return false;
-                }
-            });
-        }
-
-        if (_config.Protocol == StorageProtocol.GoogleDrive)
-        {
-            try
-            {
-                var parentId = string.IsNullOrEmpty(remoteDirectoryPath) || remoteDirectoryPath == "/" ? "root" : remoteDirectoryPath.Trim('/');
-                var metadata = new { name = filename, parents = new[] { parentId } };
-                var metaJson = JsonSerializer.Serialize(metadata);
-
-                using var multipart = new MultipartFormDataContent();
-                var stringContent = new StringContent(metaJson, Encoding.UTF8, "application/json");
-                multipart.Add(stringContent, "metadata");
-
-                using var fileStream = File.OpenRead(localFilePath);
-                var streamContent = new StreamContent(fileStream);
-                multipart.Add(streamContent, "file", filename);
-
-                var resp = await _httpClient.PostAsync("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true", multipart);
-                return resp.IsSuccessStatusCode;
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        if (_config.Protocol == StorageProtocol.OneDrive)
-        {
-            try
-            {
-                var targetFolder = string.IsNullOrEmpty(remoteDirectoryPath) || remoteDirectoryPath == "/" ? "root" : $"items/{remoteDirectoryPath.Trim('/')}";
-                var url = $"https://graph.microsoft.com/v1.0/me/drive/{targetFolder}:/{Uri.EscapeDataString(filename)}:/content";
-                using var fileStream = File.OpenRead(localFilePath);
-                using var content = new StreamContent(fileStream);
-                var resp = await _httpClient.PutAsync(url, content);
-                return resp.IsSuccessStatusCode;
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        var uri = BuildUri(remotePath);
-
-        try
-        {
-            using var fileStream = File.OpenRead(localFilePath);
-            using var content = new StreamContent(fileStream);
-            var response = await _httpClient.PutAsync(uri, content);
-            return response.IsSuccessStatusCode;
-        }
-        catch
-        {
-            return false;
-        }
+        try { await UploadAsync(localFilePath, remoteDirectoryPath); return true; }
+        catch (Exception error) { Debug.WriteLine(error); return false; }
     }
 
     public async Task<bool> CreateFolderAsync(string remotePath)
     {
+        if (_config.Protocol == StorageProtocol.S3) return await CreateS3FolderAsync(remotePath);
         if (_config.Protocol == StorageProtocol.SMB)
         {
             await EnsureSmbConnectedAsync();
@@ -851,6 +629,7 @@ public class WebDAVClient
 
     public async Task<bool> DeleteAsync(string remotePath, bool isDirectory = false)
     {
+        if (_config.Protocol == StorageProtocol.S3) return await DeleteS3Async(remotePath, isDirectory);
         if (_config.Protocol == StorageProtocol.SMB)
         {
             await EnsureSmbConnectedAsync();
@@ -941,6 +720,7 @@ public class WebDAVClient
 
     public async Task<bool> MoveAsync(string sourceRemotePath, string destRemotePath, bool overwrite = false)
     {
+        if (_config.Protocol == StorageProtocol.S3) return await MoveS3Async(sourceRemotePath, destRemotePath, overwrite);
         if (_config.Protocol == StorageProtocol.SMB)
         {
             await EnsureSmbConnectedAsync();
@@ -1030,153 +810,67 @@ public class WebDAVClient
     #region Google Drive & OneDrive REST Helpers
     private async Task<List<FileItem>> ListGoogleDriveDirectoryAsync(string folderIdOrPath)
     {
-        var list = new List<FileItem>();
         var clean = (folderIdOrPath ?? "").Trim().Trim('/');
-        var parentId = (string.IsNullOrEmpty(clean) || clean == ".") ? "root" : clean;
-
-        var query = Uri.EscapeDataString($"'{parentId}' in parents and trashed = false");
-        var url = $"https://www.googleapis.com/drive/v3/files?q={query}&fields=files(id,name,mimeType,size,modifiedTime)&pageSize=1000&supportsAllDrives=true";
-
-        try
+        var parent = string.IsNullOrEmpty(clean) || clean == "." ? "root" : clean;
+        var query = Uri.EscapeDataString($"'{parent.Replace("'", "\\'")}' in parents and trashed = false");
+        var initial = $"https://www.googleapis.com/drive/v3/files?q={query}&fields=nextPageToken,files(id,name,mimeType,size,modifiedTime)&pageSize=1000&supportsAllDrives=true";
+        var result = new List<FileItem>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        string? token = null;
+        do
         {
-            var req = new HttpRequestMessage(HttpMethod.Get, url);
-            var resp = await _httpClient.SendAsync(req);
-            if ((int)resp.StatusCode == 401 && await TryRefreshOAuthTokenAsync())
+            var url = initial + (token == null ? "" : "&pageToken=" + Uri.EscapeDataString(token));
+            using var response = await SendAuthorizedAsync(() => new HttpRequestMessage(HttpMethod.Get, url));
+            response.EnsureSuccessStatusCode();
+            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            foreach (var file in document.RootElement.GetProperty("files").EnumerateArray())
             {
-                req = new HttpRequestMessage(HttpMethod.Get, url);
-                resp = await _httpClient.SendAsync(req);
+                var size = file.TryGetProperty("size", out var value) && long.TryParse(value.ToString(), out var bytes) ? bytes : 0;
+                var modified = file.TryGetProperty("modifiedTime", out value) && DateTime.TryParse(value.GetString(), out var date) ? date : DateTime.MinValue;
+                result.Add(new FileItem {
+                    Name = NativeFileName(file.GetProperty("name").GetString() ?? "", file.GetProperty("mimeType").GetString() ?? ""),
+                    Path = file.GetProperty("id").GetString() ?? "",
+                    IsDirectory = file.GetProperty("mimeType").GetString() == "application/vnd.google-apps.folder",
+                    Size = size, ModifiedDate = modified
+                });
             }
-            if (!resp.IsSuccessStatusCode) return list;
-
-            var json = await resp.Content.ReadAsStringAsync();
-            using var doc = JsonDocument.Parse(json);
-            if (doc.RootElement.TryGetProperty("files", out var files))
-            {
-                foreach (var f in files.EnumerateArray())
-                {
-                    var id = f.GetProperty("id").GetString() ?? "";
-                    var name = f.GetProperty("name").GetString() ?? "";
-                    var mime = f.TryGetProperty("mimeType", out var mp) ? mp.GetString() ?? "" : "";
-                    var isDir = mime == "application/vnd.google-apps.folder";
-
-                    long size = 0;
-                    if (f.TryGetProperty("size", out var sp))
-                    {
-                        if (sp.ValueKind == JsonValueKind.Number) size = sp.GetInt64();
-                        else if (sp.ValueKind == JsonValueKind.String && long.TryParse(sp.GetString(), out var ps)) size = ps;
-                    }
-
-                    DateTime modDate = DateTime.MinValue;
-                    if (f.TryGetProperty("modifiedTime", out var mt) && DateTime.TryParse(mt.GetString(), out var pd))
-                    {
-                        modDate = pd;
-                    }
-
-                    list.Add(new FileItem
-                    {
-                        Name = name,
-                        Path = id,
-                        IsDirectory = isDir,
-                        Size = size,
-                        ModifiedDate = modDate
-                    });
-                }
-            }
-        }
-        catch { }
-
-        list.Sort((a, b) =>
-        {
-            if (a.IsDirectory != b.IsDirectory) return a.IsDirectory ? -1 : 1;
-            return string.Compare(a.Name, b.Name, StringComparison.CurrentCultureIgnoreCase);
-        });
-        return list;
+            token = document.RootElement.TryGetProperty("nextPageToken", out var next) ? next.GetString() : null;
+            if (token != null && !seen.Add(token)) throw new InvalidOperationException("Google Drive aynı sayfayı tekrarladı.");
+        } while (!string.IsNullOrEmpty(token));
+        return SortItems(result);
     }
 
     private async Task<List<FileItem>> ListOneDriveDirectoryAsync(string folderIdOrPath)
     {
-        var list = new List<FileItem>();
         var clean = (folderIdOrPath ?? "").Trim().Trim('/');
-
-        string url;
-        if (string.IsNullOrEmpty(clean) || clean == "root" || clean == ".")
+        var folder = string.IsNullOrEmpty(clean) || clean is "root" or "."
+            ? "root" : clean.Contains('/') ? "root:/" + string.Join("/", clean.Split('/').Select(Uri.EscapeDataString)) + ":" : "items/" + Uri.EscapeDataString(clean);
+        string? url = $"https://graph.microsoft.com/v1.0/me/drive/{folder}/children?$top=1000";
+        var result = new List<FileItem>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        while (!string.IsNullOrEmpty(url))
         {
-            url = "https://graph.microsoft.com/v1.0/me/drive/root/children?$top=1000";
-        }
-        else if (clean.Contains("/"))
-        {
-            var enc = Uri.EscapeDataString(clean);
-            url = $"https://graph.microsoft.com/v1.0/me/drive/root:/{enc}:/children?$top=1000";
-        }
-        else
-        {
-            url = $"https://graph.microsoft.com/v1.0/me/drive/items/{clean}/children?$top=1000";
-        }
-
-        try
-        {
-            var req = new HttpRequestMessage(HttpMethod.Get, url);
-            var resp = await _httpClient.SendAsync(req);
-            if ((int)resp.StatusCode == 401 && await TryRefreshOAuthTokenAsync())
+            var uri = new Uri(url);
+            if (uri.Scheme != "https" || uri.Host != "graph.microsoft.com" || !uri.IsDefaultPort || !seen.Add(url))
+                throw new InvalidOperationException("OneDrive geçersiz bir sonraki sayfa bağlantısı döndürdü.");
+            using var response = await SendAuthorizedAsync(() => new HttpRequestMessage(HttpMethod.Get, uri));
+            response.EnsureSuccessStatusCode();
+            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            foreach (var file in document.RootElement.GetProperty("value").EnumerateArray())
             {
-                req = new HttpRequestMessage(HttpMethod.Get, url);
-                resp = await _httpClient.SendAsync(req);
+                var size = file.TryGetProperty("size", out var value) && long.TryParse(value.ToString(), out var bytes) ? bytes : 0;
+                var modified = file.TryGetProperty("lastModifiedDateTime", out value) && DateTime.TryParse(value.GetString(), out var date) ? date : DateTime.MinValue;
+                result.Add(new FileItem {
+                    Name = file.GetProperty("name").GetString() ?? "", Path = file.GetProperty("id").GetString() ?? "",
+                    IsDirectory = file.TryGetProperty("folder", out _), Size = size, ModifiedDate = modified
+                });
             }
-            if (!resp.IsSuccessStatusCode)
-            {
-                if ((int)resp.StatusCode == 404 && !string.IsNullOrEmpty(clean))
-                {
-                    var encFallback = Uri.EscapeDataString(clean);
-                    url = $"https://graph.microsoft.com/v1.0/me/drive/root:/{encFallback}:/children?$top=1000";
-                    req = new HttpRequestMessage(HttpMethod.Get, url);
-                    resp = await _httpClient.SendAsync(req);
-                    if (!resp.IsSuccessStatusCode) return list;
-                }
-                else return list;
-            }
-
-            var json = await resp.Content.ReadAsStringAsync();
-            using var doc = JsonDocument.Parse(json);
-            if (doc.RootElement.TryGetProperty("value", out var values))
-            {
-                foreach (var item in values.EnumerateArray())
-                {
-                    var id = item.GetProperty("id").GetString() ?? "";
-                    var name = item.GetProperty("name").GetString() ?? "";
-                    var isDir = item.TryGetProperty("folder", out _);
-
-                    long size = 0;
-                    if (item.TryGetProperty("size", out var sp))
-                    {
-                        if (sp.ValueKind == JsonValueKind.Number) size = sp.GetInt64();
-                        else if (sp.ValueKind == JsonValueKind.String && long.TryParse(sp.GetString(), out var ps)) size = ps;
-                    }
-
-                    DateTime modDate = DateTime.MinValue;
-                    if (item.TryGetProperty("lastModifiedDateTime", out var mt) && DateTime.TryParse(mt.GetString(), out var pd))
-                    {
-                        modDate = pd;
-                    }
-
-                    list.Add(new FileItem
-                    {
-                        Name = name,
-                        Path = id,
-                        IsDirectory = isDir,
-                        Size = size,
-                        ModifiedDate = modDate
-                    });
-                }
-            }
+            url = document.RootElement.TryGetProperty("@odata.nextLink", out var next) ? next.GetString() : null;
         }
-        catch { }
-
-        list.Sort((a, b) =>
-        {
-            if (a.IsDirectory != b.IsDirectory) return a.IsDirectory ? -1 : 1;
-            return string.Compare(a.Name, b.Name, StringComparison.CurrentCultureIgnoreCase);
-        });
-        return list;
+        return SortItems(result);
     }
+
+    private static List<FileItem> SortItems(List<FileItem> items) => items
+        .OrderByDescending(i => i.IsDirectory).ThenBy(i => i.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
     #endregion
 }

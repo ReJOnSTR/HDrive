@@ -14,6 +14,11 @@ struct HDriveMacApp: App {
         // 1. Ana Dosya Gezgini Penceresi (Finder / Explorer Görünümü)
         WindowGroup("HDrive") {
             NativeExplorerView()
+                .alert("Hesap kaydı", isPresented: Binding(
+                    get: { cloudreveManager.lastError != nil },
+                    set: { if !$0 { cloudreveManager.lastError = nil } })) {
+                    Button("Tamam") { cloudreveManager.lastError = nil }
+                } message: { Text(cloudreveManager.lastError ?? "") }
         }
         .windowStyle(.titleBar)
         .windowToolbarStyle(.unified)

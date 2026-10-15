@@ -235,7 +235,7 @@ public class TransferManager : INotifyPropertyChanged
 
     public TransferItem EnqueueDownload(string fileName, string remotePath, string localPath, WebDAVClient client, long totalBytes = 0)
     {
-        var existing = Items.FirstOrDefault(i => i.RemotePath == remotePath && (i.Status == TransferStatus.Running || i.Status == TransferStatus.Queued));
+        var existing = Items.FirstOrDefault(i => i.Direction == TransferDirection.Download && i.Client?.Config.Id == client.Config.Id && i.Client?.Config.ServerURL == client.Config.ServerURL && i.LocalPath == localPath && i.RemotePath == remotePath && (i.Status == TransferStatus.Running || i.Status == TransferStatus.Queued));
         if (existing != null)
         {
             return existing;
@@ -297,10 +297,11 @@ public class TransferManager : INotifyPropertyChanged
         item.Cts = new CancellationTokenSource();
         var ct = item.Cts.Token;
 
-        await _semaphore.WaitAsync(ct).ConfigureAwait(false);
-
+        var acquired = false;
         try
         {
+            await _semaphore.WaitAsync(ct).ConfigureAwait(false);
+            acquired = true;
             if (ct.IsCancellationRequested || item.Status == TransferStatus.Paused || item.Status == TransferStatus.Cancelled)
             {
                 return;
@@ -339,161 +340,35 @@ public class TransferManager : INotifyPropertyChanged
         }
         finally
         {
-            _semaphore.Release();
+            if (acquired) _semaphore.Release();
             UpdateActiveCount();
         }
     }
 
     private async Task ExecuteDownloadAsync(TransferItem item, CancellationToken ct)
     {
-        if (item.Client == null) throw new InvalidOperationException("WebDAV istemcisi bulunamadı.");
-
-        var parentDir = Path.GetDirectoryName(item.LocalPath);
-        if (!string.IsNullOrEmpty(parentDir)) Directory.CreateDirectory(parentDir);
-
-        var tempDest = item.LocalPath + ".part";
-
-        if (item.Client.Config.Protocol == StorageProtocol.SMB)
-        {
-            var unc = item.Client.GetUncPath(item.RemotePath);
-            if (!File.Exists(unc)) throw new FileNotFoundException("SMB kaynak dosyası bulunamadı.", unc);
-
-            var fileInfo = new FileInfo(unc);
-            var total = fileInfo.Length;
-            RunOnUI(() => item.TotalBytes = total);
-
-            using (var inStream = new FileStream(unc, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, true))
-            using (var outStream = new FileStream(tempDest, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true))
-            {
-                var buffer = new byte[81920];
-                int read;
-                long transferred = 0;
-
-                while ((read = await inStream.ReadAsync(buffer, 0, buffer.Length, ct).ConfigureAwait(false)) > 0)
-                {
-                    await outStream.WriteAsync(buffer, 0, read, ct).ConfigureAwait(false);
-                    transferred += read;
-                    UpdateItemProgress(item, transferred, total);
-                }
-            }
-
-            if (File.Exists(item.LocalPath)) File.Delete(item.LocalPath);
-            File.Move(tempDest, item.LocalPath);
-
-            RunOnUI(() =>
-            {
-                item.Status = TransferStatus.Completed;
-                item.ProgressPercent = 100.0;
-                item.SpeedBytesPerSec = 0;
-            });
-            return;
-        }
-
-        var uri = item.Client.BuildUri(item.RemotePath);
-        var req = new HttpRequestMessage(HttpMethod.Get, uri);
-
-        using var response = await item.Client.HttpClient.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
-
-        var totalHttp = response.Content.Headers.ContentLength ?? item.TotalBytes;
-        RunOnUI(() => item.TotalBytes = totalHttp);
-
-        using (var inStream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false))
-        using (var outStream = new FileStream(tempDest, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true))
-        {
-            var buffer = new byte[81920];
-            int read;
-            long transferred = 0;
-
-            while ((read = await inStream.ReadAsync(buffer, 0, buffer.Length, ct).ConfigureAwait(false)) > 0)
-            {
-                await outStream.WriteAsync(buffer, 0, read, ct).ConfigureAwait(false);
-                transferred += read;
-
-                UpdateItemProgress(item, transferred, totalHttp);
-            }
-        }
-
-        if (File.Exists(item.LocalPath)) File.Delete(item.LocalPath);
-        File.Move(tempDest, item.LocalPath);
-
-        RunOnUI(() =>
-        {
-            item.Status = TransferStatus.Completed;
-            item.ProgressPercent = 100.0;
-            item.SpeedBytesPerSec = 0;
-        });
+        if (item.Client == null) throw new InvalidOperationException("İstemci bulunamadı.");
+        var progress = new Progress<TransferProgress>(p => UpdateItemProgress(item, p.TransferredBytes, p.TotalBytes));
+        await item.Client.DownloadToAsync(item.RemotePath, item.LocalPath, progress, ct, item.FileName).ConfigureAwait(false);
+        Complete(item);
     }
 
     private async Task ExecuteUploadAsync(TransferItem item, CancellationToken ct)
     {
-        if (item.Client == null) throw new InvalidOperationException("WebDAV istemcisi bulunamadı.");
-        if (!File.Exists(item.LocalPath)) throw new FileNotFoundException("Yüklenecek yerel dosya bulunamadı.", item.LocalPath);
-
-        var fileInfo = new FileInfo(item.LocalPath);
-        var total = fileInfo.Length;
-        RunOnUI(() => item.TotalBytes = total);
-
-        if (item.Client.Config.Protocol == StorageProtocol.SMB)
-        {
-            var unc = item.Client.GetUncPath(item.RemotePath);
-            var targetDir = Path.GetDirectoryName(unc);
-            if (!string.IsNullOrEmpty(targetDir) && !Directory.Exists(targetDir))
-            {
-                Directory.CreateDirectory(targetDir);
-            }
-
-            var tempDest = unc + ".part";
-            using (var inStream = new FileStream(item.LocalPath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, true))
-            using (var outStream = new FileStream(tempDest, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true))
-            {
-                var buffer = new byte[81920];
-                int read;
-                long transferred = 0;
-
-                while ((read = await inStream.ReadAsync(buffer, 0, buffer.Length, ct).ConfigureAwait(false)) > 0)
-                {
-                    await outStream.WriteAsync(buffer, 0, read, ct).ConfigureAwait(false);
-                    transferred += read;
-                    UpdateItemProgress(item, transferred, total);
-                }
-            }
-
-            if (File.Exists(unc)) File.Delete(unc);
-            File.Move(tempDest, unc);
-
-            RunOnUI(() =>
-            {
-                item.Status = TransferStatus.Completed;
-                item.ProgressPercent = 100.0;
-                item.SpeedBytesPerSec = 0;
-            });
-            return;
-        }
-
-        var uri = item.Client.BuildUri(item.RemotePath);
-
-        using var fileStream = new FileStream(item.LocalPath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, true);
-        using var progressContent = new ProgressStreamContent(fileStream, (transferred) =>
-        {
-            UpdateItemProgress(item, transferred, total);
-        }, ct);
-
-        using var response = await item.Client.HttpClient.PutAsync(uri, progressContent, ct).ConfigureAwait(false);
-        if (response.IsSuccessStatusCode)
-        {
-            RunOnUI(() =>
-            {
-                item.Status = TransferStatus.Completed;
-                item.ProgressPercent = 100.0;
-                item.SpeedBytesPerSec = 0;
-            });
-        }
-        else
-        {
-            throw new HttpRequestException($"Sunucu HTTP {(int)response.StatusCode} döndürdü.");
-        }
+        if (item.Client == null) throw new InvalidOperationException("İstemci bulunamadı.");
+        var progress = new Progress<TransferProgress>(p => UpdateItemProgress(item, p.TransferredBytes, p.TotalBytes));
+        var separator = item.RemotePath.LastIndexOf('/');
+        var directory = separator < 0 ? "" : item.RemotePath[..separator];
+        await item.Client.UploadAsync(item.LocalPath, directory, progress, ct).ConfigureAwait(false);
+        Complete(item);
     }
+
+    private void Complete(TransferItem item) => RunOnUI(() =>
+    {
+        item.Status = TransferStatus.Completed;
+        item.ProgressPercent = 100;
+        item.SpeedBytesPerSec = 0;
+    });
 
     private void UpdateItemProgress(TransferItem item, long transferred, long total)
     {
@@ -563,7 +438,7 @@ public class TransferManager : INotifyPropertyChanged
     public void RetryTask(Guid id)
     {
         var item = Items.FirstOrDefault(i => i.Id == id);
-        if (item == null) return;
+        if (item == null || item.Status is not (TransferStatus.Failed or TransferStatus.Cancelled)) return;
 
         RunOnUI(() =>
         {

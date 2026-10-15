@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../HDriveWin/Models/ServerConfig.cs" Link="ServerConfig.cs" />
+    <Compile Include="../../HDriveWin/Services/AtomicFile.cs" Link="AtomicFile.cs" />
+    <Compile Include="../../HDriveWin/Services/CloudreveManager.cs" Link="CloudreveManager.cs" />
+    <Compile Include="../../HDriveWin/Services/WebDAVClient.cs" Link="WebDAVClient.cs" />
+    <Compile Include="../../HDriveWin/Services/CloudTransfers.cs" Link="CloudTransfers.cs" />
+    <Compile Include="../../HDriveWin/Services/S3Storage.cs" Link="S3Storage.cs" />
+    <Compile Include="../../HDriveWin/Services/TransferManager.cs" Link="TransferManager.cs" />
+    <Compile Include="../../HDriveWin/Services/LiveEditWatcherService.cs" Link="LiveEditWatcherService.cs" />
+    <Compile Include="../../HDriveWin/Services/OAuthHelper.cs" Link="OAuthHelper.cs" />
+    <Compile Include="../../HDriveWin/Services/OAuthLoginSession.cs" Link="OAuthLoginSession.cs" />
+  </ItemGroup>
+</Project>

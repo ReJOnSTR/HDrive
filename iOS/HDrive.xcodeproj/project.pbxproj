@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+        110100172C8C000100000017 /* S3Storage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110200172C8C000100000017 /* S3Storage.swift */; };
+        110100162C8C000100000016 /* StorageSecurity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110200162C8C000100000016 /* StorageSecurity.swift */; };
 		110100012C8C000100000001 /* HDriveApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110200012C8C000100000001 /* HDriveApp.swift */; };
 		110100022C8C000100000002 /* FileItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110200022C8C000100000002 /* FileItem.swift */; };
 		110100032C8C000100000003 /* ServerConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110200032C8C000100000003 /* ServerConfig.swift */; };
@@ -30,6 +32,8 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+        110200172C8C000100000017 /* S3Storage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = S3Storage.swift; sourceTree = "<group>"; };
+        110200162C8C000100000016 /* StorageSecurity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageSecurity.swift; sourceTree = "<group>"; };
 		110200002C8C000100000000 /* HDrive.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HDrive.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		110200012C8C000100000001 /* HDriveApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HDriveApp.swift; sourceTree = "<group>"; };
 		110200022C8C000100000002 /* FileItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileItem.swift; sourceTree = "<group>"; };
@@ -109,6 +113,8 @@
 				110200032C8C000100000003 /* ServerConfig.swift */,
 				110200042C8C000100000004 /* NetworkUtils.swift */,
 				110200102C8C000100000010 /* WebDAVClient.swift */,
+                110200172C8C000100000017 /* S3Storage.swift */,
+                110200162C8C000100000016 /* StorageSecurity.swift */,
 				110200112C8C000100000011 /* CloudreveManager.swift */,
 				1102000C2C8C00010000000C /* TransferManager.swift */,
 				110200132C8C000100000013 /* KeychainHelper.swift */,
@@ -231,6 +237,8 @@
 				1101000C2C8C00010000000C /* TransferManager.swift in Sources */,
 				1101000D2C8C00010000000D /* SettingsView.swift in Sources */,
 				110100102C8C000100000010 /* WebDAVClient.swift in Sources */,
+                110100172C8C000100000017 /* S3Storage.swift in Sources */,
+                110100162C8C000100000016 /* StorageSecurity.swift in Sources */,
 				110100112C8C000100000011 /* CloudreveManager.swift in Sources */,
 				110100122C8C000100000012 /* CloudreveMobileView.swift in Sources */,
 				110100132C8C000100000013 /* KeychainHelper.swift in Sources */,

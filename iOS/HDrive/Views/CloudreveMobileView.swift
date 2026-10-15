@@ -343,7 +343,10 @@ public struct CloudreveMobileView: View {
             isTesting = false
             testMessage = message
             if success {
-                manager.saveServer(config)
+                guard manager.saveServer(config) else {
+                    testMessage = manager.lastError ?? "Hesap kaydedilemedi."
+                    return
+                }
                 isConfiguring = false
                 refreshFiles()
             }

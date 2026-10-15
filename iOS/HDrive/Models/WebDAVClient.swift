@@ -112,10 +112,11 @@ public struct CloudreveServerConfig: Identifiable, Codable, Hashable {
     public var smbShare: String = ""
     public var clientId: String = ""
     public var clientSecret: String = ""
+    public var refreshToken: String = ""
     public var isConnected: Bool = true
     
     enum CodingKeys: String, CodingKey {
-        case id, name, serverURL, username, password, autoMountOnStart, storageProtocol, bucketName, region, smbShare, clientId, clientSecret, isConnected
+        case id, name, serverURL, username, password, autoMountOnStart, storageProtocol, bucketName, region, smbShare, clientId, clientSecret, refreshToken, isConnected
     }
     
     public init(
@@ -129,6 +130,7 @@ public struct CloudreveServerConfig: Identifiable, Codable, Hashable {
         smbShare: String = "",
         clientId: String = "",
         clientSecret: String = "",
+        refreshToken: String = "",
         isConnected: Bool = true
     ) {
         self.name = name
@@ -141,6 +143,7 @@ public struct CloudreveServerConfig: Identifiable, Codable, Hashable {
         self.smbShare = smbShare
         self.clientId = clientId
         self.clientSecret = clientSecret
+        self.refreshToken = refreshToken
         self.isConnected = isConnected
     }
     
@@ -158,6 +161,7 @@ public struct CloudreveServerConfig: Identifiable, Codable, Hashable {
         smbShare = try c.decodeIfPresent(String.self, forKey: .smbShare) ?? ""
         clientId = try c.decodeIfPresent(String.self, forKey: .clientId) ?? ""
         clientSecret = try c.decodeIfPresent(String.self, forKey: .clientSecret) ?? ""
+        refreshToken = try c.decodeIfPresent(String.self, forKey: .refreshToken) ?? ""
         isConnected = try c.decodeIfPresent(Bool.self, forKey: .isConnected) ?? true
     }
     
@@ -180,7 +184,7 @@ public struct CloudreveServerConfig: Identifiable, Codable, Hashable {
 }
 
 public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDelegate, XMLParserDelegate {
-    public let config: CloudreveServerConfig
+    public private(set) var config: CloudreveServerConfig
     
     private lazy var session: URLSession = {
         let configuration = URLSessionConfiguration.default
@@ -190,28 +194,24 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
     }()
     
     public func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
-        if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
-           let serverTrust = challenge.protectionSpace.serverTrust {
-            // Kendinden imzalı SSL ve özel sertifikalara güven
-            completionHandler(.useCredential, URLCredential(trust: serverTrust))
-        } else {
-            completionHandler(.performDefaultHandling, nil)
-        }
+        completionHandler(.performDefaultHandling, nil)
     }
-    
+
     public func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
         var redirectedRequest = request
         // Önceden imzalanmış CDN depolama bağlantılarına (1drv.ms, sharepoint.com, 1drv.com, googleusercontent.com vb.)
         // Authorization başlığı gönderilirse sunucu 400/401/403 ile reddeder.
         // Yalnızca ana API uç noktalarına (graph.microsoft.com, googleapis.com) Authorization başlığı iletilir.
-        if let newHost = request.url?.host?.lowercased() {
-            if newHost.contains("graph.microsoft.com") || newHost.contains("googleapis.com") {
-                if let auth = self.authHeader {
-                    redirectedRequest.setValue(auth, forHTTPHeaderField: "Authorization")
-                }
-            } else {
-                redirectedRequest.setValue(nil, forHTTPHeaderField: "Authorization")
-            }
+        let destination = request.url
+        let origin = URL(string: config.serverURL)
+        let sameOrigin = destination?.scheme == origin?.scheme && destination?.host == origin?.host && destination?.port == origin?.port
+        let oauthOrigin = destination?.scheme == "https" && (destination?.port == nil || destination?.port == 443) && (
+            (config.storageProtocol == .googleDrive && destination?.host == "www.googleapis.com") ||
+            (config.storageProtocol == .oneDrive && destination?.host == "graph.microsoft.com"))
+        if oauthOrigin || (config.storageProtocol == .webdav && sameOrigin) {
+            redirectedRequest.setValue(authHeader, forHTTPHeaderField: "Authorization")
+        } else {
+            redirectedRequest.setValue(nil, forHTTPHeaderField: "Authorization")
         }
         completionHandler(redirectedRequest)
     }
@@ -223,7 +223,7 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
             }
             return nil
         }
-        guard !config.username.isEmpty, !config.password.isEmpty else { return nil }
+        guard config.storageProtocol != .s3, !config.username.isEmpty, !config.password.isEmpty else { return nil }
         let loginString = "\(config.username):\(config.password)"
         guard let loginData = loginString.data(using: .utf8) else { return nil }
         return "Basic \(loginData.base64EncodedString())"
@@ -234,10 +234,54 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
         super.init()
     }
     
+    private var s3Storage: S3Storage { S3Storage(config: config, session: session) }
+
+    private func s3Operation(_ operation: @escaping (S3Storage) async throws -> Void, completion: @escaping (Error?) -> Void) {
+        Task {
+            do { try await operation(s3Storage); await MainActor.run { completion(nil) } }
+            catch { await MainActor.run { completion(error) } }
+        }
+    }
+
+    private func authorizedData(_ input: URLRequest) async throws -> (Data, URLResponse) {
+        var request = input
+        request.setValue(authHeader, forHTTPHeaderField: "Authorization")
+        let first = try await session.data(for: request)
+        guard (first.1 as? HTTPURLResponse)?.statusCode == 401,
+              config.storageProtocol == .googleDrive || config.storageProtocol == .oneDrive,
+              !config.refreshToken.isEmpty else { return first }
+        let google = config.storageProtocol == .googleDrive
+        let endpoint = URL(string: google ? "https://oauth2.googleapis.com/token" : "https://login.microsoftonline.com/common/oauth2/v2.0/token")!
+        var refresh = URLRequest(url: endpoint)
+        refresh.httpMethod = "POST"
+        refresh.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        var values = ["grant_type": "refresh_token", "refresh_token": config.refreshToken, "client_id": config.clientId]
+        if google && !config.clientSecret.isEmpty { values["client_secret"] = config.clientSecret }
+        refresh.httpBody = values.sorted { $0.key < $1.key }.map { OAuthSession.encode($0.key) + "=" + OAuthSession.encode($0.value) }.joined(separator: "&").data(using: .utf8)
+        let (data, response) = try await session.data(for: refresh)
+        guard let status = response as? HTTPURLResponse, (200...299).contains(status.statusCode),
+              let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let token = json["access_token"] as? String, !token.isEmpty else { return first }
+        var renewed = config
+        renewed.password = token
+        if let token = json["refresh_token"] as? String, !token.isEmpty { renewed.refreshToken = token }
+        let credentials = renewed
+        let saved = await MainActor.run { CloudreveManager.shared.updateCredentials(credentials) }
+        guard saved else { throw NSError(domain: "HDrive.OAuth", code: 401, userInfo: [NSLocalizedDescriptionKey: "Yenilenen oturum güvenli biçimde kaydedilemedi."]) }
+        config = renewed
+        request.setValue(authHeader, forHTTPHeaderField: "Authorization")
+        return try await session.data(for: request)
+    }
+
     public func buildURL(for relativePath: String) -> URL? {
         let trimmed = relativePath.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") {
-            return URL(string: trimmed)
+            guard let absolute = URL(string: trimmed) else { return nil }
+            if config.storageProtocol == .webdav || config.storageProtocol == .s3 {
+                guard let origin = URL(string: config.serverURL), absolute.scheme == origin.scheme,
+                      absolute.host == origin.host, absolute.port == origin.port else { return nil }
+            }
+            return absolute
         }
 
         var base = config.serverURL.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -418,6 +462,14 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
 
     /// Sunucu bağlantısını test eder
     public func testConnection(completion: @escaping (Bool, String) -> Void) {
+        if config.storageProtocol == .s3 {
+            Task {
+                do { _ = try await s3Storage.list(""); await MainActor.run { completion(true, "S3 hesabı doğrulandı ve bucket listelendi.") } }
+                catch { await MainActor.run { completion(false, error.localizedDescription) } }
+            }
+            return
+        }
+
         if config.storageProtocol == .googleDrive {
             if config.password.isEmpty {
                 completion(false, "Google Drive ile henüz oturum açılmamış. Lütfen 'Google ile Giriş Yap' butonuna basın.")
@@ -497,7 +549,7 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
             }
             
             DispatchQueue.main.async {
-                if httpResponse.statusCode == 207 || httpResponse.statusCode == 200 || (self.config.storageProtocol == .s3 && (httpResponse.statusCode == 403 || httpResponse.statusCode == 400)) {
+                if httpResponse.statusCode == 207 || httpResponse.statusCode == 200 {
                     completion(true, "Bağlantı başarılı! \(self.config.storageProtocol.providerName) sunucusuna erişildi.")
                 } else if httpResponse.statusCode == 401 {
                     completion(false, "Yetkilendirme hatası (401): Kullanıcı adı veya şifre hatalı.")
@@ -513,6 +565,18 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
     
     /// Belirtilen klasördeki dosyaları ve alt klasörleri listeler
     public func listFiles(at relativePath: String = "", completion: @escaping (Result<[RemoteFileItem], Error>) -> Void) {
+        if config.storageProtocol == .s3 {
+            Task {
+                do {
+                    let rows = try await s3Storage.list(relativePath)
+                    let items = rows.map { RemoteFileItem(id: $0.key, name: $0.key.trimmingCharacters(in: CharacterSet(charactersIn: "/")).components(separatedBy: "/").last ?? $0.key,
+                        href: $0.key, isDirectory: $0.isDirectory, size: $0.size, modificationDate: $0.modified, contentType: nil) }
+                    await MainActor.run { completion(.success(items)) }
+                } catch { await MainActor.run { completion(.failure(error)) } }
+            }
+            return
+        }
+
         if config.storageProtocol == .smb {
             ensureSmbMounted { result in
                 switch result {
@@ -618,127 +682,45 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
     }
     
     private func listGoogleDriveFiles(at folderIdOrPath: String, completion: @escaping (Result<[RemoteFileItem], Error>) -> Void) {
-        var clean = folderIdOrPath.trimmingCharacters(in: CharacterSet(charactersIn: "/. \t\n\r"))
-        if clean.isEmpty || clean == "." {
-            clean = "root"
-        }
-        let parentId = clean
-        let query = "'\(parentId)' in parents and trashed = false"
-        guard let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let url = URL(string: "https://www.googleapis.com/drive/v3/files?q=\(encodedQuery)&fields=files(id,name,mimeType,size,modifiedTime,thumbnailLink,iconLink)&pageSize=1000&supportsAllDrives=true") else {
-            completion(.failure(NSError(domain: "HDrive", code: 400, userInfo: [NSLocalizedDescriptionKey: "Geçersiz istek"])))
-            return
-        }
-        
-        var request = URLRequest(url: url)
-        if let auth = authHeader {
-            request.setValue(auth, forHTTPHeaderField: "Authorization")
-        }
-        
-        session.dataTask(with: request) { data, response, error in
-            if let error = error {
-                DispatchQueue.main.async { completion(.failure(error)) }
-                return
-            }
-            guard let data = data,
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let filesList = json["files"] as? [[String: Any]] else {
-                let msg = (try? JSONSerialization.jsonObject(with: data ?? Data()) as? [String: Any])?["error"] as? [String: Any]
-                let desc = msg?["message"] as? String ?? "Google Drive dosyaları alınamadı."
-                DispatchQueue.main.async {
-                    completion(.failure(NSError(domain: "HDrive", code: 500, userInfo: [NSLocalizedDescriptionKey: desc])))
+        let clean = folderIdOrPath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let parent = clean.isEmpty || clean == "." ? "root" : clean
+        var url = URLComponents(string: "https://www.googleapis.com/drive/v3/files")!
+        url.queryItems = [URLQueryItem(name: "q", value: "'\(parent.replacingOccurrences(of: "'", with: "\\'"))' in parents and trashed = false"),
+                          URLQueryItem(name: "fields", value: "nextPageToken,files(id,name,mimeType,size,modifiedTime,thumbnailLink)"),
+                          URLQueryItem(name: "pageSize", value: "1000"), URLQueryItem(name: "supportsAllDrives", value: "true")]
+        Task {
+            do {
+                let rows = try await CloudPageLoader.fetch(initial: url.url!, provider: .google, requestData: authorizedData)
+                let items = rows.compactMap { row -> RemoteFileItem? in
+                    guard let id = row["id"] as? String, let name = row["name"] as? String else { return nil }
+                    let mime = row["mimeType"] as? String ?? ""
+                    return RemoteFileItem(id: id, name: name, href: id, isDirectory: mime == "application/vnd.google-apps.folder",
+                        size: Int64(row["size"] as? String ?? "0") ?? 0,
+                        modificationDate: ISO8601DateFormatter().date(from: row["modifiedTime"] as? String ?? ""),
+                        contentType: mime, thumbnailURL: row["thumbnailLink"] as? String)
                 }
-                return
-            }
-            
-            let dateFormatter = ISO8601DateFormatter()
-            let items: [RemoteFileItem] = filesList.compactMap { (dict: [String: Any]) -> RemoteFileItem? in
-                guard let id = dict["id"] as? String,
-                      let name = dict["name"] as? String else { return nil }
-                let mime = dict["mimeType"] as? String ?? ""
-                let isDir = (mime == "application/vnd.google-apps.folder")
-                let sizeStr = dict["size"] as? String ?? "0"
-                let size = Int64(sizeStr) ?? 0
-                let dateStr = dict["modifiedTime"] as? String ?? ""
-                let modified = dateFormatter.date(from: dateStr)
-                let thumb = dict["thumbnailLink"] as? String
-                
-                return RemoteFileItem(
-                    id: id,
-                    name: name,
-                    href: id,
-                    isDirectory: isDir,
-                    size: size,
-                    modificationDate: modified,
-                    contentType: mime,
-                    thumbnailURL: thumb
-                )
-            }
-            
-            DispatchQueue.main.async {
-                completion(.success(items))
-            }
-        }.resume()
+                await MainActor.run { completion(.success(items)) }
+            } catch { await MainActor.run { completion(.failure(error)) } }
+        }
     }
-    
+
     private func fetchOneDriveFolder(urlStr: String, completion: @escaping (Result<[RemoteFileItem], Error>) -> Void) {
-        guard let url = URL(string: urlStr) else {
-            completion(.failure(NSError(domain: "HDrive", code: 400, userInfo: [NSLocalizedDescriptionKey: "Geçersiz istek adresi"])))
-            return
-        }
-        var request = URLRequest(url: url)
-        if let auth = authHeader {
-            request.setValue(auth, forHTTPHeaderField: "Authorization")
-        }
-        session.dataTask(with: request) { data, response, error in
-            if let error = error {
-                DispatchQueue.main.async { completion(.failure(error)) }
-                return
-            }
-            let httpStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
-            if httpStatus == 401 {
-                DispatchQueue.main.async {
-                    completion(.failure(NSError(domain: "HDrive", code: 401, userInfo: [NSLocalizedDescriptionKey: "OneDrive oturumunuzun süresi dolmuş. Lütfen ayarlardan hesabınızı yeniden bağlayın."])))
+        guard let url = URL(string: urlStr) else { completion(.failure(URLError(.badURL))); return }
+        Task {
+            do {
+                let rows = try await CloudPageLoader.fetch(initial: url, provider: .oneDrive, requestData: authorizedData)
+                let items = rows.compactMap { row -> RemoteFileItem? in
+                    guard let id = row["id"] as? String, let name = row["name"] as? String else { return nil }
+                    return RemoteFileItem(id: id, name: name, href: id, isDirectory: row["folder"] != nil,
+                        size: (row["size"] as? NSNumber)?.int64Value ?? 0,
+                        modificationDate: ISO8601DateFormatter().date(from: row["lastModifiedDateTime"] as? String ?? ""),
+                        contentType: (row["file"] as? [String: Any])?["mimeType"] as? String)
                 }
-                return
-            }
-            guard let data = data,
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let values = json["value"] as? [[String: Any]] else {
-                let msg = (try? JSONSerialization.jsonObject(with: data ?? Data()) as? [String: Any])?["error"] as? [String: Any]
-                let desc = msg?["message"] as? String ?? "OneDrive dosyaları alınamadı."
-                DispatchQueue.main.async {
-                    completion(.failure(NSError(domain: "HDrive", code: httpStatus == 404 ? 404 : 500, userInfo: [NSLocalizedDescriptionKey: desc])))
-                }
-                return
-            }
-            let dateFormatter = ISO8601DateFormatter()
-            let items: [RemoteFileItem] = values.compactMap { dict in
-                guard let id = dict["id"] as? String,
-                      let name = dict["name"] as? String else { return nil }
-                let isFolder = dict["folder"] != nil
-                let size = (dict["size"] as? NSNumber)?.int64Value ?? 0
-                let dateStr = dict["lastModifiedDateTime"] as? String ?? ""
-                let modified = dateFormatter.date(from: dateStr)
-                let mime = (dict["file"] as? [String: Any])?["mimeType"] as? String
-                let downloadUrl = dict["@microsoft.graph.downloadUrl"] as? String
-                let thumbLink = ((dict["thumbnails"] as? [[String: Any]])?.first?["medium"] as? [String: Any])?["url"] as? String
-                
-                return RemoteFileItem(
-                    id: id,
-                    name: name,
-                    href: downloadUrl ?? id,
-                    isDirectory: isFolder,
-                    size: size,
-                    modificationDate: modified,
-                    contentType: mime,
-                    thumbnailURL: thumbLink
-                )
-            }
-            DispatchQueue.main.async { completion(.success(items)) }
-        }.resume()
+                await MainActor.run { completion(.success(items)) }
+            } catch { await MainActor.run { completion(.failure(error)) } }
+        }
     }
-    
+
     private func listOneDriveFiles(at folderIdOrPath: String, completion: @escaping (Result<[RemoteFileItem], Error>) -> Void) {
         let clean = folderIdOrPath.trimmingCharacters(in: CharacterSet(charactersIn: "/. \t\n\r"))
         if clean.isEmpty || clean == "root" || clean == "." {
@@ -776,6 +758,13 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
     
     /// Dosya İndirir (HTTP durum kodu kontrolü ve güvenli taşıma)
     public func downloadFile(href: String, to localDestination: URL, progress: @escaping (Double) -> Void, completion: @escaping (Error?) -> Void) {
+        if config.storageProtocol == .s3 {
+            s3Operation({ try await $0.download(href, to: localDestination) }) { error in
+                if error == nil { progress(1) }; completion(error)
+            }
+            return
+        }
+
         if config.storageProtocol == .smb {
             ensureSmbMounted { result in
                 switch result {
@@ -794,10 +783,7 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
                         do {
                             let parent = localDestination.deletingLastPathComponent()
                             try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
-                            if FileManager.default.fileExists(atPath: localDestination.path) {
-                                try FileManager.default.removeItem(at: localDestination)
-                            }
-                            try FileManager.default.copyItem(at: srcURL, to: localDestination)
+                            try SafeFileStorage.installFile(source: srcURL, destination: localDestination)
                             DispatchQueue.main.async {
                                 progress(1.0)
                                 completion(nil)
@@ -871,10 +857,7 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
                 do {
                     let parentDir = localDestination.deletingLastPathComponent()
                     try FileManager.default.createDirectory(at: parentDir, withIntermediateDirectories: true)
-                    if FileManager.default.fileExists(atPath: localDestination.path) {
-                        try FileManager.default.removeItem(at: localDestination)
-                    }
-                    try FileManager.default.moveItem(at: tempURL, to: localDestination)
+                    try SafeFileStorage.install(download: tempURL, destination: localDestination, response: response)
                     DispatchQueue.main.async { completion(nil) }
                 } catch {
                     DispatchQueue.main.async { completion(error) }
@@ -921,10 +904,7 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
             do {
                 let parentDir = localDestination.deletingLastPathComponent()
                 try FileManager.default.createDirectory(at: parentDir, withIntermediateDirectories: true)
-                if FileManager.default.fileExists(atPath: localDestination.path) {
-                    try FileManager.default.removeItem(at: localDestination)
-                }
-                try FileManager.default.moveItem(at: tempURL, to: localDestination)
+                try SafeFileStorage.install(download: tempURL, destination: localDestination, response: response)
                 DispatchQueue.main.async { completion(nil) }
             } catch {
                 DispatchQueue.main.async { completion(error) }
@@ -1017,10 +997,7 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
             do {
                 let parentDir = localDestination.deletingLastPathComponent()
                 try FileManager.default.createDirectory(at: parentDir, withIntermediateDirectories: true)
-                if FileManager.default.fileExists(atPath: localDestination.path) {
-                    try FileManager.default.removeItem(at: localDestination)
-                }
-                try FileManager.default.moveItem(at: tempURL, to: localDestination)
+                try SafeFileStorage.install(download: tempURL, destination: localDestination, response: response)
                 DispatchQueue.main.async { completion(nil) }
             } catch {
                 DispatchQueue.main.async { completion(error) }
@@ -1046,10 +1023,7 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
             do {
                 let parentDir = localDestination.deletingLastPathComponent()
                 try FileManager.default.createDirectory(at: parentDir, withIntermediateDirectories: true)
-                if FileManager.default.fileExists(atPath: localDestination.path) {
-                    try FileManager.default.removeItem(at: localDestination)
-                }
-                try FileManager.default.moveItem(at: tempURL, to: localDestination)
+                try SafeFileStorage.install(download: tempURL, destination: localDestination, response: response)
                 DispatchQueue.main.async { completion(nil) }
             } catch {
                 DispatchQueue.main.async { completion(error) }
@@ -1121,6 +1095,8 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
     
     /// Dosya Yükler (Google Drive, OneDrive, WebDAV, S3, SMB)
     public func uploadFile(localFileURL: URL, toRemotePath: String, completion: @escaping (Error?) -> Void) {
+        if config.storageProtocol == .s3 { s3Operation({ try await $0.upload(localFileURL, key: toRemotePath) }, completion: completion); return }
+
         if config.storageProtocol == .smb {
             ensureSmbMounted { result in
                 switch result {
@@ -1338,6 +1314,8 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
     
     /// Klasör Oluşturur
     public func createFolder(at remotePath: String, completion: @escaping (Error?) -> Void) {
+        if config.storageProtocol == .s3 { s3Operation({ try await $0.createFolder(remotePath) }, completion: completion); return }
+
         if config.storageProtocol == .googleDrive {
             let folderName = (remotePath as NSString).lastPathComponent
             let parentPath = (remotePath as NSString).deletingLastPathComponent
@@ -1446,6 +1424,8 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
     
     /// Dosya/Klasör Siler (DELETE)
     public func delete(at remotePath: String, isDirectory: Bool = false, completion: @escaping (Error?) -> Void) {
+        if config.storageProtocol == .s3 { s3Operation({ try await $0.delete(remotePath, isDirectory: isDirectory) }, completion: completion); return }
+
         if config.storageProtocol == .googleDrive {
             let fileId = (remotePath as NSString).lastPathComponent
             guard let url = URL(string: "https://www.googleapis.com/drive/v3/files/\(fileId)?supportsAllDrives=true") else { return }
@@ -1536,6 +1516,8 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
     
     /// Dosya veya klasör adını değiştirir / taşır (MOVE)
     public func move(from sourcePath: String, to destinationPath: String, overwrite: Bool = false, completion: @escaping (Error?) -> Void) {
+        if config.storageProtocol == .s3 { s3Operation({ try await $0.move(sourcePath, to: destinationPath, overwrite: overwrite) }, completion: completion); return }
+
         if config.storageProtocol == .smb {
             ensureSmbMounted { result in
                 switch result {
@@ -1596,6 +1578,8 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
     
     /// Dosya veya klasörü kopyalar (COPY)
     public func copy(from sourcePath: String, to destinationPath: String, overwrite: Bool = false, completion: @escaping (Error?) -> Void) {
+        if config.storageProtocol == .s3 { s3Operation({ try await $0.copy(sourcePath, to: destinationPath, overwrite: overwrite) }, completion: completion); return }
+
         guard let sourceURL = buildURL(for: sourcePath),
               let destURL = buildURL(for: destinationPath) else {
             completion(NSError(domain: "WebDAVClient", code: 400, userInfo: [NSLocalizedDescriptionKey: "Geçersiz URL"]))

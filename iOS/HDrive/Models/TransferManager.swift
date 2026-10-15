@@ -208,7 +208,7 @@ public final class TransferManager: NSObject, ObservableObject, URLSessionDownlo
     }
     
     private func startDownloadTask(_ item: TransferItem, client: WebDAVClient) {
-        if client.config.storageProtocol == .googleDrive || client.config.storageProtocol == .oneDrive {
+        if client.config.storageProtocol == .googleDrive || client.config.storageProtocol == .oneDrive || client.config.storageProtocol == .s3 {
             client.downloadFile(href: item.remotePath, to: item.localURL, progress: { [weak item] prog in
                 DispatchQueue.main.async {
                     item?.progress = prog
@@ -259,7 +259,7 @@ public final class TransferManager: NSObject, ObservableObject, URLSessionDownlo
     }
     
     private func startUploadTask(_ item: TransferItem, client: WebDAVClient) {
-        if client.config.storageProtocol == .googleDrive || client.config.storageProtocol == .oneDrive {
+        if client.config.storageProtocol == .googleDrive || client.config.storageProtocol == .oneDrive || client.config.storageProtocol == .s3 {
             client.uploadFile(localFileURL: item.localURL, toRemotePath: item.remotePath) { [weak self, weak item] error in
                 DispatchQueue.main.async {
                     guard let self = self, let item = item else { return }
@@ -372,9 +372,8 @@ public final class TransferManager: NSObject, ObservableObject, URLSessionDownlo
         do {
             let parent = item.localURL.deletingLastPathComponent()
             try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
-            try? FileManager.default.removeItem(at: item.localURL)
-            try FileManager.default.moveItem(at: location, to: item.localURL)
-            
+            try SafeFileStorage.install(download: location, destination: item.localURL, response: downloadTask.response)
+
             DispatchQueue.main.async {
                 item.status = .completed
                 item.progress = 1.0

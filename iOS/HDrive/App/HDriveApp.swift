@@ -7,6 +7,7 @@ import SwiftUI
 
 @main
 struct HDriveApp: App {
+    @StateObject private var accountManager = CloudreveManager.shared
     @StateObject private var config = ServerConfig.shared
     @StateObject private var server = WebDAVServer.shared
     @StateObject private var transferManager = TransferManager.shared
@@ -46,6 +47,11 @@ struct HDriveApp: App {
                     Label("Ayarlar", systemImage: "gearshape.fill")
                 }
             }
+            .alert("Hesap kaydı", isPresented: Binding(
+                get: { accountManager.lastError != nil },
+                set: { if !$0 { accountManager.lastError = nil } })) {
+                Button("Tamam") { accountManager.lastError = nil }
+            } message: { Text(accountManager.lastError ?? "") }
             .tint(.indigo)
             .onAppear {
                 // IP adresini ve depolama alanını yenile
