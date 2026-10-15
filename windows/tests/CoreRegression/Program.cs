@@ -178,7 +178,11 @@ await Check("Live edits stay on their owner account and preserve the original re
     watcher.WatchFile(path, "folder/report.txt", "folder", account);
     File.WriteAllText(path, "updated"); File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddSeconds(2));
     await watcher.SyncFileAsync(path); Require(sent, "Edit was not uploaded");
-    sent = false; owner = null;
+    sent = false;
+    account.BucketName = "other-bucket";
+    File.WriteAllText(path, "after-account-edit"); File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddSeconds(4));
+    await watcher.SyncFileAsync(path); Require(!sent, "Edit followed a changed storage target");
+    owner = null;
     File.WriteAllText(path, "after-deletion"); File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddSeconds(5));
     await watcher.SyncFileAsync(path); Require(!sent, "Deleted account was silently reconnected");
 });

@@ -689,9 +689,10 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
         url.queryItems = [URLQueryItem(name: "q", value: "'\(parent.replacingOccurrences(of: "'", with: "\\'"))' in parents and trashed = false"),
                           URLQueryItem(name: "fields", value: "nextPageToken,files(id,name,mimeType,size,modifiedTime,thumbnailLink)"),
                           URLQueryItem(name: "pageSize", value: "1000"), URLQueryItem(name: "supportsAllDrives", value: "true")]
+        let initialURL = url.url!
         Task {
             do {
-                let rows = try await CloudPageLoader.fetch(initial: url.url!, provider: .google, requestData: authorizedData)
+                let rows = try await CloudPageLoader.fetch(initial: initialURL, provider: .google, requestData: authorizedData)
                 let items = rows.compactMap { row -> RemoteFileItem? in
                     guard let id = row["id"] as? String, let name = row["name"] as? String else { return nil }
                     let mime = row["mimeType"] as? String ?? ""

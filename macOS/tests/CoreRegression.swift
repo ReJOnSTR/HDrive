@@ -82,6 +82,20 @@ struct CoreRegression {
         account.password = "new-secret"
         try require(!restored.saveServer(account) && defaults.data(forKey: "HDrive_SavedCloudreveServers") == previous, "Vault failure overwrote account file")
         print("PASS: secure account persistence, restart state and vault failure recovery")
+        failWrites = false
+        restored.connectServer(restored.servers[0])
+        var refreshed = restored.servers[0]
+        refreshed.password = "rotated-access"
+        var second = account
+        second.id = UUID()
+        try require(restored.saveServer(second), "Second account save failed")
+        try require(restored.updateCredentials(refreshed) && restored.activeServer?.id == second.id, "Token refresh changed active account")
+        var edited = refreshed
+        edited.serverURL = "https://another-storage.example"
+        try require(restored.saveServer(edited), "Edited account save failed")
+        refreshed.password = "stale-access"
+        try require(!restored.updateCredentials(refreshed) && vault[refreshed.id.uuidString] == "rotated-access", "Stale token overwrote an edited account")
+        print("PASS: credential refresh preserves account ownership and rejects stale owners")
 
         var pageCalls = 0
         let google = URL(string: "https://www.googleapis.com/drive/v3/files?fields=nextPageToken,files(id)")!

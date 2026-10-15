@@ -46,7 +46,7 @@ public class CloudreveManager
     public void UpdateCredentials(ServerConfig config)
     {
         var saved = Servers.FirstOrDefault(s => s.Id == config.Id);
-        if (saved == null || !saved.IsConnected || saved.Protocol != config.Protocol || saved.ServerURL != config.ServerURL || saved.Username != config.Username) return;
+        if (saved == null || !saved.IsConnected || saved.Protocol != config.Protocol || saved.ServerURL != config.ServerURL || saved.Username != config.Username || saved.BucketName != config.BucketName || saved.SmbShareName != config.SmbShareName) return;
         saved.Password = config.Password;
         saved.RefreshToken = config.RefreshToken;
         saved.ClientSecret = config.ClientSecret;

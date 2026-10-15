@@ -75,7 +75,7 @@ public partial class WebDAVClient
                 _config.Password = newToken;
                 if (!string.IsNullOrEmpty(newRefreshToken)) _config.RefreshToken = newRefreshToken;
                 PersistCredentials(_config);
-                if (_sourceConfig.ServerURL == _config.ServerURL && _sourceConfig.Protocol == _config.Protocol && _sourceConfig.Username == _config.Username)
+                if (_sourceConfig.ServerURL == _config.ServerURL && _sourceConfig.Protocol == _config.Protocol && _sourceConfig.Username == _config.Username && _sourceConfig.BucketName == _config.BucketName && _sourceConfig.SmbShareName == _config.SmbShareName)
                 {
                     _sourceConfig.Password = _config.Password;
                     _sourceConfig.RefreshToken = _config.RefreshToken;

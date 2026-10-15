@@ -28,6 +28,8 @@ public class WatchedFileEntry
     public string ServerId { get; set; } = string.Empty;
     public string ServerURL { get; set; } = string.Empty;
     public string Username { get; set; } = string.Empty;
+    public string BucketName { get; set; } = string.Empty;
+    public string SmbShareName { get; set; } = string.Empty;
     public StorageProtocol Protocol { get; set; }
     public SemaphoreSlim UploadGate { get; } = new(1, 1);
     public string LocalPath { get; set; } = string.Empty;
@@ -84,6 +86,8 @@ public class LiveEditWatcherService : IDisposable
                 ServerId = server.Id,
                 ServerURL = server.ServerURL,
                 Username = server.Username,
+                BucketName = server.BucketName,
+                SmbShareName = server.SmbShareName,
                 Protocol = server.Protocol,
                 LocalPath = localFilePath,
                 RemoteFilePath = remoteFilePath,
@@ -164,7 +168,7 @@ public class LiveEditWatcherService : IDisposable
             var written = File.GetLastWriteTimeUtc(entry.LocalPath);
             if (written <= entry.LastKnownWriteTime) return;
             var config = _resolveServer(entry.ServerId);
-            if (config == null || !config.IsConnected || config.ServerURL != entry.ServerURL || config.Protocol != entry.Protocol || config.Username != entry.Username)
+            if (config == null || !config.IsConnected || config.ServerURL != entry.ServerURL || config.Protocol != entry.Protocol || config.Username != entry.Username || config.BucketName != entry.BucketName || config.SmbShareName != entry.SmbShareName)
                 throw new InvalidOperationException("Dosyanın ait olduğu hesabın bağlantısı kesildi.");
             var client = _createClient(config);
             await client.UploadAsync(entry.LocalPath, entry.RemoteDirectory, existingRemotePath: entry.RemoteFilePath);

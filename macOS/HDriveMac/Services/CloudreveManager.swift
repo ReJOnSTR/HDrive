@@ -58,7 +58,12 @@ public final class CloudreveManager: ObservableObject {
     }
 
     @discardableResult public func updateCredentials(_ server: CloudreveServerConfig) -> Bool {
-        guard let index = servers.firstIndex(where: { $0.id == server.id }), servers[index].isConnected else { return false }
+        guard let index = servers.firstIndex(where: { $0.id == server.id }), servers[index].isConnected,
+              servers[index].serverURL == server.serverURL,
+              servers[index].storageProtocol == server.storageProtocol,
+              servers[index].username == server.username,
+              servers[index].bucketName == server.bucketName,
+              servers[index].smbShare == server.smbShare else { return false }
         guard storeSecrets(server) else { return false }
         let old = servers[index]
         servers[index].password = server.password
