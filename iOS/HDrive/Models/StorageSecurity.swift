@@ -361,3 +361,17 @@ public enum L10n {
         return translations[language]?[key] ?? key
     }
 }
+
+public enum CloudFileNaming {
+    public static func exportName(_ name: String, mime: String) -> String {
+        let suffix: String
+        switch mime {
+        case "application/vnd.google-apps.document": suffix = ".docx"
+        case "application/vnd.google-apps.spreadsheet": suffix = ".xlsx"
+        case "application/vnd.google-apps.presentation": suffix = ".pptx"
+        case "application/vnd.google-apps.drawing": suffix = ".pdf"
+        default: return name
+        }
+        return name.lowercased().hasSuffix(suffix) || name.lowercased().hasSuffix(".pdf") ? name : name + suffix
+    }
+}

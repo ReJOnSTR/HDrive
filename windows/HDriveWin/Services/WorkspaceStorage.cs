@@ -27,6 +27,11 @@ public record CacheEntry(string Path, long Bytes, DateTime Modified, bool Protec
 public static class WorkingCache
 {
     public static string Root => Path.Combine(Path.GetTempPath(), "HDriveCache");
+    private static string PreferencesPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HDrive", "cache-limit.json");
+    public static long LimitBytes {
+        get { return File.Exists(PreferencesPath) ? Math.Max(0, JsonSerializer.Deserialize<long>(File.ReadAllText(PreferencesPath))) : 1024L * 1024 * 1024; }
+        set { if (value < 0) throw new ArgumentOutOfRangeException(nameof(value)); AtomicFile.WriteAllText(PreferencesPath, JsonSerializer.Serialize(value)); }
+    }
     public static void Protect(string file)
     {
         if (Path.GetFullPath(file).StartsWith(Path.GetFullPath(Root) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
@@ -47,10 +52,10 @@ public static class WorkingCache
                 return new CacheEntry(file, info.Length, info.LastWriteTimeUtc, protectedFile);
             }).ToList();
     }
-    public static long Trim(long limit, string? root = null)
+    public static long Trim(long limit, string? root = null, TimeSpan? minimumAge = null)
     {
         var files = Entries(root); var total = files.Sum(file => file.Bytes); long removed = 0;
-        foreach (var file in files.Where(file => !file.Protected).OrderBy(file => file.Modified)) {
+        foreach (var file in files.Where(file => !file.Protected && file.Modified <= DateTime.UtcNow - (minimumAge ?? TimeSpan.Zero)).OrderBy(file => file.Modified)) {
             if (total <= limit) break;
             File.Delete(file.Path); total -= file.Bytes; removed += file.Bytes;
         }

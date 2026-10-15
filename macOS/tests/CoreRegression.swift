@@ -203,6 +203,10 @@ struct CoreRegression {
         try require(FolderSynchronizer.decide(local: "changed", remote: "changed", previous: baseline) == .conflict, "Two-side changes overwritten")
         try require(FolderSynchronizer.decide(local: nil, remote: "remote", previous: baseline) == .conflict, "Deletion silently propagated")
         print("PASS: two-way sync planning preserves concurrent edits and requires deletion decisions")
+
+        try require(CloudFileNaming.exportName("Budget", mime: "application/vnd.google-apps.spreadsheet") == "Budget.xlsx", "Offline native document name lost its export extension")
+        try require(CloudFileNaming.exportName("Report.docx", mime: "application/vnd.google-apps.document") == "Report.docx", "Native export extension duplicated")
+        print("PASS: native cloud document exports retain the destination registered by offline storage")
         print("All Apple core regression checks passed.")
     }
 }

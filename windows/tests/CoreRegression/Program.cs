@@ -308,6 +308,18 @@ await Check("System WebDAV paths exclude credentials and preserve HTTPS and cust
     return Task.CompletedTask;
 });
 
+await Check("Revoking public links visits every permissions page and retains private collaborators", async () => {
+    var removed = new List<string>();
+    var client = Client(Account(StorageProtocol.GoogleDrive), (request, _) => {
+        if (request.Method == HttpMethod.Delete) { removed.Add(request.RequestUri!.Segments.Last()); return Task.FromResult(Json("{}")); }
+        return Task.FromResult(Json(request.RequestUri!.Query.Contains("pageToken=")
+            ? "{\"permissions\":[{\"id\":\"public-two\",\"type\":\"anyone\"}]}"
+            : "{\"permissions\":[{\"id\":\"private-user\",\"type\":\"user\"},{\"id\":\"public-one\",\"type\":\"anyone\"}],\"nextPageToken\":\"next\"}"));
+    });
+    await client.RevokePublicLinksAsync("id");
+    Require(removed.Count == 2 && removed.All(id => id.StartsWith("public-")), "Public link revocation skipped a page or removed a private collaborator");
+});
+
 if (failures.Count > 0) throw new AggregateException(failures.Select(message => new Exception(message)));
 Console.WriteLine("All core regression checks passed.");
 Directory.Delete(root, recursive: true);

@@ -376,7 +376,7 @@ public final class TransferManager: NSObject, ObservableObject, URLSessionDownlo
     // MARK: - URLSession Delegates
     
     public func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
-        guard let item = taskMap[downloadTask.taskIdentifier] else { return }
+        guard let item = taskMap[downloadTask.taskIdentifier], item.urlSessionTask?.taskIdentifier == downloadTask.taskIdentifier, item.status == .running else { return }
         DispatchQueue.main.async {
             item.transferredBytes = totalBytesWritten
             if totalBytesExpectedToWrite > 0 {
@@ -387,7 +387,7 @@ public final class TransferManager: NSObject, ObservableObject, URLSessionDownlo
     }
     
     public func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
-        guard let item = taskMap[downloadTask.taskIdentifier] else { return }
+        guard let item = taskMap[downloadTask.taskIdentifier], item.urlSessionTask?.taskIdentifier == downloadTask.taskIdentifier, item.status == .running else { return }
         
         do {
             let parent = item.localURL.deletingLastPathComponent()
@@ -412,7 +412,7 @@ public final class TransferManager: NSObject, ObservableObject, URLSessionDownlo
     }
     
     public func urlSession(_ session: URLSession, task: URLSessionTask, didSendBodyData bytesSent: Int64, totalBytesSent: Int64, totalBytesExpectedToSend: Int64) {
-        guard let item = taskMap[task.taskIdentifier] else { return }
+        guard let item = taskMap[task.taskIdentifier], item.urlSessionTask?.taskIdentifier == task.taskIdentifier, item.status == .running else { taskMap.removeValue(forKey: task.taskIdentifier); return }
         DispatchQueue.main.async {
             item.transferredBytes = totalBytesSent
             if totalBytesExpectedToSend > 0 {
@@ -423,7 +423,7 @@ public final class TransferManager: NSObject, ObservableObject, URLSessionDownlo
     }
     
     public func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        guard let item = taskMap[task.taskIdentifier] else { return }
+        guard let item = taskMap[task.taskIdentifier], item.urlSessionTask?.taskIdentifier == task.taskIdentifier, item.status == .running else { taskMap.removeValue(forKey: task.taskIdentifier); return }
         
         DispatchQueue.main.async {
             if let error = error as? URLError, error.code == .cancelled {

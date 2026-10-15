@@ -2861,6 +2861,7 @@ public sealed partial class MainWindow : Window
 
     private void TransferButton_Click(object sender, RoutedEventArgs e)
     {
+        if (TransferManager.Instance.PersistenceError is string error) StatusConnectionText.Text = error;
         TransferEmptyState.Visibility = TransferManager.Instance.Items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 

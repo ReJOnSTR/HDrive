@@ -67,16 +67,25 @@ public partial class WebDAVClient
         var google = _config.Protocol == StorageProtocol.GoogleDrive;
         var id = Uri.EscapeDataString(path.Trim('/'));
         var address = google ? $"https://www.googleapis.com/drive/v3/files/{id}/permissions" : $"https://graph.microsoft.com/v1.0/me/drive/items/{id}/permissions";
-        using var json = await ActionAsync(HttpMethod.Get, address + (google ? "?fields=permissions(id,type)&supportsAllDrives=true" : ""));
-        if (!json.RootElement.TryGetProperty(google ? "permissions" : "value", out var permissions)) return;
-        foreach (var permission in permissions.EnumerateArray()) {
-            var isPublic = permission.TryGetProperty("type", out var type) && type.GetString() == "anyone" ||
-                permission.TryGetProperty("link", out var link) && link.TryGetProperty("scope", out var scope) && scope.GetString() == "anonymous";
-            if (isPublic && permission.TryGetProperty("id", out var key)) {
-                using var deleted = await ActionAsync(HttpMethod.Delete, address + "/" + Uri.EscapeDataString(key.GetString()!) + (google ? "?supportsAllDrives=true" : ""));
-            }
+        var initial = address + (google ? "?fields=nextPageToken,permissions(id,type)&pageSize=100&supportsAllDrives=true" : "");
+        string? page = initial; var seen = new HashSet<string>(); var publicIds = new List<string>();
+        while (page != null) {
+            if (!seen.Add(page)) throw new InvalidDataException("Sayfalama bağlantısı tekrarlandı.");
+            using var json = await ActionAsync(HttpMethod.Get, page);
+            if (json.RootElement.TryGetProperty(google ? "permissions" : "value", out var permissions))
+                foreach (var permission in permissions.EnumerateArray()) {
+                    var isPublic = permission.TryGetProperty("type", out var type) && type.GetString() == "anyone" ||
+                        permission.TryGetProperty("link", out var link) && link.TryGetProperty("scope", out var scope) && scope.GetString() == "anonymous";
+                    if (isPublic && permission.TryGetProperty("id", out var key)) publicIds.Add(key.GetString()!);
+                }
+            page = google ? json.RootElement.TryGetProperty("nextPageToken", out var token) ? initial + "&pageToken=" + Uri.EscapeDataString(token.GetString()!) : null
+                : json.RootElement.TryGetProperty("@odata.nextLink", out var next) ? next.GetString() : null;
+        }
+        foreach (var key in publicIds) {
+            using var deleted = await ActionAsync(HttpMethod.Delete, address + "/" + Uri.EscapeDataString(key) + (google ? "?supportsAllDrives=true" : ""));
         }
     }
+
     public async Task<List<CloudVersion>> VersionsAsync(string path)
     {
         var google = _config.Protocol == StorageProtocol.GoogleDrive;

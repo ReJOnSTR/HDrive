@@ -53,6 +53,8 @@ public partial class WebDAVClient
 
     internal string CachePath(string remotePath, string fileName)
     {
+        try { WorkingCache.Trim(WorkingCache.LimitBytes, minimumAge: TimeSpan.FromMinutes(5)); }
+        catch (Exception error) { System.Diagnostics.Debug.WriteLine("Cache maintenance: " + error.Message); }
         var identity = $"{_config.Id}|{_config.Protocol}|{_config.ServerURL}|{remotePath}";
         var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity)));
         // A new working copy preserves local edits and always fetches the current remote version.

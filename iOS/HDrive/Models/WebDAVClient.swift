@@ -696,7 +696,7 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
                 let items = rows.compactMap { row -> RemoteFileItem? in
                     guard let id = row["id"] as? String, let name = row["name"] as? String else { return nil }
                     let mime = row["mimeType"] as? String ?? ""
-                    return RemoteFileItem(id: id, name: name, href: id, isDirectory: mime == "application/vnd.google-apps.folder",
+                    return RemoteFileItem(id: id, name: CloudFileNaming.exportName(name, mime: mime), href: id, isDirectory: mime == "application/vnd.google-apps.folder",
                         size: Int64(row["size"] as? String ?? "0") ?? 0,
                         modificationDate: ISO8601DateFormatter().date(from: row["modifiedTime"] as? String ?? ""),
                         contentType: mime, thumbnailURL: row["thumbnailLink"] as? String)
@@ -1078,12 +1078,7 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
                 let parentDir = localDestination.deletingLastPathComponent()
                 try FileManager.default.createDirectory(at: parentDir, withIntermediateDirectories: true)
                 
-                var targetURL = localDestination
-                if exportMime == "application/pdf" && targetURL.pathExtension.isEmpty {
-                    targetURL = targetURL.appendingPathExtension("pdf")
-                }
-                
-                try SafeFileStorage.install(download: tempURL, destination: targetURL, response: response)
+                try SafeFileStorage.install(download: tempURL, destination: localDestination, response: response)
                 DispatchQueue.main.async { completion(nil) }
             } catch {
                 DispatchQueue.main.async { completion(error) }
@@ -1990,15 +1985,21 @@ extension WebDAVClient {
             ? "https://www.googleapis.com/drive/v3/files/\(id)/permissions"
             : "https://graph.microsoft.com/v1.0/me/drive/items/\(id)/permissions"
         guard config.storageProtocol == .googleDrive || config.storageProtocol == .oneDrive else { throw URLError(.unsupportedURL) }
-        let data = try await actionData("GET", base + (config.storageProtocol == .googleDrive ? "?fields=permissions(id,type)&supportsAllDrives=true" : ""))
-        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
-        let permissions = json[config.storageProtocol == .googleDrive ? "permissions" : "value"] as? [[String: Any]] ?? []
-        for permission in permissions {
-            let scope = (permission["link"] as? [String: Any])?["scope"] as? String
-            if permission["type"] as? String == "anyone" || scope == "anonymous", let permissionID = permission["id"] as? String {
-                _ = try await actionData("DELETE", base + "/" + OAuthSession.encode(permissionID) + (config.storageProtocol == .googleDrive ? "?supportsAllDrives=true" : ""))
+        let google = config.storageProtocol == .googleDrive
+        let initial = base + (google ? "?fields=nextPageToken,permissions(id,type)&pageSize=100&supportsAllDrives=true" : "")
+        var page: String? = initial, seen = Set<String>(), publicIDs: [String] = []
+        while let address = page {
+            guard seen.insert(address).inserted else { throw URLError(.cannotParseResponse) }
+            let data = try await actionData("GET", address)
+            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+            for permission in json[google ? "permissions" : "value"] as? [[String: Any]] ?? [] {
+                let scope = (permission["link"] as? [String: Any])?["scope"] as? String
+                if permission["type"] as? String == "anyone" || scope == "anonymous", let id = permission["id"] as? String { publicIDs.append(id) }
             }
+            if google { page = (json["nextPageToken"] as? String).map { initial + "&pageToken=" + OAuthSession.encode($0) } }
+            else { page = json["@odata.nextLink"] as? String }
         }
+        for id in publicIDs { _ = try await actionData("DELETE", base + "/" + OAuthSession.encode(id) + (google ? "?supportsAllDrives=true" : "")) }
     }
     public func versions(href: String) async throws -> [CloudFileVersion] {
         let id = OAuthSession.encode(href)

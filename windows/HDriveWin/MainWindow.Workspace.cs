@@ -48,14 +48,14 @@ public sealed partial class MainWindow
         panel.Children.Add(limit);
         var trim = new Button { Content = "Sınıra Göre Temizle" };
         trim.Click += (_, _) => {
-            try { WorkingCache.Trim((limit.SelectedIndex == 0 ? 256L : limit.SelectedIndex == 2 ? 5120L : 1024L) * 1024 * 1024); ReloadUsage(); status.Text = "Önbellek temizlendi."; }
+            try { WorkingCache.LimitBytes = (limit.SelectedIndex == 0 ? 256L : limit.SelectedIndex == 2 ? 5120L : 1024L) * 1024 * 1024; WorkingCache.Trim(WorkingCache.LimitBytes); ReloadUsage(); status.Text = "Önbellek temizlendi."; }
             catch (Exception error) { status.Text = error.Message; }
         };
         panel.Children.Add(trim);
         var clear = new Button { Content = "Temizlenebilir Önbelleği Sil" };
         clear.Click += (_, _) => { try { WorkingCache.Trim(0); ReloadUsage(); } catch (Exception error) { status.Text = error.Message; } };
         panel.Children.Add(clear);
-        panel.Children.Add(new TextBlock { Text = "Çevrimdışı Dosyalar", FontWeight = Windows.UI.Text.FontWeights.SemiBold });
+        panel.Children.Add(new TextBlock { Text = "Çevrimdışı Dosyalar", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
         try {
             var entries = OfflineLibrary.Entries();
             if (entries.Count == 0) panel.Children.Add(new TextBlock { Text = "Dosya menüsünden Çevrimdışı Kaydet'i seçin.", TextWrapping = TextWrapping.Wrap });
