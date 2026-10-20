@@ -2611,153 +2611,69 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private void FileList_DragItemsStarting(object sender, DragItemsStartingEventArgs e)
     {
-        try
+        var selectedItems = e.Items?.OfType<FileItem>().ToList() ?? GetSelectedItems();
+        var config = CloudreveManager.Instance.ActiveServer;
+        if (selectedItems.Count == 0 || config == null)
         {
-            var selectedItems = e.Items?.OfType<FileItem>().ToList() ?? new List<FileItem>();
-            if (selectedItems.Count == 0)
-            {
-                selectedItems = GetSelectedItems();
-            }
-
-            if (selectedItems.Count == 0)
-            {
-                return;
-            }
-
-            if (selectedItems.Count == 1 && selectedItems[0].IsDirectory)
-            {
-                e.Data.Properties["HDrive_Folder_Name"] = selectedItems[0].Name;
-                e.Data.Properties["HDrive_Folder_Path"] = selectedItems[0].Path;
-            }
-
-            var storageItems = new List<IStorageItem>();
-            var cacheDir = Path.Combine(Path.GetTempPath(), "HDriveCache");
-            Directory.CreateDirectory(cacheDir);
-
-            foreach (var item in selectedItems)
-            {
-                string? localPath = null;
-                var cachedPath = Path.Combine(cacheDir, Path.GetFileName(item.Path));
-                if (File.Exists(cachedPath))
-                {
-                    localPath = cachedPath;
-                }
-                else if (item.IsDirectory)
-                {
-                    var cachedFolderPath = Path.Combine(cacheDir, Path.GetFileName(item.Path.TrimEnd('/')));
-                    Directory.CreateDirectory(cachedFolderPath);
-                    localPath = cachedFolderPath;
-                }
-
-                if (!string.IsNullOrEmpty(localPath))
-                {
-                    if (File.Exists(localPath))
-                    {
-                        var sf = StorageFile.GetFileFromPathAsync(localPath).AsTask().GetAwaiter().GetResult();
-                        storageItems.Add(sf);
-                    }
-                    else if (Directory.Exists(localPath))
-                    {
-                        var sf = StorageFolder.GetFolderFromPathAsync(localPath).AsTask().GetAwaiter().GetResult();
-                        storageItems.Add(sf);
-                    }
-                }
-            }
-
-            if (storageItems.Count > 0)
-            {
-                e.Data.SetStorageItems(storageItems);
-                e.Data.RequestedOperation = DataPackageOperation.Copy | DataPackageOperation.Move;
-            }
+            e.Cancel = true;
+            return;
         }
-        catch (Exception ex)
+
+        if (selectedItems.Count == 1 && selectedItems[0].IsDirectory)
         {
-            Debug.WriteLine($"DragStarting error: {ex.Message}");
+            e.Data.Properties["HDrive_Folder_Name"] = selectedItems[0].Name;
+            e.Data.Properties["HDrive_Folder_Path"] = selectedItems[0].Path;
         }
-    }
 
-    /// <summary>
-    /// Eski UIElement drag tetikleyicisi (Gerektiğinde geriye dönük uyumluluk için korunur)
-    /// </summary>
-    private async void FileItem_DragStarting(UIElement sender, DragStartingEventArgs e)
-    {
-        var deferral = e.GetDeferral();
-        try
+        // Snapshot the selection and account before the user changes tabs/accounts.
+        var selection = selectedItems.Select(item => new FileItem
         {
-            var selectedItems = GetSelectedItems();
-            if (selectedItems.Count == 0 && sender is FrameworkElement fe && fe.DataContext is FileItem singleItem)
-            {
-                selectedItems.Add(singleItem);
-            }
+            Name = item.Name, Path = item.Path, IsDirectory = item.IsDirectory
+        }).ToList();
+        var client = new WebDAVClient(config);
+        e.Data.RequestedOperation = DataPackageOperation.Copy;
+        foreach (var extension in selection.Where(item => !item.IsDirectory)
+                     .Select(item => Path.GetExtension(item.Name)).Where(ext => !string.IsNullOrEmpty(ext)).Distinct())
+            e.Data.Properties.FileTypes.Add(extension);
 
-            if (selectedItems.Count == 0)
+        // DragItemsStarting has no deferral. Advertise files immediately and materialize
+        // them when the target requests StorageItems, including on a cold cache.
+        var prepared = new Lazy<Task<List<IStorageItem>>>(() => PrepareDraggedItemsAsync(client, selection));
+        e.Data.SetDataProvider(StandardDataFormats.StorageItems, async request =>
+        {
+            var deferral = request.GetDeferral();
+            try
+            {
+                DispatcherQueue.TryEnqueue(() =>
+                    SyncStatusText.Text = $"{selection.Count} öğe sürüklemek için hazırlanıyor...");
+                request.SetData(await prepared.Value);
+                DispatcherQueue.TryEnqueue(() =>
+                    SyncStatusText.Text = $"{selection.Count} öğe kopyalanmaya hazır");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Drag export failed: {ex}");
+                DispatcherQueue.TryEnqueue(() =>
+                    SyncStatusText.Text = $"Dosyalar sürüklenemedi: {ex.Message}");
+            }
+            finally
             {
                 deferral.Complete();
-                return;
             }
+        });
+    }
 
-            if (selectedItems.Count == 1 && selectedItems[0].IsDirectory)
-            {
-                e.Data.Properties["HDrive_Folder_Name"] = selectedItems[0].Name;
-                e.Data.Properties["HDrive_Folder_Path"] = selectedItems[0].Path;
-            }
-
-            var storageItems = new List<IStorageItem>();
-            var cacheDir = Path.Combine(Path.GetTempPath(), "HDriveCache");
-            Directory.CreateDirectory(cacheDir);
-
-            var config = CloudreveManager.Instance.ActiveServer;
-            if (config == null) return;
-            var client = new WebDAVClient(config);
-
-            foreach (var item in selectedItems)
-            {
-                string? localPath = null;
-                var cachedPath = Path.Combine(cacheDir, Path.GetFileName(item.Path));
-                if (File.Exists(cachedPath))
-                {
-                    localPath = cachedPath;
-                }
-                else if (!item.IsDirectory)
-                {
-                    localPath = await client.DownloadFileToCacheAsync(item.Path, item.Name);
-                }
-                else
-                {
-                    var cachedFolderPath = Path.Combine(cacheDir, Path.GetFileName(item.Path.TrimEnd('/')));
-                    Directory.CreateDirectory(cachedFolderPath);
-                    localPath = cachedFolderPath;
-                }
-
-                if (!string.IsNullOrEmpty(localPath))
-                {
-                    if (File.Exists(localPath))
-                    {
-                        var sf = await StorageFile.GetFileFromPathAsync(localPath);
-                        storageItems.Add(sf);
-                    }
-                    else if (Directory.Exists(localPath))
-                    {
-                        var sf = await StorageFolder.GetFolderFromPathAsync(localPath);
-                        storageItems.Add(sf);
-                    }
-                }
-            }
-
-            if (storageItems.Count > 0)
-            {
-                e.Data.SetStorageItems(storageItems);
-                e.Data.RequestedOperation = DataPackageOperation.Copy | DataPackageOperation.Move;
-            }
-        }
-        catch (Exception ex)
+    private static async Task<List<IStorageItem>> PrepareDraggedItemsAsync(WebDAVClient client, List<FileItem> selection)
+    {
+        var storageItems = new List<IStorageItem>();
+        foreach (var localPath in await FileExportService.PrepareAsync(client, selection))
         {
-            Debug.WriteLine($"DragStarting error: {ex.Message}");
+            if (Directory.Exists(localPath))
+                storageItems.Add(await StorageFolder.GetFolderFromPathAsync(localPath));
+            else
+                storageItems.Add(await StorageFile.GetFileFromPathAsync(localPath));
         }
-        finally
-        {
-            deferral.Complete();
-        }
+        return storageItems;
     }
 
     /// <summary>

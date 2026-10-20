@@ -126,6 +126,7 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           name: HDrive-Windows
@@ -137,14 +138,7 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: HDrive ${{ github.ref_name }}
           fail_on_unmatched_files: true
-          body: |
-            Dosya aktarımı ve hesap güvenliği iyileştirildi.
-
-            - Hesaplar birbirinden ayrılır; token ve istemci sırları güvenli kasada saklanır.
-            - Bulut aktarımı, tüm klasör sayfaları ve imzalı S3 istekleri desteklenir.
-            - WebDAV paylaşım klasörü ve yazma izinleri denetlenir.
-            - macOS paketi Apple Silicon ve Intel mimarilerini içerir.
-            - Yayın öncesinde regresyon, Windows açılış ve iOS derleme kontrolleri çalışır.
+          body_path: docs/releases/${{ github.ref_name }}.md
           files: |
             HDrive-Setup.exe
             HDrive-Windows-x64.zip

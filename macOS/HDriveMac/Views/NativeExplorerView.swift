@@ -2451,7 +2451,7 @@ public struct NativeExplorerView: View {
     }
     
     private func openFileDirectly(_ file: RemoteFileItem) {
-        guard let server = manager.activeServer, !server.serverURL.isEmpty else {
+        guard let server = manager.activeServer, server.isConnected else {
             statusAlertMessage = "Lütfen önce bir sunucu seçin veya yapılandırın."
             return
         }
@@ -5492,5 +5492,4 @@ struct ToolbarCustomizationSheet: View {
         .frame(minWidth: 720, idealWidth: 760, maxWidth: 840, minHeight: 520, idealHeight: 560, maxHeight: 680)
     }
 }
-
 

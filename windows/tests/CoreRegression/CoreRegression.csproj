@@ -8,6 +8,7 @@
     <Compile Include="../../HDriveWin/Services/AtomicFile.cs" Link="AtomicFile.cs" />
     <Compile Include="../../HDriveWin/Services/CloudreveManager.cs" Link="CloudreveManager.cs" />
     <Compile Include="../../HDriveWin/Services/WebDAVClient.cs" Link="WebDAVClient.cs" />
+    <Compile Include="../../HDriveWin/Services/FileExportService.cs" Link="FileExportService.cs" />
     <Compile Include="../../HDriveWin/Services/CloudTransfers.cs" Link="CloudTransfers.cs" />
     <Compile Include="../../HDriveWin/Services/S3Storage.cs" Link="S3Storage.cs" />
     <Compile Include="../../HDriveWin/Services/TransferManager.cs" Link="TransferManager.cs" />

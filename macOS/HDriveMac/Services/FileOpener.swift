@@ -5,6 +5,7 @@
 
 import Foundation
 import AppKit
+import UniformTypeIdentifiers
 
 public final class FileOpener: ObservableObject {
     public static let shared = FileOpener()
@@ -23,24 +24,31 @@ public final class FileOpener: ObservableObject {
     
     /// Google Docs, Sheets vb. için uygun yerel dosya adını (Word, Excel, PowerPoint) belirler
     public func resolveLocalFileName(for file: RemoteFileItem, client: WebDAVClient) -> String {
-        var baseName = file.name
-        let ext = (baseName as NSString).pathExtension.lowercased()
-        
-        if client.config.storageProtocol == .googleDrive && ext.isEmpty {
-            let mime = file.contentType ?? ""
-            if mime == "application/vnd.google-apps.document" {
-                baseName += ".docx"
-            } else if mime == "application/vnd.google-apps.spreadsheet" {
-                baseName += ".xlsx"
-            } else if mime == "application/vnd.google-apps.presentation" {
-                baseName += ".pptx"
-            } else if mime == "application/vnd.google-apps.drawing" {
-                baseName += ".png"
-            } else if mime.hasPrefix("application/vnd.google-apps.") {
-                baseName += ".pdf"
+        Self.localFileName(for: file, storageProtocol: client.config.storageProtocol)
+    }
+
+    static func localFileName(for file: RemoteFileItem, storageProtocol: StorageProtocol) -> String {
+        // Cloud titles may contain path separators; keep them in one local component.
+        var name = file.name.components(separatedBy: CharacterSet(charactersIn: "/\\:\0")).joined(separator: "_")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if name.isEmpty || name == "." || name == ".." { name = "download" }
+        let mime = (file.contentType ?? "").components(separatedBy: ";")[0]
+            .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if storageProtocol == .googleDrive {
+            name = CloudFileNaming.exportName(name, mime: mime)
+        }
+        if (name as NSString).pathExtension.isEmpty {
+            // WebDAV displayname can omit the extension present in the resource URL.
+            let remoteExtension = storageProtocol == .webdav || storageProtocol == .smb || storageProtocol == .s3
+                ? URL(string: file.href)?.pathExtension : nil
+            if let ext = remoteExtension, !ext.isEmpty,
+               ext.rangeOfCharacter(from: CharacterSet.alphanumerics.inverted) == nil {
+                name += "." + ext
+            } else if let ext = UTType(mimeType: mime)?.preferredFilenameExtension {
+                name += "." + ext
             }
         }
-        return baseName
+        return name
     }
     
     public func openFileNatively(file: RemoteFileItem, client: WebDAVClient, completion: @escaping (Bool, String?) -> Void) {
@@ -48,7 +56,8 @@ public final class FileOpener: ObservableObject {
         
         let localFile: URL
         do {
-            _ = try WorkingCache.trim(to: Int64(UserDefaults.standard.object(forKey: "HDriveCacheLimitMB") == nil ? 1024 : max(256, UserDefaults.standard.integer(forKey: "HDriveCacheLimitMB"))) * 1024 * 1024)
+            // A stale/unreadable cache entry must not prevent a new file from opening.
+            _ = try? WorkingCache.trim(to: Int64(UserDefaults.standard.object(forKey: "HDriveCacheLimitMB") == nil ? 1024 : max(256, UserDefaults.standard.integer(forKey: "HDriveCacheLimitMB"))) * 1024 * 1024)
             let directory = cacheDir.appendingPathComponent(OfflineStore.identity(client.config)).appendingPathComponent(UUID().uuidString)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             localFile = directory.appendingPathComponent(try LocalFileOperations.validName(localFileName))
@@ -77,15 +86,16 @@ public final class FileOpener: ObservableObject {
                 }
                 
                 // Mac'in varsayılan yerel programıyla aç (Excel, Word, Preview, VLC vb.)
-                let success = NSWorkspace.shared.open(localFile)
-                if success {
-                    self.watchForLiveEdits(localFile: localFile, remoteHref: file.href, client: activeClient)
-                    completion(true, nil)
-                } else {
-                    // Özel bir varsayılan program tanımlı değilse Finder'da dosyayı seçerek göster
-                    NSWorkspace.shared.activateFileViewerSelecting([localFile])
-                    self.watchForLiveEdits(localFile: localFile, remoteHref: file.href, client: activeClient)
-                    completion(true, nil)
+                NSWorkspace.shared.open(localFile, configuration: NSWorkspace.OpenConfiguration()) { _, error in
+                    DispatchQueue.main.async {
+                        if let error = error {
+                            NSWorkspace.shared.activateFileViewerSelecting([localFile])
+                            completion(false, "Dosya indirildi ancak açılamadı: \(error.localizedDescription)\nFinder’da dosyaya sağ tıklayıp “Birlikte Aç” ile uygun uygulamayı seçebilirsiniz.")
+                        } else {
+                            self.watchForLiveEdits(localFile: localFile, remoteHref: file.href, client: activeClient)
+                            completion(true, nil)
+                        }
+                    }
                 }
             }
         }

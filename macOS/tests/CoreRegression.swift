@@ -206,6 +206,18 @@ struct CoreRegression {
 
         try require(CloudFileNaming.exportName("Budget", mime: "application/vnd.google-apps.spreadsheet") == "Budget.xlsx", "Offline native document name lost its export extension")
         try require(CloudFileNaming.exportName("Report.docx", mime: "application/vnd.google-apps.document") == "Report.docx", "Native export extension duplicated")
+        func openingName(_ name: String, _ href: String, _ mime: String?, _ provider: StorageProtocol = .webdav) -> String {
+            FileOpener.localFileName(for: RemoteFileItem(id: href, name: name, href: href, isDirectory: false,
+                size: 0, modificationDate: nil, contentType: mime), storageProtocol: provider)
+        }
+        try require(openingName("Rapor", "/dav/Rapor%20son.pdf", nil) == "Rapor.pdf", "WebDAV display name lost its resource extension")
+        try require(openingName("Rapor", "opaque-id", "application/pdf; charset=binary", .oneDrive) == "Rapor.pdf", "MIME extension was not restored")
+        try require(openingName("Bütçe.2026", "id", "application/vnd.google-apps.spreadsheet", .googleDrive) == "Bütçe.2026.xlsx", "Dotted Google document title kept an unusable extension")
+        try require(openingName("Rapor.pdf", "id", "application/vnd.google-apps.document", .googleDrive) == "Rapor.pdf", "Explicit PDF export changed")
+        try require(openingName("Plan/2026\\Q1", "id", "application/vnd.google-apps.document", .googleDrive) == "Plan_2026_Q1.docx", "Cloud title escaped the local directory")
+        try require(openingName("photo.JPG", "/photo.JPG", "image/jpeg") == "photo.JPG", "Existing extension was changed")
+        try require(openingName("..", "id", nil, .oneDrive) == "download", "Invalid local filename was accepted")
+        print("PASS: native opening preserves export types and repairs missing/unsafe filenames")
         print("PASS: native cloud document exports retain the destination registered by offline storage")
 
         try require(CloudDate.parse("2026-01-01T01:02:03.456Z") != nil && CloudDate.parse("2026-01-01T01:02:03Z") != nil, "Cloud modification timestamp was lost")

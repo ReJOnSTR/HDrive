@@ -496,11 +496,10 @@ public partial class WebDAVClient
         return destination;
     }
 
-    public async Task<string?> DownloadFolderToCacheAsync(string remotePath)
+    public async Task<string?> DownloadFolderToCacheAsync(string remotePath, string? preferredFolderName = null)
     {
-        var folderName = Path.GetFileName(remotePath.TrimEnd('/'));
+        var folderName = preferredFolderName ?? Path.GetFileName(remotePath.TrimEnd('/'));
         if (string.IsNullOrEmpty(folderName)) folderName = "HDriveFolder";
-        var cacheDir = Path.Combine(Path.GetTempPath(), "HDriveCache");
         var localFolder = Path.Combine(Path.GetDirectoryName(CachePath(remotePath, "folder"))!, SafeFileName(folderName));
         Directory.CreateDirectory(localFolder);
 

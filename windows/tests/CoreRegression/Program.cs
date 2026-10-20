@@ -95,6 +95,42 @@ await Check("Google download resolves native Sheets through the export API", asy
     var path = Path.Combine(Profile(), "sheet.xlsx"); await client.DownloadToAsync("sheet-id", path, fileName: "sheet.xlsx");
     Require(File.ReadAllText(path) == "sheet-data", "Native file was not exported correctly");
 });
+await Check("Drag export downloads uncached files with matching names from different folders", async () => {
+    var client = Client(Account(), (request, _) => Task.FromResult(Json(request.RequestUri!.AbsolutePath)));
+    var paths = await FileExportService.PrepareAsync(client, new[] {
+        new FileItem { Name = "report.txt", Path = "first/report.txt" },
+        new FileItem { Name = "report.txt", Path = "second/report.txt" }
+    });
+    Require(paths.Count == 2 && paths[0] != paths[1], "Selected files collided");
+    Require(File.ReadAllText(paths[0]).EndsWith("/first/report.txt") &&
+        File.ReadAllText(paths[1]).EndsWith("/second/report.txt"), "Wrong content exported");
+    Require(paths.All(path => Path.GetFileName(path) == "report.txt"), "Export filename changed");
+    Require(paths.All(path => File.Exists(Path.Combine(Path.GetDirectoryName(path)!, ".hdrive-protected"))), "Export can be evicted while in use");
+});
+await Check("Drag export preserves a cloud folder name and downloads its nested content", async () => {
+    var client = Client(Account(StorageProtocol.OneDrive), (request, _) => Task.FromResult(
+        request.RequestUri!.AbsolutePath.EndsWith("/folder-id/children")
+            ? Json("""{"value":[{"id":"nested-id","name":"Nested","folder":{}}]}""")
+        : request.RequestUri.AbsolutePath.EndsWith("/nested-id/children")
+            ? Json("""{"value":[{"id":"file-id","name":"notes.txt","file":{"mimeType":"text/plain"},"size":7}]}""")
+        : request.RequestUri.AbsolutePath.EndsWith("/file-id/content")
+            ? Json("content")
+        : Json("wrong-route", HttpStatusCode.BadRequest)));
+    var paths = await FileExportService.PrepareAsync(client, new[] {
+        new FileItem { Name = "My Folder", Path = "folder-id", IsDirectory = true }
+    });
+    Require(Path.GetFileName(paths.Single()) == "My Folder", "Folder ID leaked into its local name");
+    Require(File.ReadAllText(Path.Combine(paths.Single(), "Nested", "notes.txt")) == "content", "Folder exported empty/incomplete");
+});
+await Check("Drag export reports download failure instead of returning partial selection", async () => {
+    var client = Client(Account(), (request, _) => Task.FromResult(
+        request.RequestUri!.AbsolutePath.EndsWith("/missing.txt")
+            ? Json("denied", HttpStatusCode.Forbidden) : Json("ready")));
+    await MustFail(() => FileExportService.PrepareAsync(client, new[] {
+        new FileItem { Name = "ready.txt", Path = "ready.txt" },
+        new FileItem { Name = "missing.txt", Path = "missing.txt" }
+    }));
+});
 await Check("OneDrive downloads use item content instead of generic WebDAV GET", async () => {
     var client = Client(Account(StorageProtocol.OneDrive), (request, _) => {
         Require(request.RequestUri!.AbsolutePath == "/v1.0/me/drive/items/item-id/content", "Wrong OneDrive download route");
