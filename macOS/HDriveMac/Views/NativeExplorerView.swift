@@ -581,7 +581,7 @@ public struct NativeExplorerView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(NSColor.windowBackgroundColor))
-        .navigationTitle(currentPath.isEmpty ? (manager.activeServer?.name ?? "Cloudreve") : (currentPath as NSString).lastPathComponent)
+        .navigationTitle(currentPath.isEmpty ? (manager.activeServer?.name ?? "Cloudreve") : folderTitle(for: currentPath))
         .toolbar {
             explorerToolbar
         }
@@ -1851,7 +1851,7 @@ public struct NativeExplorerView: View {
                     
                     let subPath = segments[0...idx].joined(separator: "/")
                     Button(action: { navigateTo(subPath) }) {
-                        Text(segments[idx])
+                        Text(segments[idx].removingPercentEncoding ?? segments[idx])
                             .font(.subheadline)
                             .foregroundColor(idx == segments.count - 1 ? .primary : .secondary)
                     }
@@ -1862,7 +1862,7 @@ public struct NativeExplorerView: View {
                                 Label("Kenar Çubuğundan Kaldır", systemImage: "pin.slash")
                             }
                         } else {
-                            Button(action: { pinFolder(name: segments[idx], path: subPath) }) {
+                            Button(action: { pinFolder(name: segments[idx].removingPercentEncoding ?? segments[idx], path: subPath) }) {
                                 Label("Kenar Çubuğuna Sabitle", systemImage: "pin")
                             }
                         }
@@ -2306,7 +2306,7 @@ public struct NativeExplorerView: View {
                 Label("Klasörü Aç", systemImage: "folder")
             }
             
-            let folderPath = currentPath.isEmpty ? file.name : "\(currentPath)/\(file.name)"
+            let folderPath = manager.activeServer.map { file.navigationPath(relativeTo: $0) } ?? file.href
             if isFolderPinned(path: folderPath) {
                 Button(action: { unpinFolder(path: folderPath) }) {
                     Label("Kenar Çubuğundan Kaldır", systemImage: "pin.slash")
@@ -2441,9 +2441,8 @@ public struct NativeExplorerView: View {
     private func handleDoubleClick(_ file: RemoteFileItem) {
         if file.isDirectory {
             // Klasör ise içine gir
-            let isGDrive = (manager.activeServer?.storageProtocol == .googleDrive)
-            let newPath = isGDrive ? file.id : (currentPath.isEmpty ? file.name : "\(currentPath)/\(file.name)")
-            navigateTo(newPath)
+            guard let server = manager.activeServer else { return }
+            navigateTo(file.navigationPath(relativeTo: server))
         } else {
             // Dosya ise Mac'in varsayılan uygulamasıyla (Excel, Word, Preview, VLC vb.) doğrudan aç
             openFileDirectly(file)
@@ -2688,11 +2687,16 @@ public struct NativeExplorerView: View {
         }
     }
     
+    private func folderTitle(for path: String) -> String {
+        let name = (path as NSString).lastPathComponent
+        return name.removingPercentEncoding ?? name
+    }
+
     // MARK: - Sekme Yönetimi
     private func saveCurrentTabState() {
         if let idx = tabs.firstIndex(where: { $0.id == activeTabID }) {
             let active = manager.activeServer
-            let tabTitle = currentPath.isEmpty ? (active?.name ?? "Bulut Sürücüsü") : (currentPath as NSString).lastPathComponent
+            let tabTitle = currentPath.isEmpty ? (active?.name ?? "Bulut Sürücüsü") : folderTitle(for: currentPath)
             tabs[idx].serverId = active?.id
             tabs[idx].title = tabTitle
             tabs[idx].path = currentPath
@@ -2709,7 +2713,7 @@ public struct NativeExplorerView: View {
             manager.setActiveServer(ts)
             loadPinnedFolders()
         }
-        let tabTitle = path.isEmpty ? (targetServer?.name ?? "Bulut Sürücüsü") : (path as NSString).lastPathComponent
+        let tabTitle = path.isEmpty ? (targetServer?.name ?? "Bulut Sürücüsü") : folderTitle(for: path)
         let newTab = ExplorerTab(
             serverId: targetServer?.id,
             title: tabTitle,
@@ -2877,7 +2881,7 @@ public struct NativeExplorerView: View {
         guard let target = savePanel.url else { return }
         
         let client = WebDAVClient(config: server)
-        let relPath = currentPath.isEmpty ? file.name : "\(currentPath)/\(file.name)"
+        let relPath = file.href
         TransferManager.shared.enqueueDownload(fileName: file.name, remoteHref: relPath, localTargetURL: target, client: client, expectedSize: file.size)
         showingTransferPopover = true
     }
@@ -3131,7 +3135,7 @@ public struct NativeExplorerView: View {
         for file in fileTargets {
             group.enter()
             let dest = destinationFolder.appendingPathComponent(file.name)
-            let relPath = currentPath.isEmpty ? file.name : "\(currentPath)/\(file.name)"
+            let relPath = file.href
             client.downloadFile(href: relPath, to: dest, progress: { _ in }, completion: { error in
                 if error == nil && FileManager.default.fileExists(atPath: dest.path) {
                     lock.lock()
@@ -3305,7 +3309,7 @@ public struct NativeExplorerView: View {
         // Arka planda indirmeyi tetikle
         if let server = manager.activeServer {
             let client = WebDAVClient(config: server)
-            let relPath = currentPath.isEmpty ? file.name : "\(currentPath)/\(file.name)"
+            let relPath = file.href
             client.downloadFile(href: relPath, to: cachedFile, progress: { _ in }) { _ in }
         }
         
@@ -4732,7 +4736,7 @@ public struct HDriveSettingsView: View {
             VStack(spacing: 4) {
                 Text("HDrive for Mac")
                     .font(.title.bold())
-                Text("Sürüm 1.4.4 (Universal Binary)")
+                Text("Sürüm \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.4.5") (Universal Binary)")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
             }

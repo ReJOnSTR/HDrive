@@ -218,6 +218,52 @@ struct CoreRegression {
         try require(openingName("photo.JPG", "/photo.JPG", "image/jpeg") == "photo.JPG", "Existing extension was changed")
         try require(openingName("..", "id", nil, .oneDrive) == "download", "Invalid local filename was accepted")
         print("PASS: native opening preserves export types and repairs missing/unsafe filenames")
+        let davConfig = CloudreveServerConfig(serverURL: "https://storage.example/dav", storageProtocol: .webdav)
+        let davClient = WebDAVClient(config: davConfig, session: http)
+        for (xmlTitle, expectedName, isFolder) in [
+            ("FAZLA ÇALIŞMA", "FAZLA ÇALIŞMA", true),
+            ("AD &#214;ZEL", "AD ÖZEL", true),
+            ("İşe Giriş &amp; Sağlık.pdf", "İşe Giriş & Sağlık.pdf", false),
+            ("<![CDATA[ÇAĞRI ÖZTÜRK]]>", "ÇAĞRI ÖZTÜRK", true),
+            ("  İK  ÇALIŞMA  ", "  İK  ÇALIŞMA  ", true),
+            ("İK %20 #1.pdf", "İK %20 #1.pdf", false)
+        ] {
+            let relative = "PERSONEL%20EVRAK/" + OAuthSession.encode(expectedName)
+            let href = "https://storage.example/dav/" + relative + (isFolder ? "/" : "")
+            let xml = """
+            <d:multistatus xmlns:d="DAV:">
+              <d:response><d:href>https://storage.example/dav/PERSONEL%20EVRAK/</d:href>
+                <d:propstat><d:prop><d:displayname>PERSONEL EVRAK</d:displayname><d:resourcetype><d:collection/></d:resourcetype></d:prop></d:propstat>
+              </d:response>
+              <d:response><d:href>\(href)</d:href><d:propstat><d:prop>
+                <d:displayname>\(xmlTitle)</d:displayname>
+                <d:getcontentlength>12&#51;4</d:getcontentlength>
+                <d:getcontenttype>application/pdf</d:getcontenttype>
+                <d:resourcetype>\(isFolder ? "<d:collection/>" : "")</d:resourcetype>
+              </d:prop></d:propstat></d:response>
+            </d:multistatus>
+            """
+            let parsed = WebDAVXMLParser(targetPath: "/dav/PERSONEL EVRAK/").parse(data: Data(xml.utf8))
+            try require(parsed.count == 1, "Absolute self href was shown as a child")
+            let item = parsed[0]
+            try require(item.name == expectedName && item.href == href && item.isDirectory == isFolder, "XML split/whitespace changed a Turkish resource name")
+            try require(item.size == 1234 && item.contentType == "application/pdf", "Split metadata was lost")
+            try require(item.navigationPath(relativeTo: davConfig) == relative, "Navigation did not preserve the resource href")
+            let requestURL = davClient.buildURL(for: item.navigationPath(relativeTo: davConfig))
+            try require(requestURL?.path == "/dav/PERSONEL EVRAK/" + expectedName && requestURL?.query == nil && requestURL?.fragment == nil, "Navigation changed resource identity: \(expectedName)")
+        }
+        try require(davClient.buildURL(for: "/dav/PERSONEL%20EVRAK/")?.absoluteString == "https://storage.example/dav/PERSONEL%20EVRAK/", "Folder URL acquired a duplicate trailing slash")
+        let actualFolder = RemoteFileItem(id: "person", name: "ADÖZEL", href: "/dav/PERSONEL%20EVRAK/AD%20%C3%96ZEL/",
+            isDirectory: true, size: 0, modificationDate: nil, contentType: nil)
+        FixtureURLProtocol.handler = { request in
+            guard request.httpMethod == "PROPFIND", request.url?.absoluteString == "https://storage.example/dav/PERSONEL%20EVRAK/AD%20%C3%96ZEL" else { return (404, Data()) }
+            return (207, Data("<d:multistatus xmlns:d=\"DAV:\"><d:response><d:href>/dav/PERSONEL%20EVRAK/AD%20%C3%96ZEL/belge.pdf</d:href><d:propstat><d:prop><d:displayname>İşe Giriş.pdf</d:displayname></d:prop></d:propstat></d:response></d:multistatus>".utf8))
+        }
+        let personnelFiles: [RemoteFileItem] = try await withCheckedThrowingContinuation { continuation in
+            davClient.listFiles(at: actualFolder.navigationPath(relativeTo: davConfig)) { continuation.resume(with: $0) }
+        }
+        try require(personnelFiles.first?.name == "İşe Giriş.pdf", "Nested personnel folder was requested using its display name instead of href")
+        print("PASS: Turkish personnel folders and filenames preserve whitespace and navigate using exact server hrefs")
         print("PASS: native cloud document exports retain the destination registered by offline storage")
 
         try require(CloudDate.parse("2026-01-01T01:02:03.456Z") != nil && CloudDate.parse("2026-01-01T01:02:03Z") != nil, "Cloud modification timestamp was lost")

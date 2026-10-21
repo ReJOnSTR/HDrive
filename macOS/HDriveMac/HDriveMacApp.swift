@@ -13,7 +13,6 @@ struct HDriveMacApp: App {
     
     var body: some Scene {
         // 1. Ana Dosya Gezgini Penceresi (Finder / Explorer Görünümü)
-        Window("Dosyalar ve Depolama", id: "workspace") { WorkspaceSettingsView().frame(minWidth: 520, minHeight: 500) }
         WindowGroup("HDrive") {
             NativeExplorerView()
                 .alert("Hesap kaydı", isPresented: Binding(
@@ -41,6 +40,9 @@ struct HDriveMacApp: App {
             }
         }
         
+        // Keep auxiliary windows after the main scene so launch opens the file explorer.
+        Window("Dosyalar ve Depolama", id: "workspace") { WorkspaceSettingsView().frame(minWidth: 520, minHeight: 500) }
+
         // 2. macOS Menü Çubuğu Simgesi (Menu Bar Extra)
         MenuBarExtra("HDrive", systemImage: "cloud.fill") {
             if let active = cloudreveManager.activeServer {

@@ -35,6 +35,24 @@ public struct RemoteFileItem: Identifiable, Hashable {
         self.contentType = contentType
         self.thumbnailURL = thumbnailURL
     }
+
+    /// Preserve the provider's resource identity; displayname is not a request path.
+    public func navigationPath(relativeTo config: CloudreveServerConfig) -> String {
+        guard config.storageProtocol == .webdav,
+              let base = URLComponents(string: config.serverURL),
+              let resource = URLComponents(string: href),
+              resource.query == nil, resource.fragment == nil else { return href }
+        if resource.host != nil,
+           (resource.scheme != base.scheme || resource.host != base.host || resource.port != base.port) {
+            return href // Leave origin validation to the client's URL builder.
+        }
+        let root = base.percentEncodedPath.split(separator: "/")
+        let path = resource.percentEncodedPath.split(separator: "/")
+        guard path.count >= root.count,
+              zip(root, path).allSatisfy({ String($0.0).removingPercentEncoding == String($0.1).removingPercentEncoding }) else { return href }
+        // Keep escapes in navigation state, including literal percent signs in names.
+        return path.dropFirst(root.count).joined(separator: "/")
+    }
     
     public var formattedSize: String {
         if isDirectory { return "Klasör" }
@@ -327,8 +345,7 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
         }
         let fullPath = encodedSegments.joined(separator: "/")
 
-        let hasTrailingSlash = trimmed.hasSuffix("/")
-        return URL(string: baseURLString + fullPath + (hasTrailingSlash ? "/" : ""))
+        return URL(string: baseURLString + fullPath)
     }
 
     // MARK: - SMB (CIFS) Yardımcıları
@@ -1820,7 +1837,7 @@ final class WebDAVXMLParser: NSObject, XMLParserDelegate {
     private let targetPath: String
     private var items: [RemoteFileItem] = []
     
-    private var currentElement = ""
+    private var currentText = ""
     private var currentHref = ""
     private var currentDisplayName = ""
     private var currentContentLength: Int64 = 0
@@ -1849,7 +1866,7 @@ final class WebDAVXMLParser: NSObject, XMLParserDelegate {
     
     func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?, qualifiedName qName: String?, attributes attributeDict: [String : String] = [:]) {
         let cleanName = elementName.components(separatedBy: ":").last?.lowercased() ?? elementName.lowercased()
-        currentElement = cleanName
+        currentText = ""
         
         if cleanName == "response" {
             currentHref = ""
@@ -1864,30 +1881,30 @@ final class WebDAVXMLParser: NSObject, XMLParserDelegate {
     }
     
     func parser(_ parser: XMLParser, foundCharacters string: String) {
-        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        
-        switch currentElement {
-        case "href":
-            currentHref += trimmed
-        case "displayname":
-            currentDisplayName += trimmed
-        case "getcontentlength":
-            currentContentLength = Int64(trimmed) ?? 0
-        case "getcontenttype":
-            currentContentType += trimmed
-        case "getlastmodified":
-            currentLastModified = rfc1123Formatter.date(from: trimmed)
-        default:
-            break
-        }
+        // XMLParser can split text immediately before a Turkish character/entity.
+        // Trimming each callback turns "AD " + "ÖZEL" into a different filename.
+        currentText += string
+    }
+
+    func parser(_ parser: XMLParser, foundCDATA CDATABlock: Data) {
+        if let text = String(data: CDATABlock, encoding: .utf8) { currentText += text }
     }
     
     func parser(_ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?, qualifiedName qName: String?) {
         let cleanName = elementName.components(separatedBy: ":").last?.lowercased() ?? elementName.lowercased()
+        let text = currentText.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch cleanName {
+        case "href": currentHref = text
+        case "displayname": currentDisplayName = currentText
+        case "getcontentlength": currentContentLength = Int64(text) ?? 0
+        case "getcontenttype": currentContentType = text
+        case "getlastmodified": currentLastModified = rfc1123Formatter.date(from: text)
+        default: break
+        }
+        currentText = ""
         
         if cleanName == "response" {
-            let decodedHref = currentHref.removingPercentEncoding ?? currentHref
+            let decodedHref = URLComponents(string: currentHref)?.path ?? currentHref.removingPercentEncoding ?? currentHref
             var cleanHref = decodedHref
             if cleanHref.hasSuffix("/") && cleanHref.count > 1 {
                 cleanHref.removeLast()
