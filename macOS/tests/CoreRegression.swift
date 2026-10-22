@@ -264,6 +264,100 @@ struct CoreRegression {
         }
         try require(personnelFiles.first?.name == "İşe Giriş.pdf", "Nested personnel folder was requested using its display name instead of href")
         print("PASS: Turkish personnel folders and filenames preserve whitespace and navigate using exact server hrefs")
+
+        for href in ["https://attacker.example/file.pdf", "http://storage.example/dav/file.pdf", "https://storage.example:8443/dav/file.pdf"] {
+            try require(davClient.downloadURL(for: href) == nil, "Foreign download origin accepted")
+            let error: Error? = await withCheckedContinuation { continuation in
+                davClient.downloadFile(href: href, to: root.appendingPathComponent("forbidden"), progress: { _ in }) {
+                    continuation.resume(returning: $0)
+                }
+            }
+            try require((error as NSError?)?.code == 400, "Foreign download was not rejected before networking")
+        }
+        try require(davClient.downloadURL(for: "https://storage.example/dav/İşe%20Giriş.pdf")?.host == "storage.example", "Same-origin download rejected")
+        try require(davClient.downloadURL(for: "/dav/İşe%20Giriş.pdf")?.path == "/dav/İşe Giriş.pdf", "Relative download changed resource identity")
+        print("PASS: foreign hosts, downgrade and foreign ports rejected before authenticated downloads")
+
+        func exportItem(_ name: String, _ href: String, folder: Bool = false) -> RemoteFileItem {
+            RemoteFileItem(id: href, name: name, href: href, isDirectory: folder, size: 1, modificationDate: nil, contentType: nil)
+        }
+        let exportRoot = root.appendingPathComponent("exports")
+        var downloads = 0
+        let exportDownload: FileExportService.Download = { href, target in
+            downloads += 1
+            try Data(href.utf8).write(to: target)
+        }
+        let emptyList: FileExportService.Listing = { _ in [] }
+        let firstExport = try await FileExportService.prepare(exportItem("rapor.txt", "/dav/a/rapor.txt"), config: davConfig,
+            root: exportRoot, list: emptyList, download: exportDownload)
+        var anotherAccount = davConfig; anotherAccount.id = UUID()
+        let secondExport = try await FileExportService.prepare(exportItem("rapor.txt", "/dav/b/rapor.txt"), config: anotherAccount,
+            root: exportRoot, list: emptyList, download: exportDownload)
+        try require(firstExport != secondExport && (try String(contentsOf: firstExport, encoding: .utf8)) == "/dav/a/rapor.txt", "Same-named exports mixed across accounts")
+        let exportedFolder = try await FileExportService.prepare(exportItem("Personel", "/dav/people/", folder: true), config: davConfig,
+            root: exportRoot, list: { path in
+                switch path {
+                case "people": return [exportItem("AD ÖZEL", "/dav/people/person/", folder: true), exportItem("Boş", "/dav/people/empty/", folder: true)]
+                case "people/person": return [exportItem("rapor.txt", "/dav/people/person/a"), exportItem("rapor.txt", "/dav/people/person/b")]
+                case "people/empty": return []
+                default: throw URLError(.badURL)
+                }
+            }, download: exportDownload)
+        try require(try String(contentsOf: exportedFolder.appendingPathComponent("AD ÖZEL/rapor.txt"), encoding: .utf8) == "/dav/people/person/a", "Nested export content missing")
+        try require(try String(contentsOf: exportedFolder.appendingPathComponent("AD ÖZEL/rapor (2).txt"), encoding: .utf8) == "/dav/people/person/b", "Colliding child overwritten")
+        try require(FileManager.default.fileExists(atPath: exportedFolder.appendingPathComponent("Boş").path), "Empty child folder lost")
+        let beforeFailure = try WorkingCache.entries(roots: [exportRoot]).count
+        var failedExport = false
+        do {
+            _ = try await FileExportService.prepare(exportItem("incomplete", "/dav/incomplete/", folder: true), config: davConfig,
+                root: exportRoot, list: { _ in [exportItem("ok.txt", "ok"), exportItem("denied.txt", "denied")] },
+                download: { href, target in
+                    if href == "denied" { throw URLError(.noPermissionsToReadFile) }
+                    try Data("partial".utf8).write(to: target)
+                })
+        } catch { failedExport = true }
+        try require(failedExport && (try WorkingCache.entries(roots: [exportRoot]).count) == beforeFailure, "Failed export returned or retained partial content")
+        var preparations = 0
+        let provider = FileExportService.itemProvider(name: "rapor.txt", type: .plainText, prepare: {
+            preparations += 1
+            try await Task.sleep(nanoseconds: 20_000_000)
+            return try await FileExportService.prepare(exportItem("rapor.txt", "/dav/lazy/rapor.txt"), config: davConfig,
+                root: exportRoot, list: emptyList, download: exportDownload)
+        }, onError: { _ in })
+        try require(preparations == 0, "Drag eagerly downloaded before receiver requested it")
+        for _ in 0..<2 {
+            let data: Data = try await withCheckedThrowingContinuation { continuation in
+                _ = provider.loadDataRepresentation(forTypeIdentifier: "public.file-url") { data, error in
+                    if let data { continuation.resume(returning: data) }
+                    else { continuation.resume(throwing: error ?? URLError(.unknown)) }
+                }
+            }
+            let url = URL(string: String(decoding: data, as: UTF8.self))!
+            try require(try String(contentsOf: url, encoding: .utf8) == "/dav/lazy/rapor.txt", "Drag delivered URL before complete content existed")
+        }
+        try require(preparations == 1, "Multiple representations repeated the export")
+        let folderProvider = FileExportService.itemProvider(name: "Personel", type: .folder,
+            prepare: { exportedFolder }, onError: { _ in })
+        let folderContents: String = try await withCheckedThrowingContinuation { continuation in
+            _ = folderProvider.loadFileRepresentation(forTypeIdentifier: "public.folder") { url, error in
+                do {
+                    guard let url else { throw error ?? URLError(.unknown) }
+                    let contents = try String(contentsOf: url.appendingPathComponent("AD ÖZEL/rapor.txt"), encoding: .utf8)
+                    continuation.resume(returning: contents)
+                } catch { continuation.resume(throwing: error) }
+            }
+        }
+        try require(folderContents == "/dav/people/person/a", "Typed folder representation lost its children")
+        let failingProvider = FileExportService.itemProvider(name: "denied.txt", type: .plainText,
+            prepare: { throw URLError(.noPermissionsToReadFile) }, onError: { _ in })
+        let providerRejected: Bool = await withCheckedContinuation { continuation in
+            _ = failingProvider.loadDataRepresentation(forTypeIdentifier: "public.file-url") { data, error in
+                continuation.resume(returning: data == nil && error != nil)
+            }
+        }
+        try require(providerRejected, "Failed drag was reported as a successful URL")
+        print("PASS: lazy drag delivery, account isolation, recursive folders, name collisions and partial failure cleanup")
+
         print("PASS: native cloud document exports retain the destination registered by offline storage")
 
         try require(CloudDate.parse("2026-01-01T01:02:03.456Z") != nil && CloudDate.parse("2026-01-01T01:02:03Z") != nil, "Cloud modification timestamp was lost")
@@ -278,6 +372,47 @@ struct CoreRegression {
         do { try LocalFileOperations.moveFile(moveDestination, into: moveDestination.appendingPathComponent("child")) } catch { refusedDescendant = true }
         try require(refusedDescendant, "Folder move into its own descendant was allowed")
         print("PASS: batch move preserves name collisions and rejects descendant destinations")
+        try require(AppReleaseVersion("v1.10.0")! > AppReleaseVersion("1.9.9")!, "Update versions compared lexically")
+        for invalid in ["", "v", "1.2", "1.2.3-beta", "1.2.bad", "vv1.2.3"] {
+            try require(AppReleaseVersion(invalid) == nil, "Invalid update version accepted: \(invalid)")
+        }
+        let updateBytes = Data("fixture installer".utf8)
+        let updateHash = "bb43c2e945e913600f618f98b7fd78b997fe3a87a4f342d22b6dcab611e290cb"
+        let releaseJSON = """
+        {"tag_name":"v1.10.0","body":"Yeni sürüm","draft":false,"prerelease":false,"assets":[
+        {"name":"HDrive-macOS.dmg","size":17,"digest":"sha256:\(updateHash)","browser_download_url":"https://github.com/ReJOnSTR/HDrive/releases/download/v1.10.0/HDrive-macOS.dmg"}]}
+        """
+        let release = try AppUpdateService.parse(Data(releaseJSON.utf8))
+        try require(release.isNewer(than: "1.9.9") && !release.isNewer(than: "1.10.0") && !release.isNewer(than: "2.0.0"), "Update offered a reinstall or downgrade")
+        let installerFixture = root.appendingPathComponent("installer.dmg")
+        try updateBytes.write(to: installerFixture)
+        try AppUpdateService.verify(installerFixture, asset: release.macAsset!)
+        try Data("tampered".utf8).write(to: installerFixture)
+        var badHash = false
+        do { try AppUpdateService.verify(installerFixture, asset: release.macAsset!) } catch { badHash = true }
+        try require(badHash, "Tampered update accepted")
+        let foreignRelease = try AppUpdateService.parse(Data(releaseJSON.replacingOccurrences(of: "https://github.com/ReJOnSTR/HDrive/releases/download/", with: "https://attacker.example/").utf8))
+        try require(foreignRelease.macAsset == nil, "Foreign update package accepted")
+        for field in ["draft", "prerelease"] {
+            var blockedRelease = false
+            do { _ = try AppUpdateService.parse(Data(releaseJSON.replacingOccurrences(of: "\"\(field)\":false", with: "\"\(field)\":true").utf8)) }
+            catch { blockedRelease = true }
+            try require(blockedRelease, "Non-public stable update offered")
+        }
+        FixtureURLProtocol.handler = { request in
+            guard request.url?.host == "api.github.com", request.value(forHTTPHeaderField: "Authorization") == nil else { throw URLError(.badURL) }
+            return (200, Data(releaseJSON.utf8))
+        }
+        let checkedRelease = try await AppUpdateService.check(session: http)
+        try require(checkedRelease?.tag_name == "v1.10.0", "Release check failed")
+        FixtureURLProtocol.handler = { _ in (404, Data()) }
+        let noRelease = try await AppUpdateService.check(session: http)
+        try require(noRelease == nil, "No release was reported as current")
+        FixtureURLProtocol.handler = { _ in (503, Data()) }
+        var checkFailed = false
+        do { _ = try await AppUpdateService.check(session: http) } catch { checkFailed = true }
+        try require(checkFailed, "Update outage was reported as current")
+        print("PASS: update version ordering, stable releases, trusted assets, checksums and HTTP failure states")
         print("All Apple core regression checks passed.")
     }
 }

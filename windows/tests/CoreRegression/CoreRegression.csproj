@@ -4,6 +4,7 @@
     <Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../../HDriveWin/Services/AppUpdateService.cs" Link="AppUpdateService.cs" />
     <Compile Include="../../HDriveWin/Models/ServerConfig.cs" Link="ServerConfig.cs" />
     <Compile Include="../../HDriveWin/Services/AtomicFile.cs" Link="AtomicFile.cs" />
     <Compile Include="../../HDriveWin/Services/CloudreveManager.cs" Link="CloudreveManager.cs" />

@@ -93,6 +93,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Verify Apple Account and Storage Regressions
         run: bash macOS/test-regressions.sh
+      - name: Verify iOS Storage Client Regressions
+        run: HDRIVE_TEST_CLIENT=iOS/HDrive/Models/WebDAVClient.swift HDRIVE_TEST_OUTPUT=build/ios-client-regression bash macOS/test-regressions.sh
       - name: Build Universal macOS App
         run: bash macOS/build-macos.sh
       - name: Sign macOS App with Developer ID

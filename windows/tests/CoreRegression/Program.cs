@@ -26,6 +26,52 @@ async Task Check(string name, Func<Task> action)
 void Require(bool value, string message) { if (!value) throw new Exception(message); }
 async Task MustFail(Func<Task> action) { try { await action(); } catch { return; } throw new Exception("Operation unexpectedly succeeded"); }
 
+await Check("Updates use stable versions, trusted packages and verified downloads", async () => {
+    Require(AppUpdateService.ParseVersion("v1.10.0") > AppUpdateService.ParseVersion("1.9.9"), "Lexical version comparison");
+    foreach (var invalid in new[] { "", "v", "1.2", "1.2.3-beta", "vv1.2.3", "1.2.bad" })
+        Require(AppUpdateService.ParseVersion(invalid) is null, "Invalid version accepted");
+    var bytes = Encoding.UTF8.GetBytes("fixture installer");
+    var hash = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+    var releaseJson = JsonSerializer.Serialize(new {
+        tag_name = "v1.10.0", body = "Yeni sürüm", draft = false, prerelease = false,
+        assets = new[] { new { name = "HDrive-Setup.exe", size = bytes.Length, digest = "sha256:" + hash,
+            browser_download_url = "https://github.com/ReJOnSTR/HDrive/releases/download/v1.10.0/HDrive-Setup.exe" } }
+    });
+    var release = AppUpdateService.Parse(releaseJson);
+    Require(release.IsNewerThan("1.9.9") && !release.IsNewerThan("1.10.0") && !release.IsNewerThan("2.0.0"), "Reinstall or downgrade offered");
+    foreach (var field in new[] { "draft", "prerelease" })
+        await MustFail(() => Task.FromResult(AppUpdateService.Parse(releaseJson.Replace($"\"{field}\":false", $"\"{field}\":true"))));
+    var foreign = AppUpdateService.Parse(releaseJson.Replace("https://github.com/ReJOnSTR/HDrive/releases/download/", "https://attacker.example/"));
+    Require(foreign.WindowsAsset is null, "Foreign package accepted");
+    using var http = new HttpClient(new FixtureHandler((request, _) => {
+        Require(request.Headers.Authorization is null, "Update request exposed account credentials");
+        return Task.FromResult(request.RequestUri!.Host == "api.github.com" ? Json(releaseJson) : new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(bytes) });
+    }));
+    var service = new AppUpdateService(http);
+    Require((await service.CheckAsync())?.Tag == "v1.10.0", "Check failed");
+    var directory = Profile();
+    var installer = await service.DownloadAsync(release, "1.9.9", directory);
+    Require(File.ReadAllBytes(installer).SequenceEqual(bytes), "Incomplete installer delivered");
+    await MustFail(() => service.DownloadAsync(release, "2.0.0", directory));
+    using var brokenHttp = new HttpClient(new FixtureHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(Encoding.UTF8.GetBytes("corrupt")) })));
+    var brokenDirectory = Profile();
+    await MustFail(() => new AppUpdateService(brokenHttp).DownloadAsync(release, "1.0.0", brokenDirectory));
+    Require(!Directory.EnumerateFileSystemEntries(brokenDirectory).Any(), "Corrupt update retained");
+    using var redirectedHttp = new HttpClient(new FixtureHandler((_, _) => {
+        var response = new HttpResponseMessage(HttpStatusCode.Redirect); response.Headers.Location = new Uri("https://attacker.example/installer.exe");
+        return Task.FromResult(response);
+    }));
+    await MustFail(() => new AppUpdateService(redirectedHttp).DownloadAsync(release, "1.0.0", Profile()));
+    using var noReleaseHttp = new HttpClient(new FixtureHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound))));
+    Require(await new AppUpdateService(noReleaseHttp).CheckAsync() is null, "Missing release reported as current");
+    using var failureHttp = new HttpClient(new FixtureHandler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable))));
+    await MustFail(() => new AppUpdateService(failureHttp).CheckAsync());
+    using var cancelled = new CancellationTokenSource(); cancelled.Cancel();
+    var cancelledDirectory = Profile();
+    await MustFail(() => service.DownloadAsync(release, "1.0.0", cancelledDirectory, cancellation: cancelled.Token));
+    Require(!Directory.EnumerateFileSystemEntries(cancelledDirectory).Any(), "Cancelled update retained");
+});
+
 await Check("Legacy migration preserves credentials and a deleted account stays deleted", () => {
     var path = Profile(); var account = Account();
     File.WriteAllText(Path.Combine(path, "config.json"), JsonSerializer.Serialize(account));

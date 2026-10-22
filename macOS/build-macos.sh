@@ -18,6 +18,8 @@ hdrive_sources=(
   iOS/HDrive/Server/WebDAVServer.swift iOS/HDrive/Server/WebDashboardEmbeddedAssets.swift
   macOS/HDriveMac/Services/WebDAVClient.swift macOS/HDriveMac/Services/CloudreveManager.swift
   macOS/HDriveMac/Services/TransferManager.swift macOS/HDriveMac/Services/BonjourBrowser.swift
+  macOS/HDriveMac/Services/AppUpdateService.swift macOS/HDriveMac/Views/AppUpdatesView.swift
+  macOS/HDriveMac/Services/FileExportService.swift
   macOS/HDriveMac/Services/FileOpener.swift macOS/HDriveMac/Services/FilePreviewManager.swift
   macOS/HDriveMac/Services/FileIconProvider.swift macOS/HDriveMac/Views/TransferPopoverView.swift
   iOS/HDrive/Views/WorkspaceViews.swift

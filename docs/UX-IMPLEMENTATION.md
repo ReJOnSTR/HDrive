@@ -2,6 +2,14 @@
 
 ## Implemented
 
+- Desktop Settings now includes Updates: installed/published versions, manual checks, release notes, download progress, cancellation and installer launch. macOS also exposes the update window from the HDrive menu. Only published stable GitHub releases are eligible; an equal or older release is never offered as an update.
+- Update packages must match the repository's exact platform asset URL, expected size and GitHub SHA-256 digest. Failed/cancelled downloads are discarded and normal Internet-download security metadata is preserved. Windows starts the setup wizard; macOS opens the DMG and explains replacing the application in Applications. No account migration, automatic app replacement or unattended installation is performed by the updater.
+
+- macOS external drag exports materialize files and recursive folders before providing either a file URL or a typed file representation. Each export uses an isolated, protected account directory; failed exports remove partial content. Filename collisions preserve both children.
+- macOS directory responses are accepted only for the current request, account identity, tab and path. Disconnecting or leaving the view invalidates pending responses.
+- Both Apple WebDAV clients preserve complete XML text (including Turkish names, whitespace and CDATA) and reject foreign-origin download hrefs before attaching credentials. The same storage regressions run against both client implementations in CI.
+- macOS launch/restart scripts use the canonical Universal build output. Restart builds successfully before asking the running application to quit.
+
 - iOS file import offers replace, keep both and skip. Replacement is staged before touching the destination. Existing directories are never merged or deleted by the replacement path.
 - iOS local deletion uses a recoverable trash directory, with immediate undo and a restore list. Restore preserves a new file that appeared at the original path.
 - Local iOS list and grid expose the same actions. Local multi-selection supports sharing, moving and trash; cloud multi-selection supports downloading, moving, deleting and sharing existing provider links.

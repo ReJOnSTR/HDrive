@@ -399,6 +399,7 @@ public struct NativeExplorerView: View {
     @State private var cloudActionMode: CloudManagementView.Mode = .sharing
 
     @State private var directoryError: String?
+    @State private var directoryLoadGeneration = UUID()
     @State private var isSearchPresented: Bool = false
     @State private var mouseMonitor: Any? = nil
     @State private var rightClickMonitor: Any? = nil
@@ -490,7 +491,7 @@ public struct NativeExplorerView: View {
             if let first = tabs.first {
                 activeTabID = first.id
             }
-            if manager.activeServer == nil || manager.activeServer?.serverURL.isEmpty == true {
+            if manager.activeServer == nil {
                 self.files = []
             } else {
                 loadDirectory(at: currentPath)
@@ -500,6 +501,9 @@ public struct NativeExplorerView: View {
         }
         .onChange(of: manager.activeServer?.id) { _, newServerID in
             guard newServerID != nil else {
+                directoryLoadGeneration = UUID()
+                isLoading = false
+                directoryError = nil
                 self.files = []
                 return
             }
@@ -512,6 +516,7 @@ public struct NativeExplorerView: View {
             loadStorageQuota()
         }
         .onDisappear {
+            directoryLoadGeneration = UUID()
             if let monitor = keyMonitor {
                 NSEvent.removeMonitor(monitor)
                 keyMonitor = nil
@@ -2559,12 +2564,15 @@ public struct NativeExplorerView: View {
     }
     
     private func loadDirectory(at path: String) {
+        let generation = UUID()
+        directoryLoadGeneration = generation
+        let tabID = activeTabID
         directoryError = nil
         self.files = []
         self.selectedFileID = nil
         self.selectedFileIDs = []
         
-        guard var server = manager.activeServer, !server.serverURL.isEmpty else {
+        guard var server = manager.activeServer else {
             self.isLoading = false
             return
         }
@@ -2591,7 +2599,12 @@ public struct NativeExplorerView: View {
         let client = WebDAVClient(config: server)
         loadStorageQuota(for: server)
         
+        let accountIdentity = OfflineStore.identity(server)
         client.listFiles(at: path) { result in
+            guard directoryLoadGeneration == generation,
+                  activeTabID == tabID, currentPath == path,
+                  let active = manager.activeServer, active.id == server.id,
+                  OfflineStore.identity(active) == accountIdentity else { return }
             isLoading = false
             switch result {
             case .success(let items):
@@ -3289,31 +3302,12 @@ public struct NativeExplorerView: View {
     
     // MARK: - Sürükle ve Bırak (Drag & Drop) Desteği
     private func exportFileForDrag(_ file: RemoteFileItem) -> NSItemProvider {
-        let cacheDir = FileOpener.shared.cacheDir
-        if file.isDirectory {
-            let folderURL = cacheDir.appendingPathComponent(file.name, isDirectory: true)
-            try? FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
-            return NSItemProvider(item: folderURL as NSURL, typeIdentifier: UTType.fileURL.identifier)
+        guard let server = manager.activeServer else { return NSItemProvider() }
+        return FileExportService.itemProvider(for: file, client: WebDAVClient(config: server)) { error in
+            DispatchQueue.main.async {
+                statusAlertMessage = "Dosya sürüklenemedi: " + error.localizedDescription
+            }
         }
-        
-        let cachedFile = cacheDir.appendingPathComponent(file.name)
-        if FileManager.default.fileExists(atPath: cachedFile.path) {
-            return NSItemProvider(item: cachedFile as NSURL, typeIdentifier: UTType.fileURL.identifier)
-        }
-        
-        let previewTarget = FilePreviewManager.shared.previewCacheDir.appendingPathComponent(file.name)
-        if FileManager.default.fileExists(atPath: previewTarget.path) {
-            return NSItemProvider(item: previewTarget as NSURL, typeIdentifier: UTType.fileURL.identifier)
-        }
-        
-        // Arka planda indirmeyi tetikle
-        if let server = manager.activeServer {
-            let client = WebDAVClient(config: server)
-            let relPath = file.href
-            client.downloadFile(href: relPath, to: cachedFile, progress: { _ in }) { _ in }
-        }
-        
-        return NSItemProvider(item: cachedFile as NSURL, typeIdentifier: UTType.fileURL.identifier)
     }
     
     // MARK: - Favori Klasörleri Yönetme (Pinned Shortcuts)
@@ -3638,6 +3632,7 @@ public struct NativeExplorerView: View {
 enum SettingsTab: String, CaseIterable, Identifiable {
     case account = "Hesap & Sunucu"
     case appearance = "Görünüm & Gezgin"
+    case updates = "Güncellemeler"
     case about = "Hakkında"
     
     var id: String { rawValue }
@@ -3646,6 +3641,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         switch self {
         case .account: return "cloud.fill"
         case .appearance: return "macwindow"
+        case .updates: return "arrow.down.circle.fill"
         case .about: return "info.circle.fill"
         }
     }
@@ -3654,6 +3650,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         switch self {
         case .account: return [.blue, .cyan]
         case .appearance: return [.purple, .indigo]
+        case .updates: return [.green, .teal]
         case .about: return [.gray, .secondary]
         }
     }
@@ -4179,6 +4176,8 @@ public struct HDriveSettingsView: View {
                         }
                     case .appearance:
                         appearanceSettingsSection
+                    case .updates:
+                        AppUpdatesView()
                     case .about:
                         aboutSection
                     }

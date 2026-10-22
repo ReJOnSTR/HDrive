@@ -32,6 +32,12 @@ struct HDriveMacApp: App {
                 .keyboardShortcut(",", modifiers: .command)
                 Button("Çevrimdışı Dosyalar ve Önbellek...") { openWindow(id: "workspace") }
             }
+            CommandGroup(after: .appInfo) {
+                Button("Güncellemeleri kontrol et…") {
+                    openWindow(id: "updates")
+                    AppUpdateModel.shared.check()
+                }
+            }
             CommandMenu("Görüntü") {
                 Button("Araç Çubuğunu Özelleştir...") {
                     NotificationCenter.default.post(name: .openToolbarCustomizer, object: nil)
@@ -42,6 +48,10 @@ struct HDriveMacApp: App {
         
         // Keep auxiliary windows after the main scene so launch opens the file explorer.
         Window("Dosyalar ve Depolama", id: "workspace") { WorkspaceSettingsView().frame(minWidth: 520, minHeight: 500) }
+
+        Window("HDrive Güncellemeleri", id: "updates") {
+            ScrollView { AppUpdatesView().padding(24) }.frame(minWidth: 580, minHeight: 360)
+        }
 
         // 2. macOS Menü Çubuğu Simgesi (Menu Bar Extra)
         MenuBarExtra("HDrive", systemImage: "cloud.fill") {

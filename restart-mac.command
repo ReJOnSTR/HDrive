@@ -1,45 +1,19 @@
 #!/bin/bash
-# HDrive - macOS Derle ve Yeniden Başlat
-DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-cd "$DIR"
-
-echo "⏳ Varsa eski HDrive kapatılıyor..."
-pkill -f "HDrive.app/Contents/MacOS/HDrive" 2>/dev/null || true
-sleep 0.5
-
-echo "🔨 HDrive derleniyor..."
-mkdir -p macOS/HDrive.app/Contents/MacOS
-mkdir -p macOS/HDrive.app/Contents/Resources
-cp macOS/Info.plist macOS/HDrive.app/Contents/Info.plist 2>/dev/null || true
-cp macOS/AppIcon.icns macOS/HDrive.app/Contents/Resources/AppIcon.icns 2>/dev/null || true
-
-swiftc -parse-as-library \
-  iOS/HDrive/Models/FileItem.swift \
-  iOS/HDrive/Models/ServerConfig.swift \
-  iOS/HDrive/Models/NetworkUtils.swift \
-  iOS/HDrive/Models/KeychainHelper.swift \
-  iOS/HDrive/Models/NetworkMonitor.swift \
-  iOS/HDrive/Models/SyncLogManager.swift \
-  iOS/HDrive/Server/BonjourPublisher.swift \
-  iOS/HDrive/Server/WebDAVHandler.swift \
-  iOS/HDrive/Server/WebDAVServer.swift \
-  iOS/HDrive/Server/WebDashboardEmbeddedAssets.swift \
-  macOS/HDriveMac/Services/WebDAVClient.swift \
-  macOS/HDriveMac/Services/CloudreveManager.swift \
-  macOS/HDriveMac/Services/TransferManager.swift \
-  macOS/HDriveMac/Services/BonjourBrowser.swift \
-  macOS/HDriveMac/Services/FileOpener.swift \
-  macOS/HDriveMac/Services/FilePreviewManager.swift \
-  macOS/HDriveMac/Services/FileIconProvider.swift \
-  macOS/HDriveMac/Views/TransferPopoverView.swift \
-  macOS/HDriveMac/Views/NativeExplorerView.swift \
-  macOS/HDriveMac/HDriveMacApp.swift \
-  -o "macOS/HDrive.app/Contents/MacOS/HDrive"
-
-if [ $? -eq 0 ]; then
-  echo "🚀 HDrive açılıyor..."
-  open "$DIR/macOS/HDrive.app"
-  echo "✅ Başarılı!"
-else
-  echo "❌ Derleme hatası oluştu!"
+set -euo pipefail
+hdrive_repo_dir="$(cd "$(dirname "$0")" && pwd)"
+cd "$hdrive_repo_dir"
+hdrive_output_dir="${HDRIVE_BUILD_OUTPUT:-$hdrive_repo_dir/build/macos}"
+# Build successfully before closing the running application.
+HDRIVE_BUILD_OUTPUT="$hdrive_output_dir" bash macOS/build-macos.sh
+if pgrep -x HDrive >/dev/null; then
+  osascript -e 'tell application id "com.halilsak.HDriveMac" to quit'
+  for hdrive_attempt in {1..50}; do
+    if ! pgrep -x HDrive >/dev/null; then break; fi
+    sleep 0.1
+  done
+  if pgrep -x HDrive >/dev/null; then
+    echo "HDrive kapanmadı. Uygulamayı kapatıp yeniden deneyin." >&2
+    exit 1
+  fi
 fi
+open "$hdrive_output_dir/HDrive.app"

@@ -29,6 +29,9 @@ public sealed partial class SettingsView : UserControl
         this.InitializeComponent();
         AppVersionText.Text = "Sürüm " + typeof(App).Assembly.GetName().Version?.ToString(3) + " (Windows)";
 
+        UpdateCurrentVersion.Text = "Mevcut sürüm: " + InstalledVersion;
+        Unloaded += (_, _) => _updateCancellation?.Cancel();
+
         _editingServer = CloudreveManager.Instance.ActiveServer ?? new ServerConfig();
         ServersListView.ItemsSource = CloudreveManager.Instance.Servers;
 
@@ -49,6 +52,7 @@ public sealed partial class SettingsView : UserControl
 
         PanelAccount.Visibility = (tag == "Account") ? Visibility.Visible : Visibility.Collapsed;
         PanelView.Visibility = (tag == "View") ? Visibility.Visible : Visibility.Collapsed;
+        PanelUpdates.Visibility = (tag == "Updates") ? Visibility.Visible : Visibility.Collapsed;
         PanelAbout.Visibility = (tag == "About") ? Visibility.Visible : Visibility.Collapsed;
 
         var selectedBrush = (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"];
@@ -56,6 +60,7 @@ public sealed partial class SettingsView : UserControl
 
         TabBtnAccount.Background = (tag == "Account") ? selectedBrush : transparentBrush;
         TabBtnView.Background = (tag == "View") ? selectedBrush : transparentBrush;
+        TabBtnUpdates.Background = (tag == "Updates") ? selectedBrush : transparentBrush;
         TabBtnAbout.Background = (tag == "About") ? selectedBrush : transparentBrush;
 
         if (tag == "Account")
@@ -66,6 +71,89 @@ public sealed partial class SettingsView : UserControl
         }
     }
     #endregion
+
+    private static string InstalledVersion => typeof(App).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
+    private readonly AppUpdateService _updates = new();
+    private AppRelease? _updateRelease;
+    private CancellationTokenSource? _updateCancellation;
+    private string? _updateInstaller;
+    private bool _updateBusy;
+
+    private void SetUpdateBusy(bool busy, bool downloading = false)
+    {
+        _updateBusy = busy;
+        CheckUpdatesButton.IsEnabled = !busy;
+        DownloadUpdateButton.IsEnabled = !busy;
+        OpenUpdateInstallerButton.IsEnabled = !busy;
+        UpdateProgress.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+        UpdateProgress.IsIndeterminate = busy && !downloading;
+        CancelUpdateButton.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private async void CheckUpdates_Click(object sender, RoutedEventArgs e)
+    {
+        if (_updateBusy) return;
+        _updateCancellation = new CancellationTokenSource();
+        SetUpdateBusy(true);
+        _updateRelease = null; _updateInstaller = null;
+        DownloadUpdateButton.Visibility = Visibility.Collapsed;
+        OpenUpdateInstallerButton.Visibility = Visibility.Collapsed;
+        UpdateNotes.Text = ""; UpdateNotesTitle.Text = "";
+        UpdateStatus.Text = "Güncellemeler kontrol ediliyor…";
+        try
+        {
+            _updateRelease = await _updates.CheckAsync(_updateCancellation.Token);
+            UpdateLastChecked.Text = "Son kontrol: " + DateTime.Now.ToString("g");
+            if (_updateRelease is null) { UpdateStatus.Text = "Henüz yayımlanmış bir sürüm bulunmuyor."; return; }
+            var newer = _updateRelease.IsNewerThan(InstalledVersion);
+            var downloadable = _updateRelease.WindowsAsset?.Sha256 is not null;
+            DownloadUpdateButton.Visibility = newer && downloadable ? Visibility.Visible : Visibility.Collapsed;
+            UpdateStatus.Text = newer
+                ? (downloadable ? _updateRelease.Tag + " sürümü hazır." : _updateRelease.Tag + " yayımlandı. Uygun kurulum paketi için yayın sayfasına bakın.")
+                : (AppUpdateService.ParseVersion(_updateRelease.Tag) == AppUpdateService.ParseVersion(InstalledVersion)
+                    ? "HDrive güncel." : "Bu kurulum, yayımlanan " + _updateRelease.Tag + " sürümünden daha yeni.");
+            UpdateNotesTitle.Text = _updateRelease.Tag + " — Yenilikler";
+            UpdateNotes.Text = string.IsNullOrWhiteSpace(_updateRelease.Notes) ? "Bu sürüm için yayın notu yok." : _updateRelease.Notes;
+        }
+        catch (OperationCanceledException) { UpdateStatus.Text = "Kontrol iptal edildi veya zaman aşımına uğradı."; }
+        catch (Exception error) { UpdateStatus.Text = "Kontrol yapılamadı: " + error.Message; }
+        finally { SetUpdateBusy(false); _updateCancellation.Dispose(); _updateCancellation = null; }
+    }
+
+    private async void DownloadUpdate_Click(object sender, RoutedEventArgs e)
+    {
+        if (_updateBusy || _updateRelease is null) return;
+        _updateCancellation = new CancellationTokenSource();
+        SetUpdateBusy(true, downloading: true);
+        UpdateProgress.Value = 0;
+        _updateInstaller = null;
+        OpenUpdateInstallerButton.Visibility = Visibility.Collapsed;
+        UpdateStatus.Text = "Güncelleme indiriliyor…";
+        try
+        {
+            var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HDrive", "Updates");
+            _updateInstaller = await _updates.DownloadAsync(_updateRelease, InstalledVersion, directory,
+                new Progress<double>(value => UpdateProgress.Value = value * 100), _updateCancellation.Token);
+            _updateCancellation.Token.ThrowIfCancellationRequested();
+            OpenUpdateInstallerButton.Visibility = Visibility.Visible;
+            OpenUpdateInstaller();
+        }
+        catch (OperationCanceledException) { UpdateStatus.Text = "İndirme iptal edildi."; }
+        catch (Exception error) { UpdateStatus.Text = "İndirme başarısız: " + error.Message; }
+        finally { SetUpdateBusy(false); _updateCancellation.Dispose(); _updateCancellation = null; }
+    }
+    private void CancelUpdate_Click(object sender, RoutedEventArgs e) => _updateCancellation?.Cancel();
+    private void OpenUpdateInstaller_Click(object sender, RoutedEventArgs e) => OpenUpdateInstaller();
+    private void OpenUpdateInstaller()
+    {
+        if (_updateInstaller is null) return;
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(_updateInstaller) { UseShellExecute = true });
+            UpdateStatus.Text = "Kurulum başlatıldı. Açılan kurulum penceresindeki adımları tamamlayın; istenirse HDrive’ı kapatın.";
+        }
+        catch (Exception error) { UpdateStatus.Text = "Kurulum açılamadı: " + error.Message; }
+    }
 
     #region Account & Provider Management
     private void AddConnectionButton_Click(object sender, RoutedEventArgs e)

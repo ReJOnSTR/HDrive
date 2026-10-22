@@ -767,13 +767,9 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
     
     /// WebDAV indirme adresini güvenli ve doğru biçimde oluşturur
     public func downloadURL(for href: String) -> URL? {
-        let trimmed = href.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") {
-            if let directURL = URL(string: trimmed) { return directURL }
-            let unencoded = trimmed.removingPercentEncoding ?? trimmed
-            return URL(string: unencoded.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? unencoded)
-        }
-        return buildURL(for: trimmed)
+        // Absolute WebDAV hrefs must pass the same origin check as other requests.
+        // Never attach this account's credentials to a server-supplied foreign URL.
+        buildURL(for: href)
     }
     
     /// Dosya İndirir (HTTP durum kodu kontrolü ve güvenli taşıma)

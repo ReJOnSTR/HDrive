@@ -77,6 +77,7 @@
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
 
                     <Button x:Name="TabBtnAccount" Grid.Column="0" Click="TabBtn_Click" Tag="Account"
@@ -96,6 +97,11 @@
                             <FontIcon Glyph="&#xE790;" FontSize="14" />
                             <TextBlock Text="Görünüm" FontSize="13" />
                         </StackPanel>
+                    </Button>
+
+                    <Button x:Name="TabBtnUpdates" Grid.Column="3" Click="TabBtn_Click" Tag="Updates"
+                            Style="{ThemeResource SubtleButtonStyle}" HorizontalAlignment="Stretch" Padding="8,9" CornerRadius="6">
+                        <TextBlock Text="Güncellemeler" FontSize="13" />
                     </Button>
 
                     <Button x:Name="TabBtnAbout" Grid.Column="2" Click="TabBtn_Click" Tag="About"
@@ -497,6 +503,24 @@
                             <TextBlock Text="• Boş alana fareyle tıklayıp sürükleyerek çoklu dosya seçebilirsiniz." FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
                         </StackPanel>
                     </Border>
+                </StackPanel>
+
+                <StackPanel x:Name="PanelUpdates" Spacing="16" Visibility="Collapsed">
+                    <TextBlock Text="Güncellemeler" FontSize="20" FontWeight="SemiBold" />
+                    <TextBlock x:Name="UpdateCurrentVersion" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <TextBlock x:Name="UpdateStatus" Text="Yeni sürümleri buradan kontrol edebilirsiniz." TextWrapping="Wrap" />
+                    <TextBlock x:Name="UpdateLastChecked" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <ProgressBar x:Name="UpdateProgress" Minimum="0" Maximum="100" Visibility="Collapsed" />
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <Button x:Name="CheckUpdatesButton" Content="Güncellemeleri kontrol et" Click="CheckUpdates_Click" />
+                        <Button x:Name="DownloadUpdateButton" Content="İndir ve kurulumu başlat" Click="DownloadUpdate_Click"
+                                Style="{ThemeResource AccentButtonStyle}" Visibility="Collapsed" />
+                        <Button x:Name="CancelUpdateButton" Content="İptal" Click="CancelUpdate_Click" Visibility="Collapsed" />
+                    </StackPanel>
+                    <Button x:Name="OpenUpdateInstallerButton" Content="Kurulum paketini aç" Click="OpenUpdateInstaller_Click" Visibility="Collapsed" />
+                    <HyperlinkButton Content="Yayın sayfasını aç" NavigateUri="https://github.com/ReJOnSTR/HDrive/releases" />
+                    <TextBlock x:Name="UpdateNotesTitle" FontWeight="SemiBold" />
+                    <TextBlock x:Name="UpdateNotes" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
                 </StackPanel>
 
                 <!-- 3. SEKME: HAKKINDA -->
