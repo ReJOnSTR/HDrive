@@ -1,6 +1,6 @@
 # Release signing
 
-Public `v*` tags require signed Windows packages and a Developer ID signed,
+Public `v*` tag-triggered builds require signed Windows packages and a Developer ID signed,
 notarized macOS application. Pull requests and main-branch verification builds
 can run without distribution secrets. The iOS simulator build never uses a
 signing identity.
@@ -33,6 +33,16 @@ handlers. macOS ZIP packaging occurs after stapling.
 If required credentials are absent or signing/notarization fails, tag builds
 stop before GitHub Release publication. Do not replace that failure with a
 successful unsigned distribution step.
+
+An explicitly authorized unsigned release can instead be started manually from
+`main` using **Build and Release HDrive** with `publish_release=true`, a
+`release_tag` matching all application versions, and
+`allow_unsigned_release=true`. This exception is off by default and cannot
+disable signing for tag-triggered builds. All tests and platform builds still
+run. Release notes identify the unsigned/unnotarized packages. The workflow
+uploads a draft, verifies every package size and SHA-256 digest, then publishes
+it as the latest stable release. The v1.4.6 unsigned publication was explicitly
+authorized by the repository owner.
 
 # Verification
 

@@ -6,6 +6,19 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: 'Publish the built packages as a GitHub Release'
+        type: boolean
+        default: false
+      release_tag:
+        description: 'Release tag matching the source version (for example v1.4.6)'
+        type: string
+        default: ''
+      allow_unsigned_release:
+        description: 'Explicitly authorize distribution without signing/notarization'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -13,8 +26,48 @@ permissions:
 jobs:
   core-regression:
     runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.release-plan.outputs.publish }}
+      tag: ${{ steps.release-plan.outputs.tag }}
+      unsigned: ${{ steps.release-plan.outputs.unsigned }}
+      require_signing: ${{ steps.release-plan.outputs.require_signing }}
     steps:
       - uses: actions/checkout@v4
+      - name: Validate Release Request and Version
+        id: release-plan
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          REF_NAME: ${{ github.ref_name }}
+          PUBLISH_RELEASE: ${{ inputs.publish_release }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          ALLOW_UNSIGNED: ${{ inputs.allow_unsigned_release }}
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, plistlib, re, xml.etree.ElementTree as ET
+          manual = os.environ['EVENT_NAME'] == 'workflow_dispatch' and os.environ['PUBLISH_RELEASE'] == 'true'
+          tagged = os.environ['REF'].startswith('refs/tags/v')
+          publish = manual or tagged
+          unsigned = manual and os.environ['ALLOW_UNSIGNED'] == 'true'
+          if manual and os.environ['REF'] != 'refs/heads/main':
+              raise SystemExit('Manual releases must run from main.')
+          tag = os.environ['RELEASE_TAG'] if manual else os.environ['REF_NAME'] if tagged else ''
+          if publish:
+              if not re.fullmatch(r'v[0-9]+\.[0-9]+\.[0-9]+', tag):
+                  raise SystemExit('Expected a stable release tag such as v1.4.6.')
+              version = tag[1:]
+              mac = plistlib.loads(pathlib.Path('macOS/Info.plist').read_bytes())['CFBundleShortVersionString']
+              windows = ET.parse('windows/HDriveWin/HDriveWin.csproj').findtext('./PropertyGroup/Version')
+              installer = re.search(r'#define MyAppVersion "([^"]+)"', pathlib.Path('windows/installer.iss').read_text()).group(1)
+              ios = re.findall(r'MARKETING_VERSION = ([^;]+);', pathlib.Path('iOS/HDrive.xcodeproj/project.pbxproj').read_text())
+              if not ios or any(value != version for value in [mac, windows, installer, *ios]):
+                  raise SystemExit('Release tag and application versions do not match.')
+              if not pathlib.Path('docs/releases', tag + '.md').is_file():
+                  raise SystemExit('Release notes are missing.')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              for key, value in {'publish': str(publish).lower(), 'tag': tag, 'unsigned': str(unsigned).lower(), 'require_signing': str(publish and not unsigned).lower()}.items():
+                  output.write(f'{key}={value}\n')
+          PY
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
@@ -28,7 +81,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 20
     env:
-      HDRIVE_REQUIRE_SIGNING: ${{ startsWith(github.ref, 'refs/tags/v') }}
+      HDRIVE_REQUIRE_SIGNING: ${{ needs.core-regression.outputs.require_signing }}
       WINDOWS_SIGNING_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_BASE64 }}
       WINDOWS_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_PASSWORD }}
     steps:
@@ -83,7 +136,7 @@ jobs:
     runs-on: macos-14
     timeout-minutes: 25
     env:
-      HDRIVE_REQUIRE_SIGNING: ${{ startsWith(github.ref, 'refs/tags/v') }}
+      HDRIVE_REQUIRE_SIGNING: ${{ needs.core-regression.outputs.require_signing }}
       MACOS_SIGNING_CERTIFICATE_BASE64: ${{ secrets.MACOS_SIGNING_CERTIFICATE_BASE64 }}
       MACOS_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_SIGNING_CERTIFICATE_PASSWORD }}
       APPLE_NOTARY_KEY_BASE64: ${{ secrets.APPLE_NOTARY_KEY_BASE64 }}
@@ -122,9 +175,12 @@ jobs:
         run: xcodebuild -project iOS/HDrive.xcodeproj -scheme HDrive -sdk iphonesimulator -configuration Debug -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
 
   release:
-    needs: [build-windows, build-macos, build-ios]
+    needs: [core-regression, build-windows, build-macos, build-ios]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: needs.core-regression.outputs.publish == 'true'
+    concurrency:
+      group: release-${{ needs.core-regression.outputs.tag }}
+      cancel-in-progress: false
     permissions:
       contents: write
     steps:
@@ -135,14 +191,50 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: HDrive-macOS
+      - name: Prepare Release Notes
+        env:
+          RELEASE_TAG: ${{ needs.core-regression.outputs.tag }}
+          UNSIGNED_RELEASE: ${{ needs.core-regression.outputs.unsigned }}
+        run: |
+          python3 - <<'PY'
+          import os, pathlib
+          notes = pathlib.Path('docs/releases', os.environ['RELEASE_TAG'] + '.md').read_text()
+          if os.environ['UNSIGNED_RELEASE'] == 'true':
+              notes += '\n\n**Dağıtım imzası:** Bu sürüm kullanıcı onayıyla imzasız yayımlanmıştır. macOS paketi Apple tarafından notarize edilmemiştir. Windows ve macOS güvenlik uyarısı gösterebilir.\n'
+          pathlib.Path('RELEASE_NOTES.md').write_text(notes)
+          PY
       - uses: softprops/action-gh-release@v2
+        id: release-upload
         with:
-          tag_name: ${{ github.ref_name }}
-          name: HDrive ${{ github.ref_name }}
+          tag_name: ${{ needs.core-regression.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: HDrive ${{ needs.core-regression.outputs.tag }}
+          draft: true
+          prerelease: false
           fail_on_unmatched_files: true
-          body_path: docs/releases/${{ github.ref_name }}.md
+          body_path: RELEASE_NOTES.md
           files: |
             HDrive-Setup.exe
             HDrive-Windows-x64.zip
             HDrive-macOS.dmg
             HDrive-macOS.zip
+      - name: Verify Packages and Publish Release
+        uses: actions/github-script@v7
+        env:
+          RELEASE_ID: ${{ steps.release-upload.outputs.id }}
+        with:
+          script: |
+            const fs = require('fs');
+            const crypto = require('crypto');
+            const release_id = Number(process.env.RELEASE_ID);
+            const { data: release } = await github.rest.repos.getRelease({ ...context.repo, release_id });
+            for (const name of ['HDrive-Setup.exe', 'HDrive-Windows-x64.zip', 'HDrive-macOS.dmg', 'HDrive-macOS.zip']) {
+              const asset = release.assets.find(asset => asset.name === name && asset.state === 'uploaded');
+              const bytes = fs.readFileSync(name);
+              const digest = 'sha256:' + crypto.createHash('sha256').update(bytes).digest('hex');
+              if (!asset || asset.size !== bytes.length || asset.digest !== digest) {
+                throw new Error('Uploaded package verification failed: ' + name);
+              }
+            }
+            await github.rest.repos.updateRelease({ ...context.repo, release_id, draft: false, prerelease: false, make_latest: 'true' });
+            core.notice('Published ' + release.html_url);
