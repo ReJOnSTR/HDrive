@@ -462,6 +462,7 @@
                                                        TextAlignment="Center"
                                                        HorizontalAlignment="Center"
                                                        Margin="0,4,0,0"
+                                                       Tapped="FileName_Tapped"
                                                        Visibility="{x:Bind NormalVisibility, Mode=OneWay}" />
 
                                             <!-- Yerinde Yeniden Adlandırma Metin Kutusu (Windows 11 Birebir) -->
@@ -545,6 +546,7 @@
                                                        TextAlignment="Center"
                                                        HorizontalAlignment="Center"
                                                        Margin="0,2,0,0"
+                                                       Tapped="FileName_Tapped"
                                                        Visibility="{x:Bind NormalVisibility, Mode=OneWay}" />
 
                                             <!-- Yerinde Yeniden Adlandırma (Windows 11 Birebir) -->
@@ -707,6 +709,7 @@
                                             <TextBlock Grid.Column="1" Text="{x:Bind Name}" VerticalAlignment="Center" 
                                                        TextTrimming="CharacterEllipsis"
                                                        Margin="8,0,0,0"
+                                                       Tapped="FileName_Tapped"
                                                        Visibility="{x:Bind NormalVisibility, Mode=OneWay}" />
 
                                             <!-- Yerinde Yeniden Adlandırma (Windows 11 Birebir) -->

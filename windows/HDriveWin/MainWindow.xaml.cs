@@ -1986,6 +1986,18 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private void FileName_Tapped(object sender, TappedRoutedEventArgs e)
+    {
+        if (sender is FrameworkElement fe && fe.DataContext is FileItem item)
+        {
+            if (item == _selectedItem && !item.IsEditing)
+            {
+                e.Handled = true;
+                BeginInlineRename(item);
+            }
+        }
+    }
+
     private void BeginInlineRename(FileItem? item)
     {
         if (item == null) return;
@@ -2001,6 +2013,35 @@ public sealed partial class MainWindow : Window
 
         item.EditingName = item.Name;
         item.IsEditing = true;
+
+        // İlgili container'ı görünür kıl ve odakla
+        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+        {
+            var container = GetActiveItemContainer();
+            if (container != null)
+            {
+                var itemContainer = container.ContainerFromItem(item) as DependencyObject;
+                var textBox = FindVisualChild<TextBox>(itemContainer);
+                if (textBox != null && textBox.Visibility == Visibility.Visible)
+                {
+                    FocusAndSelectRenameText(textBox);
+                }
+            }
+        });
+    }
+
+    private static T? FindVisualChild<T>(DependencyObject? parent) where T : DependencyObject
+    {
+        if (parent == null) return null;
+        int count = VisualTreeHelper.GetChildrenCount(parent);
+        for (int i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            if (child is T typedChild) return typedChild;
+            var desc = FindVisualChild<T>(child);
+            if (desc != null) return desc;
+        }
+        return null;
     }
 
     private static readonly char[] InvalidFileNameChars = new[] { '/', '\\', ':', '*', '?', '"', '<', '>', '|' };
@@ -2021,6 +2062,25 @@ public sealed partial class MainWindow : Window
     {
         if (sender is TextBox textBox)
         {
+            textBox.RegisterPropertyChangedCallback(UIElement.VisibilityProperty, (s, dp) =>
+            {
+                if (s is TextBox tb && tb.Visibility == Visibility.Visible)
+                {
+                    FocusAndSelectRenameText(tb);
+                }
+            });
+
+            if (textBox.Visibility == Visibility.Visible)
+            {
+                FocusAndSelectRenameText(textBox);
+            }
+        }
+    }
+
+    private void FocusAndSelectRenameText(TextBox textBox)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
             textBox.Focus(FocusState.Programmatic);
             var text = textBox.Text ?? "";
             var isDir = (textBox.DataContext as FileItem)?.IsDirectory ?? false;
@@ -2033,7 +2093,7 @@ public sealed partial class MainWindow : Window
             {
                 textBox.SelectAll();
             }
-        }
+        });
     }
 
     private async void InlineRenameTextBox_KeyDown(object sender, KeyRoutedEventArgs e)
@@ -2625,13 +2685,16 @@ public sealed partial class MainWindow : Window
             e.Data.Properties["HDrive_Folder_Path"] = selectedItems[0].Path;
         }
 
+        var internalPaths = selectedItems.Select(item => item.Path).ToList();
+        e.Data.Properties["HDrive_Internal_Items"] = internalPaths;
+
         // Snapshot the selection and account before the user changes tabs/accounts.
         var selection = selectedItems.Select(item => new FileItem
         {
             Name = item.Name, Path = item.Path, IsDirectory = item.IsDirectory
         }).ToList();
         var client = new WebDAVClient(config);
-        e.Data.RequestedOperation = DataPackageOperation.Copy;
+        e.Data.RequestedOperation = DataPackageOperation.Copy | DataPackageOperation.Move;
         foreach (var extension in selection.Where(item => !item.IsDirectory)
                      .Select(item => Path.GetExtension(item.Name)).Where(ext => !string.IsNullOrEmpty(ext)).Distinct())
             e.Data.Properties.FileTypes.Add(extension);
@@ -2676,30 +2739,159 @@ public sealed partial class MainWindow : Window
         return storageItems;
     }
 
+    private static FileItem? FindFileItemFromVisual(DependencyObject? obj)
+    {
+        while (obj != null)
+        {
+            if (obj is FrameworkElement fe && fe.DataContext is FileItem item)
+            {
+                return item;
+            }
+            obj = VisualTreeHelper.GetParent(obj);
+        }
+        return null;
+    }
+
     /// <summary>
-    /// Dışarıdan HDrive içine dosya sürüklendiğinde görsel geribildirim sağlama
+    /// Dışarıdan veya içeriden HDrive içine dosya sürüklendiğinde görsel geribildirim sağlama
     /// </summary>
     private void FileArea_DragOver(object sender, DragEventArgs e)
     {
+        var targetFolder = FindFileItemFromVisual(e.OriginalSource as DependencyObject);
+
+        // İç taşıma kontrolü (HDrive içindeki dosyaları klasöre sürükleme)
+        if (e.DataView.Properties.TryGetValue("HDrive_Internal_Items", out var itemsObj) &&
+            itemsObj is List<string> sourcePaths && sourcePaths.Count > 0)
+        {
+            if (targetFolder != null && targetFolder.IsDirectory)
+            {
+                // Döngü kontrolü: Kendisine veya alt klasörlerine taşınamaz
+                bool isCycle = sourcePaths.Any(p =>
+                {
+                    var cleanSrc = p.TrimEnd('/');
+                    var cleanTarget = targetFolder.Path.TrimEnd('/');
+                    return cleanSrc.Equals(cleanTarget, StringComparison.OrdinalIgnoreCase) ||
+                           cleanTarget.StartsWith(cleanSrc + "/", StringComparison.OrdinalIgnoreCase);
+                });
+
+                if (isCycle)
+                {
+                    e.AcceptedOperation = DataPackageOperation.None;
+                    e.DragUIOverride.Caption = "Kendi içine taşınamaz";
+                    e.DragUIOverride.IsCaptionVisible = true;
+                    e.DragUIOverride.IsGlyphVisible = true;
+                }
+                else
+                {
+                    e.AcceptedOperation = DataPackageOperation.Move;
+                    e.DragUIOverride.Caption = $"\"{targetFolder.Name}\" klasörüne taşı ({sourcePaths.Count} öğe)";
+                    e.DragUIOverride.IsCaptionVisible = true;
+                    e.DragUIOverride.IsContentVisible = true;
+                    e.DragUIOverride.IsGlyphVisible = true;
+                }
+            }
+            else
+            {
+                e.AcceptedOperation = DataPackageOperation.None;
+            }
+            return;
+        }
+
+        // Dışarıdan (Windows Explorer, Masaüstü) HDrive içine dosya/klasör sürükleme
         if (e.DataView.Contains(StandardDataFormats.StorageItems))
         {
             e.AcceptedOperation = DataPackageOperation.Copy;
-            e.DragUIOverride.Caption = "HDrive'a Kopyala / Yükle";
+            if (targetFolder != null && targetFolder.IsDirectory)
+            {
+                e.DragUIOverride.Caption = $"\"{targetFolder.Name}\" klasörüne yükle";
+            }
+            else
+            {
+                e.DragUIOverride.Caption = "HDrive'a Kopyala / Yükle";
+            }
             e.DragUIOverride.IsCaptionVisible = true;
             e.DragUIOverride.IsContentVisible = true;
+            e.DragUIOverride.IsGlyphVisible = true;
         }
     }
 
     /// <summary>
-    /// Windows Explorer veya Masaüstünden HDrive içine bırakılan dosyaları otomatik Cloudreve'e yükleme
+    /// Windows Explorer veya Masaüstünden HDrive içine bırakılan dosyaları otomatik Cloudreve'e yükleme veya iç klasöre taşıma
     /// </summary>
     private async void FileArea_Drop(object sender, DragEventArgs e)
     {
+        // 1. İç taşıma (HDrive içi klasöre bırakma)
+        if (e.DataView.Properties.TryGetValue("HDrive_Internal_Items", out var itemsObj) &&
+            itemsObj is List<string> sourcePaths && sourcePaths.Count > 0)
+        {
+            var targetFolder = FindFileItemFromVisual(e.OriginalSource as DependencyObject);
+            if (targetFolder != null && targetFolder.IsDirectory)
+            {
+                // Döngü kontrolü
+                if (sourcePaths.Any(p =>
+                {
+                    var cleanSrc = p.TrimEnd('/');
+                    var cleanTarget = targetFolder.Path.TrimEnd('/');
+                    return cleanSrc.Equals(cleanTarget, StringComparison.OrdinalIgnoreCase) ||
+                           cleanTarget.StartsWith(cleanSrc + "/", StringComparison.OrdinalIgnoreCase);
+                }))
+                {
+                    return;
+                }
+
+                var deferral = e.GetDeferral();
+                try
+                {
+                    var srv = CloudreveManager.Instance.ActiveServer;
+                    if (srv == null) return;
+                    var client = new WebDAVClient(srv);
+                    LoadingRing.IsActive = true;
+                    int movedCount = 0;
+                    string destDir = targetFolder.Path.TrimEnd('/');
+
+                    foreach (var src in sourcePaths)
+                    {
+                        var itemName = Path.GetFileName(src.TrimEnd('/'));
+                        var destPath = $"{destDir}/{itemName}";
+                        if (!src.TrimEnd('/').Equals(destPath.TrimEnd('/'), StringComparison.OrdinalIgnoreCase))
+                        {
+                            DispatcherQueue.TryEnqueue(() =>
+                                SyncStatusText.Text = $"{itemName} taşınıyor...");
+                            var ok = await client.MoveAsync(src, destPath);
+                            if (ok) movedCount++;
+                        }
+                    }
+
+                    DispatcherQueue.TryEnqueue(() =>
+                        SyncStatusText.Text = movedCount > 0 ? $"{movedCount} öğe \"{targetFolder.Name}\" klasörüne taşındı" : "Taşıma tamamlandı");
+                    await LoadDirectoryAsync(_currentPath);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"Drop move error: {ex.Message}");
+                    DispatcherQueue.TryEnqueue(() =>
+                        SyncStatusText.Text = $"Taşıma hatası: {ex.Message}");
+                }
+                finally
+                {
+                    LoadingRing.IsActive = false;
+                    deferral.Complete();
+                }
+                return;
+            }
+        }
+
+        // 2. Dışarıdan dosya/klasör bırakma (Explorer, Masaüstü)
         if (e.DataView.Contains(StandardDataFormats.StorageItems))
         {
             var deferral = e.GetDeferral();
             try
             {
+                var targetFolder = FindFileItemFromVisual(e.OriginalSource as DependencyObject);
+                var targetDir = (targetFolder != null && targetFolder.IsDirectory)
+                    ? targetFolder.Path
+                    : _currentPath;
+
                 var items = await e.DataView.GetStorageItemsAsync();
                 if (items.Count > 0)
                 {
@@ -2709,12 +2901,19 @@ public sealed partial class MainWindow : Window
                     var client = new WebDAVClient(srv);
                     int uploadedCount = 0;
 
-                    foreach (var item in items)
+                    for (int i = 0; i < items.Count; i++)
                     {
-                        uploadedCount += await UploadStorageItemRecursivelyAsync(item, _currentPath, client);
+                        var item = items[i];
+                        DispatcherQueue.TryEnqueue(() =>
+                            SyncStatusText.Text = $"Yükleniyor ({i + 1}/{items.Count}): {item.Name}...");
+                        uploadedCount += await UploadStorageItemRecursivelyAsync(item, targetDir, client);
                     }
 
                     LoadingRing.IsActive = false;
+                    var targetName = (targetFolder != null && targetFolder.IsDirectory) ? $" \"{targetFolder.Name}\" içine" : "";
+                    DispatcherQueue.TryEnqueue(() =>
+                        SyncStatusText.Text = $"{uploadedCount} öğe{targetName} başarıyla yüklendi");
+
                     if (uploadedCount > 0)
                     {
                         await LoadDirectoryAsync(_currentPath);
@@ -2724,9 +2923,12 @@ public sealed partial class MainWindow : Window
             catch (Exception ex)
             {
                 Debug.WriteLine($"Drop error: {ex.Message}");
+                DispatcherQueue.TryEnqueue(() =>
+                    SyncStatusText.Text = $"Yükleme hatası: {ex.Message}");
             }
             finally
             {
+                LoadingRing.IsActive = false;
                 deferral.Complete();
             }
         }
@@ -2737,6 +2939,8 @@ public sealed partial class MainWindow : Window
         int count = 0;
         if (item is StorageFile file)
         {
+            DispatcherQueue.TryEnqueue(() =>
+                SyncStatusText.Text = $"Yükleniyor: {file.Name}...");
             var ok = await client.UploadFileAsync(file.Path, remoteDir);
             if (ok)
             {
@@ -2746,6 +2950,8 @@ public sealed partial class MainWindow : Window
         else if (item is StorageFolder folder)
         {
             var targetSubDir = remoteDir.TrimEnd('/') + "/" + folder.Name;
+            DispatcherQueue.TryEnqueue(() =>
+                SyncStatusText.Text = $"Klasör oluşturuluyor: {folder.Name}...");
             await client.CreateFolderAsync(targetSubDir);
 
             var subItems = await folder.GetItemsAsync();

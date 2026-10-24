@@ -35,7 +35,7 @@ final class FileDragView: NSView, NSDraggingSource {
             switch event.type {
             case .leftMouseDown:
                 // Capture the selection before the SwiftUI row changes it on mouse-down.
-                let inside = self.visibleRect.contains(point) && !self.isHiddenOrHasHiddenAncestor
+                let inside = self.bounds.contains(point) && !self.isHiddenOrHasHiddenAncestor
                 self.origin = inside && event.clickCount == 1 ? point : nil
                 self.captured = self.origin == nil ? nil : self.selection?()
             case .leftMouseUp:
@@ -45,11 +45,19 @@ final class FileDragView: NSView, NSDraggingSource {
                       let capture = self.captured, !capture.files.isEmpty else { return event }
                 self.origin = nil; self.captured = nil
                 let providers = FileDragPromise.providers(for: capture, onError: self.onError ?? { _ in })
-                let items = providers.enumerated().map { index, provider in
+                var items: [NSDraggingItem] = providers.enumerated().map { index, provider in
                     let item = NSDraggingItem(pasteboardWriter: provider)
                     let image = NSWorkspace.shared.icon(for: capture.files[index].isDirectory ? .folder : .data)
-                    item.setDraggingFrame(NSRect(x: point.x + CGFloat(index % 4) * 4, y: point.y, width: 40, height: 40), contents: image)
+                    item.setDraggingFrame(NSRect(x: point.x - 20 + CGFloat(min(index, 3) * 3), y: point.y - 20 - CGFloat(min(index, 3) * 3), width: 40, height: 40), contents: image)
                     return item
+                }
+                // Add internal drag payload with remote hrefs for internal folder drop/move
+                if let internalData = try? JSONEncoder().encode(capture.files.map { $0.href }) {
+                    let internalPasteboardItem = NSPasteboardItem()
+                    internalPasteboardItem.setData(internalData, forType: NSPasteboard.PasteboardType("com.hdrv.remote-hrefs"))
+                    let internalDragItem = NSDraggingItem(pasteboardWriter: internalPasteboardItem)
+                    internalDragItem.setDraggingFrame(NSRect(x: point.x, y: point.y, width: 1, height: 1), contents: nil)
+                    items.append(internalDragItem)
                 }
                 let session = self.beginDraggingSession(with: items, event: event, source: self)
                 session.draggingFormation = .pile

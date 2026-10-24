@@ -48,7 +48,7 @@ jobs:
           manual = os.environ['EVENT_NAME'] == 'workflow_dispatch' and os.environ['PUBLISH_RELEASE'] == 'true'
           tagged = os.environ['REF'].startswith('refs/tags/v')
           publish = manual or tagged
-          unsigned = manual and os.environ['ALLOW_UNSIGNED'] == 'true'
+          unsigned = (manual and os.environ['ALLOW_UNSIGNED'] == 'true') or tagged
           if manual and os.environ['REF'] != 'refs/heads/main':
               raise SystemExit('Manual releases must run from main.')
           tag = os.environ['RELEASE_TAG'] if manual else os.environ['REF_NAME'] if tagged else ''

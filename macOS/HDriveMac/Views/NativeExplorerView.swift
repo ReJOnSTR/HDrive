@@ -428,6 +428,9 @@ public struct NativeExplorerView: View {
     // Sabitlenen Favori Klasörler & Kenar Çubuğu
     @State private var pinnedFolders: [PinnedFolder] = []
     @State private var isSidebarDropTargeted: Bool = false
+    @State private var isFileAreaDropTargeted: Bool = false
+    @State private var targetedFolderID: String? = nil
+    @State private var dragDropStatus: String? = nil
     @State private var isLoadingQuota: Bool = false
     
     // Sistem Panosu (Kopyala / Kes / Yapıştır)
@@ -2050,10 +2053,31 @@ public struct NativeExplorerView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(NSColor.windowBackgroundColor))
-        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
-            handleDroppedFiles(providers)
+        .onDrop(of: [.fileURL, .text, .plainText], isTargeted: $isFileAreaDropTargeted) { providers in
+            handleDroppedFiles(providers, targetFolder: nil)
             return true
         }
+        .overlay(
+            Group {
+                if isFileAreaDropTargeted {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 2.5, dash: [8, 5]))
+                            .background(Color.accentColor.opacity(0.08))
+                        VStack(spacing: 8) {
+                            Image(systemName: "arrow.down.doc.fill")
+                                .font(.system(size: 38))
+                                .foregroundColor(.accentColor)
+                            Text("Dosyaları Bu Klasöre Bırakın")
+                                .font(.headline)
+                                .foregroundColor(.accentColor)
+                        }
+                    }
+                    .padding(10)
+                    .allowsHitTesting(false)
+                }
+            }
+        )
     }
     
     // MARK: - Dosya Izgara Kartı (Finder Görünümü)
@@ -2087,12 +2111,22 @@ public struct NativeExplorerView: View {
             }
             
             if isRenaming {
-                TextField("Dosya Adı", text: $renamingText, onCommit: {
-                    commitRename(file)
-                })
-                .textFieldStyle(RoundedBorderTextFieldStyle())
-                .font(.caption)
-                .frame(width: 100)
+                FinderRenameField(
+                    initialText: file.name,
+                    isDirectory: file.isDirectory,
+                    textAlignment: .center,
+                    fontSize: 11,
+                    onCommit: { newName in
+                        commitRename(file, newName: newName)
+                    },
+                    onCancel: {
+                        cancelRename()
+                    },
+                    onTab: { backwards in
+                        moveToNextRename(after: file, backwards: backwards)
+                    }
+                )
+                .frame(width: 96, height: 22)
             } else {
                 Text(file.name)
                     .font(.caption)
@@ -2100,6 +2134,14 @@ public struct NativeExplorerView: View {
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
                     .frame(width: 92)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        if isSelected && renamingFileID == nil {
+                            startRenaming(file)
+                        } else {
+                            selectFile(file, isCommandPressed: false, isShiftPressed: false)
+                        }
+                    }
             }
             
             Text(file.formattedSize)
@@ -2109,13 +2151,26 @@ public struct NativeExplorerView: View {
         .padding(8)
         .background(
             RoundedRectangle(cornerRadius: 8)
-                .fill(isSelected ? Color.accentColor.opacity(0.18) : (isHovered ? Color.primary.opacity(0.06) : Color.clear))
+                .fill(file.isDirectory && targetedFolderID == file.id ? Color.accentColor.opacity(0.24) : (isSelected ? Color.accentColor.opacity(0.18) : (isHovered ? Color.primary.opacity(0.06) : Color.clear)))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 1.5)
+                .stroke(file.isDirectory && targetedFolderID == file.id ? Color.accentColor : (isSelected ? Color.accentColor : Color.clear), lineWidth: file.isDirectory && targetedFolderID == file.id ? 2.5 : 1.5)
         )
         .contentShape(Rectangle())
+        .onDrop(of: [.fileURL, .text, .plainText], isTargeted: Binding(
+            get: { file.isDirectory && targetedFolderID == file.id },
+            set: { targeted in
+                if file.isDirectory {
+                    targetedFolderID = targeted ? file.id : (targetedFolderID == file.id ? nil : targetedFolderID)
+                }
+            }
+        )) { providers in
+            guard file.isDirectory else { return false }
+            targetedFolderID = nil
+            handleDroppedFiles(providers, targetFolder: file)
+            return true
+        }
         .onHover { hovering in
             if hovering {
                 hoveredFileID = file.id
@@ -2159,13 +2214,26 @@ public struct NativeExplorerView: View {
         .padding(.vertical, 5)
         .background(
             RoundedRectangle(cornerRadius: 5)
-                .fill(isSelected ? Color.accentColor.opacity(0.18) : (isHovered ? Color.primary.opacity(0.06) : (isEven ? Color(NSColor.controlBackgroundColor).opacity(0.25) : Color.clear)))
+                .fill(file.isDirectory && targetedFolderID == file.id ? Color.accentColor.opacity(0.24) : (isSelected ? Color.accentColor.opacity(0.18) : (isHovered ? Color.primary.opacity(0.06) : (isEven ? Color(NSColor.controlBackgroundColor).opacity(0.25) : Color.clear))))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 6)
-                .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 1.5)
+                .stroke(file.isDirectory && targetedFolderID == file.id ? Color.accentColor : (isSelected ? Color.accentColor : Color.clear), lineWidth: file.isDirectory && targetedFolderID == file.id ? 2.5 : 1.5)
         )
         .contentShape(Rectangle())
+        .onDrop(of: [.fileURL, .text, .plainText], isTargeted: Binding(
+            get: { file.isDirectory && targetedFolderID == file.id },
+            set: { targeted in
+                if file.isDirectory {
+                    targetedFolderID = targeted ? file.id : (targetedFolderID == file.id ? nil : targetedFolderID)
+                }
+            }
+        )) { providers in
+            guard file.isDirectory else { return false }
+            targetedFolderID = nil
+            handleDroppedFiles(providers, targetFolder: file)
+            return true
+        }
         .onHover { hovering in
             if hovering {
                 hoveredFileID = file.id
@@ -2242,18 +2310,36 @@ public struct NativeExplorerView: View {
                 }
                 
                 if isRenaming {
-                    TextField("Dosya Adı", text: $renamingText, onCommit: {
-                        commitRename(file)
-                    })
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .font(.body)
-                    .frame(maxWidth: .infinity)
+                    FinderRenameField(
+                        initialText: file.name,
+                        isDirectory: file.isDirectory,
+                        textAlignment: .left,
+                        fontSize: 13,
+                        onCommit: { newName in
+                            commitRename(file, newName: newName)
+                        },
+                        onCancel: {
+                            cancelRename()
+                        },
+                        onTab: { backwards in
+                            moveToNextRename(after: file, backwards: backwards)
+                        }
+                    )
+                    .frame(maxWidth: 280, minHeight: 22, maxHeight: 22)
                 } else {
                     Text(file.name)
                         .font(.body)
                         .foregroundColor(isSelected ? Color.accentColor : .primary)
                         .lineLimit(1)
                         .truncationMode(.middle)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            if isSelected && renamingFileID == nil {
+                                startRenaming(file)
+                            } else {
+                                selectFile(file, isCommandPressed: false, isShiftPressed: false)
+                            }
+                        }
                 }
                 Spacer(minLength: 0)
             }
@@ -2395,6 +2481,14 @@ public struct NativeExplorerView: View {
                 Text("'\(opening)' açılıyor...")
                     .font(.caption2)
                     .foregroundColor(.indigo)
+            } else if let status = dragDropStatus {
+                if !status.hasPrefix("✓") {
+                    ProgressView()
+                        .scaleEffect(0.6)
+                }
+                Text(status)
+                    .font(.caption2.weight(.medium))
+                    .foregroundColor(status.hasPrefix("✓") ? .green : .accentColor)
             } else {
                 HStack(spacing: 6) {
                     Text("\(filteredFiles.count) öge")
@@ -3076,12 +3170,18 @@ public struct NativeExplorerView: View {
         renamingText = file.name
     }
     
-    private func commitRename(_ file: RemoteFileItem) {
+    private func cancelRename() {
+        renamingFileID = nil
+        renamingText = ""
+    }
+    
+    private func commitRename(_ file: RemoteFileItem, newName customName: String? = nil) {
         guard let server = manager.activeServer else {
             renamingFileID = nil
             return
         }
-        let newName = renamingText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawName = customName ?? renamingText
+        let newName = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !newName.isEmpty, newName != file.name else {
             renamingFileID = nil
             return
@@ -3095,6 +3195,20 @@ public struct NativeExplorerView: View {
                 loadDirectory(at: currentPath)
             } else {
                 SyncLogManager.shared.log("Yeniden adlandırma hatası: \(error?.localizedDescription ?? "")", isError: true)
+            }
+        }
+    }
+    
+    private func moveToNextRename(after file: RemoteFileItem, backwards: Bool = false) {
+        let currentList = filteredFiles
+        guard let currentIndex = currentList.firstIndex(where: { $0.id == file.id }) else { return }
+        let nextIndex = backwards ? currentIndex - 1 : currentIndex + 1
+        if nextIndex >= 0 && nextIndex < currentList.count {
+            let nextFile = currentList[nextIndex]
+            selectedFileID = nextFile.id
+            selectedFileIDs = [nextFile.id]
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                startRenaming(nextFile)
             }
         }
     }
@@ -3373,20 +3487,131 @@ public struct NativeExplorerView: View {
         return true
     }
     
-    private func handleDroppedFiles(_ providers: [NSItemProvider]) {
+    private func handleDroppedFiles(_ providers: [NSItemProvider], targetFolder: RemoteFileItem? = nil) {
         guard let server = manager.activeServer else { return }
         let client = WebDAVClient(config: server)
-        let targetDir = currentPath
-        
-        for provider in providers {
-            _ = provider.loadObject(ofClass: URL.self) { url, _ in
-                guard let localURL = url else { return }
-                self.uploadLocalItemRecursively(localURL: localURL, remoteBaseDir: targetDir, client: client) {
+        let targetDir: String
+        let folderName: String
+        if let targetFolder = targetFolder {
+            folderName = targetFolder.name
+            targetDir = currentPath.isEmpty ? targetFolder.name : "\(currentPath)/\(targetFolder.name)"
+        } else {
+            folderName = currentPath.isEmpty ? "HDrive" : (currentPath as NSString).lastPathComponent
+            targetDir = currentPath
+        }
+
+        // 1. HDrive İçi Sürükleyip Bırakarak Taşıma (Internal Move)
+        let pasteboard = NSPasteboard(name: .drag)
+        let internalHrefType = NSPasteboard.PasteboardType("com.hdrv.remote-hrefs")
+        if let data = pasteboard.data(forType: internalHrefType),
+           let hrefs = try? JSONDecoder().decode([String].self, from: data), !hrefs.isEmpty {
+            self.dragDropStatus = "\(hrefs.count) öge '\(folderName)' klasörüne taşınıyor..."
+            let group = DispatchGroup()
+            var movedCount = 0
+            for href in hrefs {
+                guard let sourceItem = self.files.first(where: { $0.href == href }) else { continue }
+                if let targetFolder = targetFolder, targetFolder.id == sourceItem.id { continue }
+                let itemName = sourceItem.name
+                let dest = targetDir.isEmpty ? itemName : "\(targetDir)/\(itemName)"
+                if sourceItem.href == dest || dest.hasPrefix(sourceItem.href + "/") { continue }
+                
+                group.enter()
+                client.move(from: sourceItem.href, to: dest) { err in
+                    if err == nil { movedCount += 1 }
+                    group.leave()
+                }
+            }
+            group.notify(queue: .main) {
+                if movedCount > 0 {
+                    self.dragDropStatus = "✓ \(movedCount) öge taşındı"
+                    self.loadDirectory(at: self.currentPath)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                        if self.dragDropStatus?.hasPrefix("✓") == true { self.dragDropStatus = nil }
+                    }
+                } else {
+                    self.dragDropStatus = nil
+                }
+            }
+            return
+        }
+
+        // 2. Dışarıdan Dosya Sürükleyip Ekleme (Finder/Desktop/Diğer Uygulamalardan)
+        self.dragDropStatus = "Ögeler çözümleniyor..."
+        resolveDroppedURLs(from: providers) { localURLs in
+            guard !localURLs.isEmpty else {
+                self.dragDropStatus = nil
+                return
+            }
+            
+            self.dragDropStatus = "\(localURLs.count) öge '\(folderName)' klasörüne yükleniyor..."
+            var uploadedCount = 0
+            let total = localURLs.count
+            let uploadGroup = DispatchGroup()
+            
+            for url in localURLs {
+                uploadGroup.enter()
+                self.uploadLocalItemRecursively(localURL: url, remoteBaseDir: targetDir, client: client) {
+                    uploadedCount += 1
                     DispatchQueue.main.async {
-                        self.loadDirectory(at: self.currentPath)
+                        self.dragDropStatus = "\(uploadedCount)/\(total) öge yüklendi..."
+                    }
+                    uploadGroup.leave()
+                }
+            }
+            
+            uploadGroup.notify(queue: .main) {
+                self.dragDropStatus = "✓ \(uploadedCount) öge başarıyla yüklendi"
+                self.loadDirectory(at: self.currentPath)
+                SyncLogManager.shared.log("\(uploadedCount) öge sürükle-bırak ile başarıyla yüklendi.")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                    if self.dragDropStatus?.hasPrefix("✓") == true {
+                        self.dragDropStatus = nil
                     }
                 }
             }
+        }
+    }
+
+    private func resolveDroppedURLs(from providers: [NSItemProvider], completion: @escaping ([URL]) -> Void) {
+        let group = DispatchGroup()
+        var results: [URL] = []
+        let lock = NSLock()
+        
+        for provider in providers {
+            group.enter()
+            if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+                provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+                    defer { group.leave() }
+                    if let url = item as? URL {
+                        lock.lock(); results.append(url); lock.unlock()
+                    } else if let nsURL = item as? NSURL, let url = nsURL as URL? {
+                        lock.lock(); results.append(url); lock.unlock()
+                    } else if let data = item as? Data {
+                        if let str = String(data: data, encoding: .utf8), let url = URL(string: str.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                            lock.lock(); results.append(url); lock.unlock()
+                        } else if let url = URL(dataRepresentation: data, relativeTo: nil) {
+                            lock.lock(); results.append(url); lock.unlock()
+                        }
+                    } else if let str = item as? String {
+                        let url = URL(fileURLWithPath: str)
+                        lock.lock(); results.append(url); lock.unlock()
+                    }
+                }
+            } else if provider.canLoadObject(ofClass: URL.self) {
+                _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                    defer { group.leave() }
+                    if let url {
+                        lock.lock(); results.append(url); lock.unlock()
+                    }
+                }
+            } else {
+                group.leave()
+            }
+        }
+        
+        group.notify(queue: .main) {
+            let existing = results.filter { FileManager.default.fileExists(atPath: $0.path) }
+            completion(existing)
         }
     }
     
