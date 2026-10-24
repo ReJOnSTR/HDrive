@@ -7,7 +7,11 @@ enum FileExportService {
     typealias Download = (String, URL) async throws -> Void
 
     static func prepare(_ file: RemoteFileItem, client: WebDAVClient) async throws -> URL {
-        try await prepare(file, config: client.config, root: FileOpener.shared.cacheDir,
+        try await prepare([file], client: client)[0]
+    }
+
+    static func prepare(_ files: [RemoteFileItem], client: WebDAVClient) async throws -> [URL] {
+        try await prepare(files, config: client.config, root: FileOpener.shared.cacheDir,
             list: { path in
                 try await withCheckedThrowingContinuation { continuation in
                     client.listFiles(at: path) { continuation.resume(with: $0) }
@@ -24,26 +28,50 @@ enum FileExportService {
 
     static func prepare(_ file: RemoteFileItem, config: CloudreveServerConfig, root: URL,
                         list: Listing, download: Download) async throws -> URL {
+        try await prepare([file], config: config, root: root, list: list, download: download)[0]
+    }
+
+    static func prepare(_ files: [RemoteFileItem], config: CloudreveServerConfig, root: URL,
+                        list: Listing, download: Download) async throws -> [URL] {
+        guard !files.isEmpty else { return [] }
         let manager = FileManager.default
         let staging = root.appendingPathComponent(OfflineStore.identity(config))
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try manager.createDirectory(at: staging, withIntermediateDirectories: true)
-        let destination = staging.appendingPathComponent(localName(file, config: config), isDirectory: file.isDirectory)
         do {
-            // Keep cleanup from removing a working snapshot during or after delivery.
-            try WorkingCache.protect(destination)
-            try await materialize(file, to: destination, config: config, ancestors: [], list: list, download: download)
-            return destination
+            try WorkingCache.protect(staging.appendingPathComponent("snapshot"))
+            var results: [URL] = []
+            for (file, name) in zip(files, exportNames(files, config: config)) {
+                let destination = staging.appendingPathComponent(name, isDirectory: file.isDirectory)
+                try await materialize(file, to: destination, config: config, ancestors: [], list: list, download: download)
+                results.append(destination)
+            }
+            return results
         } catch {
             try? manager.removeItem(at: staging)
             throw error
         }
     }
 
-    private static func localName(_ file: RemoteFileItem, config: CloudreveServerConfig) -> String {
+    static func localName(_ file: RemoteFileItem, config: CloudreveServerConfig) -> String {
         if !file.isDirectory { return FileOpener.localFileName(for: file, storageProtocol: config.storageProtocol) }
         let name = file.name.components(separatedBy: CharacterSet(charactersIn: "/\\:\0")).joined(separator: "_")
         return name.isEmpty || name == "." || name == ".." ? "folder" : name
+    }
+
+    static func exportNames(_ files: [RemoteFileItem], config: CloudreveServerConfig) -> [String] {
+        var used: Set<String> = []
+        return files.map { file in
+            let name = localName(file, config: config)
+            let ext = file.isDirectory ? "" : (name as NSString).pathExtension
+            let stem = ext.isEmpty ? name : (name as NSString).deletingPathExtension
+            var result = name, counter = 2
+            while !used.insert(result.precomposedStringWithCanonicalMapping.lowercased()).inserted {
+                result = "\(stem) (\(counter))" + (ext.isEmpty ? "" : "." + ext)
+                counter += 1
+            }
+            return result
+        }
     }
 
     private static func materialize(_ file: RemoteFileItem, to destination: URL, config: CloudreveServerConfig,

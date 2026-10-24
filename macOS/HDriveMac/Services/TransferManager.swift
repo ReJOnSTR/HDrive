@@ -39,6 +39,7 @@ public final class TransferItem: ObservableObject, Identifiable {
     public var storageIdentity: String = ""
     var executionID = UUID()
     public var resumeData: Data? = nil
+    var downloadOperation: Task<Void, Never>?
     public weak var urlSessionTask: URLSessionTask? = nil
     
     var lastSampleBytes: Int64 = 0
@@ -230,9 +231,10 @@ public final class TransferManager: NSObject, ObservableObject, URLSessionDownlo
     
     private func startDownloadTask(_ item: TransferItem, client: WebDAVClient) {
         let executionID = item.executionID
-        if client.config.storageProtocol == .googleDrive || client.config.storageProtocol == .oneDrive || client.config.storageProtocol == .s3 {
+        if client.config.storageProtocol == .smb {
             client.downloadFile(href: item.remotePath, to: item.localURL, progress: { [weak item] prog in
                 DispatchQueue.main.async {
+                    guard item?.executionID == executionID, item?.status == .running else { return }
                     item?.progress = prog
                     item?.transferredBytes = Int64(Double(item?.totalBytes ?? 0) * prog)
                 }
@@ -254,30 +256,29 @@ public final class TransferManager: NSObject, ObservableObject, URLSessionDownlo
             return
         }
         
-        if let resumeData = item.resumeData {
-            let task = session.downloadTask(withResumeData: resumeData)
-            item.urlSessionTask = task
-            taskMap[task.taskIdentifier] = item
-            task.resume()
-            return
+        let previous = item.downloadOperation
+        item.downloadOperation = Task { @MainActor [weak self] in
+            // A rapid pause/resume must wait for the old file handle to close.
+            await previous?.value
+            do {
+                try Task.checkCancellation()
+                try await ResumableDownload.download(destination: item.localURL, identity: item.storageIdentity + "|" + item.id.uuidString, remotePath: item.remotePath,
+                    request: { headers in try await client.resumableDownloadRequest(href: item.remotePath, fileName: item.fileName, headers: headers) },
+                    progress: { done, total in await MainActor.run {
+                        guard item.executionID == executionID, item.status == .running else { return }
+                        item.transferredBytes = done
+                        if total >= 0 { item.totalBytes = total }
+                        item.progress = total > 0 ? min(1, Double(done) / Double(total)) : 0
+                    } })
+                guard item.executionID == executionID, item.status == .running else { return }
+                item.status = .completed; item.progress = 1; item.speedBytesPerSec = 0
+            } catch {
+                guard item.executionID == executionID, item.status == .running else { return }
+                item.status = .failed; item.errorMessage = error.localizedDescription; item.speedBytesPerSec = 0
+            }
+            if item.executionID == executionID { item.downloadOperation = nil }
+            self?.processQueue()
         }
-        
-        guard let url = client.downloadURL(for: item.remotePath) else {
-            item.status = .failed
-            item.errorMessage = "Geçersiz indirme bağlantısı."
-            processQueue()
-            return
-        }
-        
-        var request = URLRequest(url: url)
-        if let auth = client.authHeader {
-            request.setValue(auth, forHTTPHeaderField: "Authorization")
-        }
-        
-        let task = session.downloadTask(with: request)
-        item.urlSessionTask = task
-        taskMap[task.taskIdentifier] = item
-        task.resume()
     }
     
     private func startUploadTask(_ item: TransferItem, client: WebDAVClient) {
@@ -325,6 +326,7 @@ public final class TransferManager: NSObject, ObservableObject, URLSessionDownlo
     public func pauseTask(id: UUID) {
         guard let item = items.first(where: { $0.id == id }), item.status == .running else { return }
         item.status = .paused
+        item.downloadOperation?.cancel()
         item.speedBytesPerSec = 0
         if let task = item.urlSessionTask as? URLSessionDownloadTask {
             task.cancel { [weak self, weak item] data in
@@ -349,6 +351,7 @@ public final class TransferManager: NSObject, ObservableObject, URLSessionDownlo
     public func cancelTask(id: UUID) {
         guard let item = items.first(where: { $0.id == id }) else { return }
         item.status = .cancelled
+        item.downloadOperation?.cancel()
         item.urlSessionTask?.cancel()
         item.client?.cancelActiveTransfers()
         item.speedBytesPerSec = 0
@@ -368,8 +371,18 @@ public final class TransferManager: NSObject, ObservableObject, URLSessionDownlo
     
     public func clearCompleted() {
         lock.lock()
+        let discarded = items.filter { $0.status == .cancelled && $0.direction == .download }
         items.removeAll { $0.status == .completed || $0.status == .cancelled }
         lock.unlock()
+        for item in discarded {
+            let operation = item.downloadOperation
+            Task {
+                await operation?.value
+                let files = ResumableDownload.staging(destination: item.localURL, identity: item.storageIdentity + "|" + item.id.uuidString, remotePath: item.remotePath)
+                try? FileManager.default.removeItem(at: files.partial)
+                try? FileManager.default.removeItem(at: files.metadata)
+            }
+        }
         updateState()
     }
     

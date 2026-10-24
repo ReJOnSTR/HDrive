@@ -183,51 +183,75 @@ public sealed partial class MainWindow
     private async void FolderSync_Click(object sender, RoutedEventArgs e)
     {
         var account = CloudreveManager.Instance.ActiveServer; if (account == null) return;
+        var identity = WebDAVClient.StorageIdentity(account);
         var remoteRoot = _currentPath; string? localRoot = null;
-        var cancellation = new CancellationTokenSource();
+        using var cancellation = new CancellationTokenSource();
+        var token = cancellation.Token;
+        var busy = false;
         FolderSynchronizer? engine = null; List<SyncRow> rows = new();
         var panel = new StackPanel { Spacing = 12, MinWidth = 450 };
         var local = new TextBlock { Text = "Yerel klasör seçilmedi", TextWrapping = TextWrapping.Wrap };
         var exclusions = new TextBox { Header = "Hariç tutulanlar (; ile ayırın)", Text = ".git/**;node_modules/**;*.tmp;*.part" };
         var policy = new ComboBox { Header = "Çakışma kararı", ItemsSource = new[] { "Çakışmaları Atla", "Yereli Kullan", "Bulutu Kullan", "İkisini Koru" }, SelectedIndex = 0 };
-        var status = new TextBox { IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MaxHeight = 220, Text = "Önce değişiklikleri tarayın. Silmeler otomatik yayılmaz." };
+        var automatic = new CheckBox { Content = "Bu ekran açıkken her dakika eşitle" };
+        var status = new TextBox { IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MaxHeight = 220,
+            Text = "Önce değişiklikleri tarayın. Otomatik turda çakışmalar atlanır; silmeler otomatik yayılmaz." };
         var choose = new Button { Content = "Yerel Klasör Seç" };
         var preview = new Button { Content = "Değişiklikleri Tara" };
         var apply = new Button { Content = "Seçilen Kararla Eşitle", IsEnabled = false };
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMinutes(1) };
+        void SetBusy(bool value) {
+            busy = value;
+            preview.IsEnabled = choose.IsEnabled = exclusions.IsEnabled = policy.IsEnabled = !value;
+            apply.IsEnabled = !value && engine != null && rows.Any(row => row.Action != SyncAction.None);
+        }
+        async Task RunAsync(bool applyChanges, bool automaticCycle) {
+            if (busy || token.IsCancellationRequested) return;
+            if (localRoot == null) { if (!automaticCycle) status.Text = "Önce yerel klasörü seçin."; return; }
+            var owner = CloudreveManager.Instance.Servers.FirstOrDefault(server => server.Id == account.Id && server.IsConnected && WebDAVClient.StorageIdentity(server) == identity);
+            if (owner == null) { timer.Stop(); automatic.IsChecked = false; status.Text = "Eşitleme durdu: hesabı yeniden bağlayın."; return; }
+            SetBusy(true);
+            try {
+                if (!applyChanges || automaticCycle) {
+                    engine = new FolderSynchronizer(new WebDAVClient(owner), localRoot, remoteRoot, exclusions.Text);
+                    rows = await engine.PreviewAsync(token);
+                    status.Text = string.Join("\n", rows.Where(row => row.Action != SyncAction.None).Select(row => row.Action + " · " + row.RelativePath));
+                    if (string.IsNullOrEmpty(status.Text)) status.Text = "Klasörler eşit.";
+                }
+                if (applyChanges && engine != null) {
+                    var decision = automaticCycle ? SyncConflictPolicy.Skip : (SyncConflictPolicy)policy.SelectedIndex;
+                    var errors = await engine.ApplyAsync(rows, decision, token);
+                    status.Text = errors.Count == 0 ? "Eşitleme tamamlandı. Çakışmalar ve silmeler karar için bekletilir." : string.Join("\n", errors);
+                    engine = null; rows.Clear();
+                }
+            } catch (OperationCanceledException) { }
+            catch (Exception error) { status.Text = error.Message; engine = null; rows.Clear(); }
+            finally { SetBusy(false); }
+        }
         choose.Click += async (_, _) => {
-            var picker = new Windows.Storage.Pickers.FolderPicker(); picker.FileTypeFilter.Add("*");
-            WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(this));
-            var folder = await picker.PickSingleFolderAsync(); if (folder == null) return;
-            localRoot = folder.Path; local.Text = localRoot; engine = null; rows.Clear(); apply.IsEnabled = false;
-        };
-        exclusions.TextChanged += (_, _) => { engine = null; apply.IsEnabled = false; };
-        preview.Click += async (_, _) => {
-            if (localRoot == null) { status.Text = "Önce yerel klasörü seçin."; return; }
-            preview.IsEnabled = choose.IsEnabled = apply.IsEnabled = false;
+            if (busy || token.IsCancellationRequested) return;
+            SetBusy(true);
             try {
-                engine = new FolderSynchronizer(new WebDAVClient(account), localRoot, remoteRoot, exclusions.Text);
-                rows = await engine.PreviewAsync(cancellation.Token);
-                status.Text = string.Join("\n", rows.Where(row => row.Action != SyncAction.None).Select(row => row.Action + " · " + row.RelativePath));
-                if (string.IsNullOrEmpty(status.Text)) status.Text = "Klasörler eşit.";
-                apply.IsEnabled = rows.Any(row => row.Action != SyncAction.None);
-            } catch (Exception error) { status.Text = error.Message; engine = null; }
-            finally { preview.IsEnabled = choose.IsEnabled = true; }
-        };
-        apply.Click += async (_, _) => {
-            if (engine == null) return;
-            apply.IsEnabled = preview.IsEnabled = choose.IsEnabled = false;
-            try {
-                var errors = await engine.ApplyAsync(rows, (SyncConflictPolicy)policy.SelectedIndex, cancellation.Token);
-                status.Text = errors.Count == 0 ? "Eşitleme tamamlandı. Atlanan çakışmalar sonraki taramada gösterilir." : string.Join("\n", errors);
-                engine = null;
+                var picker = new Windows.Storage.Pickers.FolderPicker(); picker.FileTypeFilter.Add("*");
+                WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(this));
+                var folder = await picker.PickSingleFolderAsync(); if (folder == null || token.IsCancellationRequested) return;
+                localRoot = folder.Path; local.Text = localRoot; engine = null; rows.Clear();
             } catch (Exception error) { status.Text = error.Message; }
-            finally { preview.IsEnabled = choose.IsEnabled = true; }
+            finally { SetBusy(false); }
         };
+        exclusions.TextChanged += (_, _) => { engine = null; rows.Clear(); apply.IsEnabled = false; };
+        preview.Click += async (_, _) => await RunAsync(false, false);
+        apply.Click += async (_, _) => await RunAsync(true, false);
+        timer.Tick += async (_, _) => { if (automatic.IsChecked == true) await RunAsync(true, true); };
+        automatic.Checked += (_, _) => timer.Start();
+        automatic.Unchecked += (_, _) => timer.Stop();
         panel.Children.Add(new TextBlock { Text = account.Name + " · seçili bulut klasörü" });
-        foreach (var element in new FrameworkElement[] { local, choose, exclusions, policy, preview, apply, status }) panel.Children.Add(element);
+        foreach (var element in new FrameworkElement[] { local, choose, exclusions, policy, automatic,
+            new TextBlock { Text = "Ekranı kapatmak otomatik eşitlemeyi durdurur.", TextWrapping = TextWrapping.Wrap }, preview, apply, status }) panel.Children.Add(element);
         var dialog = new ContentDialog { Title = "Klasör Eşitleme", CloseButtonText = "Kapat", Content = new ScrollViewer { Content = panel, MaxHeight = 550 }, XamlRoot = Content.XamlRoot };
-        dialog.Closed += (_, _) => cancellation.Cancel();
-        await dialog.ShowAsync(); cancellation.Dispose();
+        dialog.Closed += (_, _) => { timer.Stop(); cancellation.Cancel(); };
+        try { await dialog.ShowAsync(); }
+        finally { timer.Stop(); cancellation.Cancel(); }
     }
 
 }

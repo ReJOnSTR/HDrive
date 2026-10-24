@@ -1928,6 +1928,43 @@ final class WebDAVXMLParser: NSObject, XMLParserDelegate {
 
 extension WebDAVClient {
     public func cancelActiveTransfers() { session.getAllTasks { tasks in tasks.forEach { $0.cancel() } } }
+    /// Resolve a fresh endpoint for every attempt; signed links and bearer tokens stay in memory.
+    func resumableDownloadRequest(href: String, fileName: String, headers: [String: String]) async throws -> URLRequest {
+        if config.storageProtocol == .s3 { return try s3Storage.request(method: "GET", key: href, headers: headers) }
+        let url: URL
+        switch config.storageProtocol {
+        case .googleDrive:
+            let id = OAuthSession.encode(href.trimmingCharacters(in: CharacterSet(charactersIn: "/")))
+            let base = "https://www.googleapis.com/drive/v3/files/" + id
+            let data = try await actionData("GET", base + "?fields=mimeType&supportsAllDrives=true")
+            let metadata = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            if (metadata?["mimeType"] as? String)?.hasPrefix("application/vnd.google-apps.") == true {
+                let mime: String
+                switch (fileName as NSString).pathExtension.lowercased() {
+                case "docx": mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                case "xlsx": mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                case "pptx": mime = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                case "png": mime = "image/png"
+                default: mime = "application/pdf"
+                }
+                url = URL(string: base + "/export?mimeType=" + OAuthSession.encode(mime))!
+            } else { url = URL(string: base + "?alt=media&supportsAllDrives=true")! }
+        case .oneDrive:
+            let id = OAuthSession.encode(href.trimmingCharacters(in: CharacterSet(charactersIn: "/")))
+            let base = "https://graph.microsoft.com/v1.0/me/drive/items/" + id
+            // This small authorized request also renews an expired OAuth session before streaming.
+            _ = try await actionData("GET", base + "?$select=id")
+            url = URL(string: base + "/content")!
+        case .webdav:
+            guard let resolved = downloadURL(for: href) else { throw URLError(.badURL) }
+            url = resolved
+        default: throw URLError(.unsupportedURL)
+        }
+        var request = URLRequest(url: url)
+        request.setValue(authHeader, forHTTPHeaderField: "Authorization")
+        for (key, value) in headers { request.setValue(value, forHTTPHeaderField: key) }
+        return request
+    }
     private func actionData(_ method: String, _ address: String, body: [String: Any]? = nil) async throws -> Data {
         let host = config.storageProtocol == .googleDrive ? "www.googleapis.com" : "graph.microsoft.com"
         guard config.storageProtocol == .googleDrive || config.storageProtocol == .oneDrive,

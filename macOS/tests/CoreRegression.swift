@@ -10,6 +10,7 @@ struct CoreRegression {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("hdrive-apple-regression-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
+        try await ParityRegression.run(root: root)
         func require(_ condition: @autoclosure () throws -> Bool, _ message: String) throws {
             if try !condition() { throw NSError(domain: "HDrive.Test", code: 1, userInfo: [NSLocalizedDescriptionKey: message]) }
         }

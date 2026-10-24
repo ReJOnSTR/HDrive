@@ -392,6 +392,14 @@ public struct NativeExplorerView: View {
     @State private var files: [RemoteFileItem] = []
     @State private var isLoading: Bool = false
     @State private var searchText: String = ""
+    @State private var searchExtension = ""
+    @State private var searchMinimumMB: Double = 0
+    @State private var searchDateEnabled = false
+    @State private var searchAfterDate = Date()
+    @State private var showSearchFilters = false
+    @State private var searchTask: Task<Void, Never>?
+    @State private var searchGeneration = UUID()
+    @State private var searchError: String?
     @State private var showFolderSync = false
     @State private var showCloudManagement = false
     @State private var cloudActionConfig: CloudreveServerConfig?
@@ -500,6 +508,8 @@ public struct NativeExplorerView: View {
             setupEventMonitors()
         }
         .onChange(of: manager.activeServer?.id) { _, newServerID in
+            searchTask?.cancel(); searchGeneration = UUID(); isDeepSearching = false; searchError = nil
+            deepSearchResults = []; isDeepSearchEnabled = false
             guard newServerID != nil else {
                 directoryLoadGeneration = UUID()
                 isLoading = false
@@ -516,6 +526,8 @@ public struct NativeExplorerView: View {
             loadStorageQuota()
         }
         .onDisappear {
+            searchTask?.cancel()
+            searchGeneration = UUID()
             directoryLoadGeneration = UUID()
             if let monitor = keyMonitor {
                 NSEvent.removeMonitor(monitor)
@@ -619,7 +631,7 @@ public struct NativeExplorerView: View {
     }
     
     private func handleSearchTextChange(_ newQuery: String) {
-        if isDeepSearchEnabled && !newQuery.isEmpty {
+        if isDeepSearchEnabled {
             performDeepSearch(query: newQuery)
         }
     }
@@ -1490,6 +1502,11 @@ public struct NativeExplorerView: View {
         isSearchPresented = false
         searchText = ""
         isDeepSearchEnabled = false
+        searchTask?.cancel()
+        searchGeneration = UUID()
+        isDeepSearching = false
+        searchExtension = ""; searchMinimumMB = 0; searchDateEnabled = false
+        searchError = nil
         deepSearchResults = []
         NativeExplorerView.collapseSearch(in: NSApp.keyWindow)
     }
@@ -1787,7 +1804,15 @@ public struct NativeExplorerView: View {
             
             Spacer()
             
-            if !searchText.isEmpty {
+            Button { showSearchFilters.toggle() } label: {
+                Label("Filtreler", systemImage: hasSearchFilters ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+            }
+            .popover(isPresented: $showSearchFilters) { searchFiltersView }
+            if let searchError {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange).help(searchError).accessibilityLabel(searchError)
+            }
+            if !searchText.isEmpty || hasSearchFilters || isDeepSearchEnabled {
                 HStack(spacing: 6) {
                     Text("Kapsam:")
                         .font(.system(size: 11))
@@ -1795,6 +1820,7 @@ public struct NativeExplorerView: View {
                     
                     Button(action: {
                         isDeepSearchEnabled = false
+                        searchTask?.cancel(); searchGeneration = UUID(); isDeepSearching = false; searchError = nil
                     }) {
                         Text("Bu Klasör")
                             .font(.system(size: 11, weight: !isDeepSearchEnabled ? .semibold : .regular))
@@ -1810,7 +1836,7 @@ public struct NativeExplorerView: View {
                         performDeepSearch(query: searchText)
                     }) {
                         HStack(spacing: 3) {
-                            Text("Tüm Sürücü")
+                            Text("Alt Klasörler")
                                 .font(.system(size: 11, weight: isDeepSearchEnabled ? .semibold : .regular))
                             if isDeepSearching {
                                 ProgressView()
@@ -1964,7 +1990,7 @@ public struct NativeExplorerView: View {
                         Image(systemName: "folder")
                             .font(.system(size: 54))
                             .foregroundColor(.secondary.opacity(0.5))
-                        Text(searchText.isEmpty ? "Bu Klasör Boş" : "Sonuç Bulunamadı")
+                        Text(searchText.isEmpty && !hasSearchFilters ? "Bu Klasör Boş" : "Sonuç Bulunamadı")
                             .font(.headline)
                             .foregroundColor(.secondary)
                         Text(searchText.isEmpty ? "Yukarıdaki Yükle butonundan dosya ekleyebilirsiniz." : "Aramanızı değiştirin veya farklı bir arama kapsamı seçin.")
@@ -2105,11 +2131,9 @@ public struct NativeExplorerView: View {
             },
             perform: {}
         )
-        .onDrag({
-            exportFileForDrag(file)
-        }, preview: {
-            dragPreview(for: file)
-        })
+        .background(FileDragSource(selection: { dragSelection(for: file) }, onError: { error in
+            statusAlertMessage = "Sürükleme tamamlanamadı: " + error.localizedDescription
+        }))
         .contextMenu {
             fileContextMenu(file)
         }
@@ -2157,11 +2181,9 @@ public struct NativeExplorerView: View {
             },
             perform: {}
         )
-        .onDrag({
-            exportFileForDrag(file)
-        }, preview: {
-            dragPreview(for: file)
-        })
+        .background(FileDragSource(selection: { dragSelection(for: file) }, onError: { error in
+            statusAlertMessage = "Sürükleme tamamlanamadı: " + error.localizedDescription
+        }))
         .contextMenu {
             fileContextMenu(file)
         }
@@ -2469,10 +2491,11 @@ public struct NativeExplorerView: View {
     
     // MARK: - Gezinti ve Sıralama
     private var filteredFiles: [RemoteFileItem] {
-        var result = (isDeepSearchEnabled && !searchText.isEmpty) ? deepSearchResults : files
-        if !searchText.isEmpty && !isDeepSearchEnabled {
-            result = result.filter { $0.name.matchesSearchQuery(searchText) }
-        }
+        let source = isDeepSearchEnabled ? deepSearchResults : files
+        let filter = ExplorerSearchFilter(query: searchText, fileExtension: searchExtension,
+            minimumBytes: Int64(min(Double(Int64.max / 2), max(0, searchMinimumMB.isFinite ? searchMinimumMB : 0) * 1024 * 1024)),
+            modifiedAfter: searchDateEnabled ? Calendar.current.startOfDay(for: searchAfterDate) : nil)
+        let result = source.filter { filter.matches($0) }
         
         return result.sorted(by: { (item1: RemoteFileItem, item2: RemoteFileItem) -> Bool in
             if foldersFirst {
@@ -2564,6 +2587,8 @@ public struct NativeExplorerView: View {
     }
     
     private func loadDirectory(at path: String) {
+        searchTask?.cancel(); searchGeneration = UUID(); isDeepSearching = false; searchError = nil
+        isDeepSearchEnabled = false; deepSearchResults = []
         let generation = UUID()
         directoryLoadGeneration = generation
         let tabID = activeTabID
@@ -2655,51 +2680,57 @@ public struct NativeExplorerView: View {
         }
     }
     
+    private var hasSearchFilters: Bool {
+        !searchExtension.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || searchMinimumMB > 0 || searchDateEnabled
+    }
+
+    private var searchFiltersView: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Arama Filtreleri").font(.headline)
+            TextField("Uzantı (pdf, xlsx…)", text: $searchExtension)
+            HStack {
+                Text("En az (MB)")
+                TextField("0", value: $searchMinimumMB, format: .number).frame(width: 100)
+            }
+            Toggle("Değiştirilme tarihine göre filtrele", isOn: $searchDateEnabled)
+            if searchDateEnabled { DatePicker("Bu tarihten itibaren", selection: $searchAfterDate, displayedComponents: .date) }
+            if let searchError { Text(searchError).font(.caption).foregroundStyle(.secondary) }
+            Button("Filtreleri temizle") { searchExtension = ""; searchMinimumMB = 0; searchDateEnabled = false }
+        }
+        .textFieldStyle(.roundedBorder).padding(16).frame(width: 340)
+    }
+
     private func performDeepSearch(query: String) {
-        guard !query.isEmpty, let server = manager.activeServer else {
-            deepSearchResults = []
-            return
-        }
-        isDeepSearching = true
+        searchTask?.cancel()
+        let generation = UUID(); searchGeneration = generation
+        guard let server = manager.activeServer else { deepSearchResults = []; return }
+        let start = currentPath, tab = activeTabID
+        let identity = OfflineStore.identity(server)
+        isDeepSearching = true; searchError = nil; deepSearchResults = []
         let client = WebDAVClient(config: server)
-        var foundItems: [RemoteFileItem] = []
-        
-        func searchDirectory(path: String, depth: Int, completion: @escaping () -> Void) {
-            if depth > 4 { completion(); return }
-            client.listFiles(at: path) { result in
-                switch result {
-                case .success(let items):
-                    let matching = items.filter { $0.name.matchesSearchQuery(query) }
-                    foundItems.append(contentsOf: matching)
-                    
-                    let subDirs = items.filter { $0.isDirectory }
-                    guard !subDirs.isEmpty else { completion(); return }
-                    
-                    let group = DispatchGroup()
-                    for dir in subDirs {
-                        group.enter()
-                        let subPath = path.isEmpty ? dir.name : "\(path)/\(dir.name)"
-                        searchDirectory(path: subPath, depth: depth + 1) {
-                            group.leave()
+        searchTask = Task { @MainActor in
+            @MainActor func isCurrent() -> Bool {
+                searchGeneration == generation && currentPath == start && activeTabID == tab &&
+                manager.activeServer.map { OfflineStore.identity($0) == identity } == true
+            }
+            defer { if isCurrent() { isDeepSearching = false } }
+            do {
+                let result = try await withTaskCancellationHandler {
+                    try await ExplorerSearch.scan(start: start, config: server, list: { path in
+                        try await withCheckedThrowingContinuation { continuation in
+                            client.listFiles(at: path) { continuation.resume(with: $0) }
                         }
-                    }
-                    group.notify(queue: .main) {
-                        completion()
-                    }
-                case .failure:
-                    completion()
-                }
-            }
-        }
-        
-        searchDirectory(path: "", depth: 0) {
-            DispatchQueue.main.async {
-                self.deepSearchResults = foundItems
-                self.isDeepSearching = false
-            }
+                    }, onPage: { items in
+                        await MainActor.run { if isCurrent() { deepSearchResults = items } }
+                    })
+                } onCancel: { client.cancelActiveTransfers() }
+                guard isCurrent() else { return }
+                deepSearchResults = result.files
+                if !result.errors.isEmpty { searchError = "\(result.errors.count) klasör okunamadı. Erişim izinlerini kontrol edin." }
+            } catch { if isCurrent() && !Task.isCancelled { searchError = error.localizedDescription } }
         }
     }
-    
+
     private func folderTitle(for path: String) -> String {
         let name = (path as NSString).lastPathComponent
         return name.removingPercentEncoding ?? name
@@ -3185,62 +3216,25 @@ public struct NativeExplorerView: View {
     private func copySelectedFiles() {
         let targets = filteredFiles.filter { selectedFileIDs.contains($0.id) || selectedFileID == $0.id }
         guard !targets.isEmpty, let server = manager.activeServer else { return }
-        
         isClipboardCut = false
         copiedRemoteItems = targets
-        
         let client = WebDAVClient(config: server)
-        let cacheDir = FileOpener.shared.cacheDir
-        
         Task {
-            var localURLs: [URL] = []
-            for item in targets {
-                if item.isDirectory {
-                    let folderURL = cacheDir.appendingPathComponent(item.name, isDirectory: true)
-                    try? FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
-                    localURLs.append(folderURL)
-                } else {
-                    let cacheCandidate = cacheDir.appendingPathComponent(item.name)
-                    let previewCandidate = FilePreviewManager.shared.previewCacheDir.appendingPathComponent(item.name)
-                    
-                    if FileManager.default.fileExists(atPath: cacheCandidate.path) {
-                        localURLs.append(cacheCandidate)
-                    } else if FileManager.default.fileExists(atPath: previewCandidate.path) {
-                        localURLs.append(previewCandidate)
-                    } else {
-                        let dest = cacheCandidate
-                        let relPath = currentPath.isEmpty ? item.name : "\(currentPath)/\(item.name)"
-                        await withCheckedContinuation { continuation in
-                            client.downloadFile(href: relPath, to: dest, progress: { _ in }) { err in
-                                if err == nil && FileManager.default.fileExists(atPath: dest.path) {
-                                    localURLs.append(dest)
-                                    continuation.resume()
-                                } else {
-                                    client.downloadFile(href: item.href, to: dest, progress: { _ in }) { err2 in
-                                        if err2 == nil && FileManager.default.fileExists(atPath: dest.path) {
-                                            localURLs.append(dest)
-                                        }
-                                        continuation.resume()
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            
-            await MainActor.run {
-                if !localURLs.isEmpty {
+            do {
+                let localURLs = try await FileExportService.prepare(targets, client: client)
+                await MainActor.run {
                     let pasteboard = NSPasteboard.general
                     pasteboard.clearContents()
-                    pasteboard.writeObjects(localURLs as [NSURL])
-                    
-                    SyncLogManager.shared.log("\(localURLs.count) dosya panoya kopyalandı. Finder veya Masaüstüne yapıştırabilirsiniz.")
+                    if pasteboard.writeObjects(localURLs as [NSURL]) {
+                        SyncLogManager.shared.log("\(localURLs.count) öğe içeriğiyle panoya kopyalandı.")
+                    } else { statusAlertMessage = "Dosyalar panoya yazılamadı." }
                 }
+            } catch {
+                await MainActor.run { statusAlertMessage = "Kopyalama tamamlanamadı: " + error.localizedDescription }
             }
         }
     }
-    
+
     private func cutSelectedFiles() {
         let targets = filteredFiles.filter { selectedFileIDs.contains($0.id) || selectedFileID == $0.id }
         guard !targets.isEmpty else { return }
@@ -3301,15 +3295,13 @@ public struct NativeExplorerView: View {
     }
     
     // MARK: - Sürükle ve Bırak (Drag & Drop) Desteği
-    private func exportFileForDrag(_ file: RemoteFileItem) -> NSItemProvider {
-        guard let server = manager.activeServer else { return NSItemProvider() }
-        return FileExportService.itemProvider(for: file, client: WebDAVClient(config: server)) { error in
-            DispatchQueue.main.async {
-                statusAlertMessage = "Dosya sürüklenemedi: " + error.localizedDescription
-            }
-        }
+    private func dragSelection(for file: RemoteFileItem) -> FileDragSelection? {
+        guard let server = manager.activeServer else { return nil }
+        let selected = selectedFileIDs.contains(file.id) || selectedFileID == file.id
+        let targets = selected ? filteredFiles.filter { selectedFileIDs.contains($0.id) || selectedFileID == $0.id } : [file]
+        return FileDragSelection(files: targets, client: WebDAVClient(config: server))
     }
-    
+
     // MARK: - Favori Klasörleri Yönetme (Pinned Shortcuts)
     private var pinnedFoldersKey: String {
         let serverID = manager.activeServer?.id.uuidString ?? "global"
@@ -5224,46 +5216,6 @@ struct DiagnosticsSheetView: View {
     }
 }
 
-// MARK: - Türkçe Karakter Uyumlu Arama Genişletmesi
-extension String {
-    /// Türkçe karakter uyumlu (büyük/küçük harf, İ-i, I-ı, ç-c, ğ-g, ö-o, ş-s, ü-u toleranslı) arama karşılaştırması
-    func matchesSearchQuery(_ query: String) -> Bool {
-        let cleanQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanQuery.isEmpty else { return true }
-        
-        // 1. Standart hızlı arama
-        if self.localizedCaseInsensitiveContains(cleanQuery) { return true }
-        
-        // 2. Türkçe normalize vaka (İ -> i, I -> ı, kombine işaretlerin temizlenmesi)
-        let normSelf = self.turkishNormalized()
-        let normQuery = cleanQuery.turkishNormalized()
-        if normSelf.contains(normQuery) { return true }
-        
-        // 3. Toleranslı vaka (kullanıcı klavyeden "c" yazsa da "ç", "s" yazsa da "ş", "g" yazsa da "ğ" eşleşir)
-        let fuzzySelf = normSelf.turkishFuzzyNormalized()
-        let fuzzyQuery = normQuery.turkishFuzzyNormalized()
-        if fuzzySelf.contains(fuzzyQuery) { return true }
-        
-        return false
-    }
-    
-    private func turkishNormalized() -> String {
-        var s = self.replacingOccurrences(of: "İ", with: "i")
-        s = s.replacingOccurrences(of: "I", with: "ı")
-        s = s.lowercased(with: Locale(identifier: "tr_TR"))
-        s = s.precomposedStringWithCanonicalMapping
-        s = s.replacingOccurrences(of: "\u{0307}", with: "") // Combining dot above
-        return s
-    }
-    
-    private func turkishFuzzyNormalized() -> String {
-        let map: [Character: Character] = [
-            "ç": "c", "ğ": "g", "ı": "i", "ö": "o", "ş": "s", "ü": "u"
-        ]
-        return String(self.map { map[$0] ?? $0 })
-    }
-}
-
 // MARK: - Bildirim İsimleri
 extension Notification.Name {
     static let exitSearchRequested = Notification.Name("HDriveExitSearchRequested")
@@ -5495,4 +5447,3 @@ struct ToolbarCustomizationSheet: View {
         .frame(minWidth: 720, idealWidth: 760, maxWidth: 840, minHeight: 520, idealHeight: 560, maxHeight: 680)
     }
 }
-
