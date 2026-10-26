@@ -607,11 +607,6 @@ public sealed partial class MainWindow : Window
             ? (IEnumerable<FileItem>)_allItems
             : (_deepSearchItems ?? _allItems).Where(i => i.Name.Contains(trimmed, StringComparison.CurrentCultureIgnoreCase));
         if (string.IsNullOrEmpty(trimmed)) filtered = _deepSearchItems ?? _allItems;
-        var extension = SearchExtensionBox?.Text?.Trim().TrimStart('.') ?? "";
-        if (!string.IsNullOrEmpty(extension)) filtered = filtered.Where(i => !i.IsDirectory && string.Equals(System.IO.Path.GetExtension(i.Name).TrimStart('.'), extension, StringComparison.OrdinalIgnoreCase));
-        var minimum = SearchMinimumSizeBox?.Value ?? double.NaN;
-        if (!double.IsNaN(minimum) && minimum > 0) filtered = filtered.Where(i => !i.IsDirectory && i.Size >= minimum * 1024 * 1024);
-        if (SearchAfterDatePicker?.Date is DateTimeOffset date) filtered = filtered.Where(i => i.ModifiedDate >= date.Date);
 
         var sorted = filtered.OrderBy(item => _foldersFirst && !item.IsDirectory ? 1 : 0);
 
@@ -636,7 +631,7 @@ public sealed partial class MainWindow : Window
             _items.Add(item);
         }
 
-        ItemCountText.Text = _items.Count == 0 ? (string.IsNullOrEmpty(trimmed) && string.IsNullOrEmpty(extension) && (double.IsNaN(minimum) || minimum == 0) && SearchAfterDatePicker?.Date == null ? "Klasör boş" : "Sonuç bulunamadı · filtreleri değiştirin") : $"{_items.Count} öğe";
+        ItemCountText.Text = _items.Count == 0 ? (string.IsNullOrEmpty(trimmed) ? "Klasör boş" : "Sonuç bulunamadı") : $"{_items.Count} öğe";
     }
 
     private async void FileItem_Clicked(object sender, ItemClickEventArgs e)
@@ -2495,6 +2490,7 @@ public sealed partial class MainWindow : Window
 
     private bool _isMarqueeSelecting = false;
     private Windows.Foundation.Point _marqueeStartPoint;
+    private readonly HashSet<FileItem> _marqueeInitialSelection = new();
 
     private static bool IsItemOrChildOfItem(DependencyObject? obj)
     {
@@ -2539,7 +2535,19 @@ public sealed partial class MainWindow : Window
             var isShift = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Shift)
                 .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
 
-            if (!isCtrl && !isShift)
+            _marqueeInitialSelection.Clear();
+            var container = GetActiveItemContainer();
+            if (isCtrl || isShift)
+            {
+                if (container != null)
+                {
+                    foreach (var it in container.SelectedItems.OfType<FileItem>())
+                    {
+                        _marqueeInitialSelection.Add(it);
+                    }
+                }
+            }
+            else
             {
                 ClearSelection();
             }
@@ -2577,6 +2585,7 @@ public sealed partial class MainWindow : Window
         if (_isMarqueeSelecting)
         {
             _isMarqueeSelecting = false;
+            _marqueeInitialSelection.Clear();
             SelectionBox.Visibility = Visibility.Collapsed;
             try
             {
@@ -2592,6 +2601,11 @@ public sealed partial class MainWindow : Window
         var container = GetActiveItemContainer();
         if (container == null) return;
 
+        var isCtrl = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control)
+            .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+        var isShift = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Shift)
+            .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+
         for (int i = 0; i < container.Items.Count; i++)
         {
             if (container.ContainerFromIndex(i) is FrameworkElement itemElement && itemElement.DataContext is FileItem item)
@@ -2600,11 +2614,27 @@ public sealed partial class MainWindow : Window
                 var bounds = transform.TransformBounds(new Windows.Foundation.Rect(0, 0, itemElement.ActualWidth, itemElement.ActualHeight));
 
                 bool intersects = RectIntersects(marqueeRect, bounds);
-                if (intersects)
+                if (isCtrl || isShift)
                 {
-                    if (!container.SelectedItems.Contains(item))
+                    bool shouldBeSelected = _marqueeInitialSelection.Contains(item) ^ intersects;
+                    if (shouldBeSelected && !container.SelectedItems.Contains(item))
                     {
                         container.SelectedItems.Add(item);
+                    }
+                    else if (!shouldBeSelected && container.SelectedItems.Contains(item))
+                    {
+                        container.SelectedItems.Remove(item);
+                    }
+                }
+                else
+                {
+                    if (intersects && !container.SelectedItems.Contains(item))
+                    {
+                        container.SelectedItems.Add(item);
+                    }
+                    else if (!intersects && container.SelectedItems.Contains(item))
+                    {
+                        container.SelectedItems.Remove(item);
                     }
                 }
             }
@@ -3269,17 +3299,9 @@ public sealed partial class MainWindow : Window
 
     #region Derin Arama (Deep Search)
 
-    private async void SearchBox_QuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
+    private void SearchBox_QuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
     {
-        if (SearchSubfoldersCheckBox.IsChecked == true) await PerformDeepSearchAsync(args.QueryText);
-        else ApplySearchFilter(args.QueryText);
-    }
-
-    private async void SearchOptionsApply_Click(object sender, RoutedEventArgs e)
-    {
-        SearchOptionsFlyout.Hide();
-        if (SearchSubfoldersCheckBox.IsChecked == true) await PerformDeepSearchAsync(SearchBox.Text);
-        else { _searchCancellation?.Cancel(); _deepSearchItems = null; ApplySearchFilter(SearchBox.Text); }
+        ApplySearchFilter(args.QueryText);
     }
 
     private async Task ShowOperationErrorAsync(string title, string message) {

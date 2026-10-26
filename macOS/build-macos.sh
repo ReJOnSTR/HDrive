@@ -25,6 +25,7 @@ hdrive_sources=(
   macOS/HDriveMac/Services/FileOpener.swift macOS/HDriveMac/Services/FilePreviewManager.swift
   macOS/HDriveMac/Services/FileIconProvider.swift macOS/HDriveMac/Views/TransferPopoverView.swift
   iOS/HDrive/Views/WorkspaceViews.swift
+  macOS/HDriveMac/Views/FinderRenameField.swift
   macOS/HDriveMac/Views/NativeExplorerView.swift macOS/HDriveMac/HDriveMacApp.swift
 )
 for hdrive_arch in arm64 x86_64; do

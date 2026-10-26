@@ -12,6 +12,12 @@ import Network
 import PDFKit
 import ObjectiveC
 
+struct FileItemBoundsPreferenceKey: PreferenceKey {
+    static var defaultValue: [String: CGRect] = [:]
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue()) { _, new in new }
+    }
+}
 
 
 public struct ExplorerTab: Identifiable, Equatable {
@@ -424,6 +430,12 @@ public struct NativeExplorerView: View {
     @State private var renamingText: String = ""
     @State private var lastClickTime: Date = Date.distantPast
     @State private var lastClickedFileID: String? = nil
+    
+    // Fare ile Çerçeve Çizerek Çoklu Seçim (macOS Finder Marquee / Rubber-Band Selection)
+    @State private var marqueeRect: CGRect? = nil
+    @State private var isDraggingMarquee: Bool = false
+    @State private var marqueeInitialSelection: Set<String> = []
+    @State private var fileItemBounds: [String: CGRect] = [:]
     
     // Sabitlenen Favori Klasörler & Kenar Çubuğu
     @State private var pinnedFolders: [PinnedFolder] = []
@@ -1807,15 +1819,11 @@ public struct NativeExplorerView: View {
             
             Spacer()
             
-            Button { showSearchFilters.toggle() } label: {
-                Label("Filtreler", systemImage: hasSearchFilters ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
-            }
-            .popover(isPresented: $showSearchFilters) { searchFiltersView }
             if let searchError {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange).help(searchError).accessibilityLabel(searchError)
             }
-            if !searchText.isEmpty || hasSearchFilters || isDeepSearchEnabled {
+            if !searchText.isEmpty || isDeepSearchEnabled {
                 HStack(spacing: 6) {
                     Text("Kapsam:")
                         .font(.system(size: 11))
@@ -2053,12 +2061,77 @@ public struct NativeExplorerView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(NSColor.windowBackgroundColor))
+        .coordinateSpace(name: "ExplorerFileArea")
+        .onPreferenceChange(FileItemBoundsPreferenceKey.self) { bounds in
+            self.fileItemBounds = bounds
+        }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 3, coordinateSpace: .named("ExplorerFileArea"))
+                .onChanged { value in
+                    if !isDraggingMarquee {
+                        let hitAnyFile = fileItemBounds.values.contains { $0.contains(value.startLocation) }
+                        if hitAnyFile { return }
+                        isDraggingMarquee = true
+                        let flags = NSEvent.modifierFlags
+                        if flags.contains(.command) || flags.contains(.shift) {
+                            marqueeInitialSelection = selectedFileIDs
+                        } else {
+                            marqueeInitialSelection = []
+                            selectedFileIDs = []
+                        }
+                    }
+                    
+                    let start = value.startLocation
+                    let current = value.location
+                    let rect = CGRect(
+                        x: min(start.x, current.x),
+                        y: min(start.y, current.y),
+                        width: abs(current.x - start.x),
+                        height: abs(current.y - start.y)
+                    )
+                    marqueeRect = rect
+                    
+                    let flags = NSEvent.modifierFlags
+                    let isCommand = flags.contains(.command) || flags.contains(.shift)
+                    
+                    var intersected: Set<String> = []
+                    for (id, bounds) in fileItemBounds {
+                        if rect.intersects(bounds) {
+                            intersected.insert(id)
+                        }
+                    }
+                    
+                    if isCommand {
+                        selectedFileIDs = marqueeInitialSelection.symmetricDifference(intersected)
+                    } else {
+                        selectedFileIDs = intersected
+                    }
+                    selectedFileID = selectedFileIDs.first
+                }
+                .onEnded { _ in
+                    isDraggingMarquee = false
+                    marqueeRect = nil
+                    marqueeInitialSelection = []
+                }
+        )
         .onDrop(of: [.fileURL, .text, .plainText], isTargeted: $isFileAreaDropTargeted) { providers in
             handleDroppedFiles(providers, targetFolder: nil)
             return true
         }
         .overlay(
             Group {
+                if let rect = marqueeRect {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(Color(NSColor.selectedControlColor).opacity(0.18))
+                        RoundedRectangle(cornerRadius: 2)
+                            .stroke(Color(NSColor.selectedControlColor).opacity(0.85), lineWidth: 1)
+                    }
+                    .frame(width: rect.width, height: rect.height)
+                    .position(x: rect.midX, y: rect.midY)
+                    .allowsHitTesting(false)
+                }
+                
                 if isFileAreaDropTargeted {
                     ZStack {
                         RoundedRectangle(cornerRadius: 10)
@@ -2080,6 +2153,67 @@ public struct NativeExplorerView: View {
         )
     }
     
+    private func gridItemBackground(for file: RemoteFileItem, isSelected: Bool, isHovered: Bool) -> some View {
+        let isTarget = file.isDirectory && targetedFolderID == file.id
+        let fillColor: Color
+        if isTarget {
+            fillColor = Color.accentColor.opacity(0.24)
+        } else if isSelected {
+            fillColor = Color.accentColor.opacity(0.18)
+        } else if isHovered {
+            fillColor = Color.primary.opacity(0.06)
+        } else {
+            fillColor = Color.clear
+        }
+
+        let strokeColor: Color = (isTarget || isSelected) ? Color.accentColor : Color.clear
+        let strokeWidth: CGFloat = isTarget ? 2.5 : 1.5
+
+        return RoundedRectangle(cornerRadius: 8)
+            .fill(fillColor)
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(strokeColor, lineWidth: strokeWidth)
+            )
+    }
+
+    private func rowItemBackground(for file: RemoteFileItem, isSelected: Bool, isHovered: Bool, isEven: Bool) -> some View {
+        let isTarget = file.isDirectory && targetedFolderID == file.id
+        let fillColor: Color
+        if isTarget {
+            fillColor = Color.accentColor.opacity(0.24)
+        } else if isSelected {
+            fillColor = Color.accentColor.opacity(0.18)
+        } else if isHovered {
+            fillColor = Color.primary.opacity(0.06)
+        } else if isEven {
+            fillColor = Color(NSColor.controlBackgroundColor).opacity(0.25)
+        } else {
+            fillColor = Color.clear
+        }
+
+        let strokeColor: Color = (isTarget || isSelected) ? Color.accentColor : Color.clear
+        let strokeWidth: CGFloat = isTarget ? 2.5 : 1.5
+
+        return RoundedRectangle(cornerRadius: 5)
+            .fill(fillColor)
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(strokeColor, lineWidth: strokeWidth)
+            )
+    }
+
+    private func folderDropBinding(for file: RemoteFileItem) -> Binding<Bool> {
+        Binding<Bool>(
+            get: { file.isDirectory && targetedFolderID == file.id },
+            set: { targeted in
+                if file.isDirectory {
+                    targetedFolderID = targeted ? file.id : (targetedFolderID == file.id ? nil : targetedFolderID)
+                }
+            }
+        )
+    }
+
     // MARK: - Dosya Izgara Kartı (Finder Görünümü)
     private func fileGridItem(_ file: RemoteFileItem) -> some View {
         let isHovered = hoveredFileID == file.id
@@ -2139,7 +2273,7 @@ public struct NativeExplorerView: View {
                         if isSelected && renamingFileID == nil {
                             startRenaming(file)
                         } else {
-                            selectFile(file, isCommandPressed: false, isShiftPressed: false)
+                            handleFileTap(file)
                         }
                     }
             }
@@ -2149,23 +2283,9 @@ public struct NativeExplorerView: View {
                 .foregroundColor(.secondary)
         }
         .padding(8)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(file.isDirectory && targetedFolderID == file.id ? Color.accentColor.opacity(0.24) : (isSelected ? Color.accentColor.opacity(0.18) : (isHovered ? Color.primary.opacity(0.06) : Color.clear)))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(file.isDirectory && targetedFolderID == file.id ? Color.accentColor : (isSelected ? Color.accentColor : Color.clear), lineWidth: file.isDirectory && targetedFolderID == file.id ? 2.5 : 1.5)
-        )
+        .background(gridItemBackground(for: file, isSelected: isSelected, isHovered: isHovered))
         .contentShape(Rectangle())
-        .onDrop(of: [.fileURL, .text, .plainText], isTargeted: Binding(
-            get: { file.isDirectory && targetedFolderID == file.id },
-            set: { targeted in
-                if file.isDirectory {
-                    targetedFolderID = targeted ? file.id : (targetedFolderID == file.id ? nil : targetedFolderID)
-                }
-            }
-        )) { providers in
+        .onDrop(of: [.fileURL, .text, .plainText], isTargeted: folderDropBinding(for: file)) { providers in
             guard file.isDirectory else { return false }
             targetedFolderID = nil
             handleDroppedFiles(providers, targetFolder: file)
@@ -2189,6 +2309,14 @@ public struct NativeExplorerView: View {
         .background(FileDragSource(selection: { dragSelection(for: file) }, onError: { error in
             statusAlertMessage = "Sürükleme tamamlanamadı: " + error.localizedDescription
         }))
+        .background(
+            GeometryReader { geo in
+                Color.clear.preference(
+                    key: FileItemBoundsPreferenceKey.self,
+                    value: [file.id: geo.frame(in: .named("ExplorerFileArea"))]
+                )
+            }
+        )
         .contextMenu {
             fileContextMenu(file)
         }
@@ -2212,23 +2340,9 @@ public struct NativeExplorerView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 5)
-        .background(
-            RoundedRectangle(cornerRadius: 5)
-                .fill(file.isDirectory && targetedFolderID == file.id ? Color.accentColor.opacity(0.24) : (isSelected ? Color.accentColor.opacity(0.18) : (isHovered ? Color.primary.opacity(0.06) : (isEven ? Color(NSColor.controlBackgroundColor).opacity(0.25) : Color.clear))))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(file.isDirectory && targetedFolderID == file.id ? Color.accentColor : (isSelected ? Color.accentColor : Color.clear), lineWidth: file.isDirectory && targetedFolderID == file.id ? 2.5 : 1.5)
-        )
+        .background(rowItemBackground(for: file, isSelected: isSelected, isHovered: isHovered, isEven: isEven))
         .contentShape(Rectangle())
-        .onDrop(of: [.fileURL, .text, .plainText], isTargeted: Binding(
-            get: { file.isDirectory && targetedFolderID == file.id },
-            set: { targeted in
-                if file.isDirectory {
-                    targetedFolderID = targeted ? file.id : (targetedFolderID == file.id ? nil : targetedFolderID)
-                }
-            }
-        )) { providers in
+        .onDrop(of: [.fileURL, .text, .plainText], isTargeted: folderDropBinding(for: file)) { providers in
             guard file.isDirectory else { return false }
             targetedFolderID = nil
             handleDroppedFiles(providers, targetFolder: file)
@@ -2252,6 +2366,14 @@ public struct NativeExplorerView: View {
         .background(FileDragSource(selection: { dragSelection(for: file) }, onError: { error in
             statusAlertMessage = "Sürükleme tamamlanamadı: " + error.localizedDescription
         }))
+        .background(
+            GeometryReader { geo in
+                Color.clear.preference(
+                    key: FileItemBoundsPreferenceKey.self,
+                    value: [file.id: geo.frame(in: .named("ExplorerFileArea"))]
+                )
+            }
+        )
         .contextMenu {
             fileContextMenu(file)
         }
@@ -2337,7 +2459,7 @@ public struct NativeExplorerView: View {
                             if isSelected && renamingFileID == nil {
                                 startRenaming(file)
                             } else {
-                                selectFile(file, isCommandPressed: false, isShiftPressed: false)
+                                handleFileTap(file)
                             }
                         }
                 }

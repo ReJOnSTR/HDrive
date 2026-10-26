@@ -60,10 +60,7 @@ public struct FileBrowserView: View {
     
     public var body: some View {
         VStack(spacing: 0) {
-            // 1. Kategori Filtreleme Çubuğu
-            categoryFilterBar
-            
-            // 2. Dosya Listesi veya Izgara
+            // Dosya Listesi veya Izgara
             if let loadError = loadError {
                 ContentUnavailableView {
                     Label(L10n.text("Klasör açılamadı"), systemImage: "exclamationmark.triangle")
@@ -418,7 +415,7 @@ public struct FileBrowserView: View {
                 .foregroundColor(.secondary)
             Text(items.isEmpty ? "Bu Klasör Boş" : "Sonuç Bulunamadı")
                 .font(.headline)
-            Text(items.isEmpty ? "+ menüsünden dosya içe aktarabilir veya klasör oluşturabilirsiniz." : "Aramanızı veya kategori filtrenizi değiştirin.")
+            Text(items.isEmpty ? "+ menüsünden dosya içe aktarabilir veya klasör oluşturabilirsiniz." : "Aramanızı değiştirin.")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)

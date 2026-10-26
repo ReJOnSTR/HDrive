@@ -175,23 +175,7 @@
                                     VerticalAlignment="Center"
                                     CornerRadius="4"
                                     TextChanged="SearchBox_TextChanged"
-                                    QuerySubmitted="SearchBox_QuerySubmitted"
- />
-                        <Button AutomationProperties.Name="Arama kapsamı ve filtreler" ToolTipService.ToolTip="Arama kapsamı ve filtreler">
-                            <FontIcon Glyph="&#xE71C;" />
-                            <Button.Flyout>
-                                <Flyout x:Name="SearchOptionsFlyout">
-                                    <StackPanel Spacing="12" Width="260">
-                                        <TextBlock Text="Arama Seçenekleri" FontWeight="SemiBold" />
-                                        <CheckBox x:Name="SearchSubfoldersCheckBox" x:Uid="SearchSubfolders" Content="Alt klasörlerde de ara" />
-                                        <TextBox x:Name="SearchExtensionBox" x:Uid="SearchExtension" Header="Dosya uzantısı" PlaceholderText="Örnek: pdf" />
-                                        <NumberBox x:Name="SearchMinimumSizeBox" x:Uid="SearchMinimum" Header="En küçük boyut (MB)" Minimum="0" SpinButtonPlacementMode="Compact" />
-                                        <CalendarDatePicker x:Name="SearchAfterDatePicker" x:Uid="SearchAfter" Header="Bu tarihten sonra değiştirilenler" PlaceholderText="Tarih sınırı yok" />
-                                        <Button x:Uid="SearchApply" Content="Uygula" Click="SearchOptionsApply_Click" Style="{ThemeResource AccentButtonStyle}" />
-                                    </StackPanel>
-                                </Flyout>
-                            </Button.Flyout>
-                        </Button>
+                                    QuerySubmitted="SearchBox_QuerySubmitted" />
                     </StackPanel>
                 </Grid>
 
@@ -398,15 +382,7 @@
                         <ProgressRing x:Name="LoadingRing" IsActive="False" Width="40" Height="40" 
                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
 
-                        <!-- Fare ile Çerçeve Çizerek Çoklu Seçim (Marquee / Rubber-Band Selection Canvas) -->
-                        <Canvas x:Name="SelectionCanvas" IsHitTestVisible="False" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
-                            <Rectangle x:Name="SelectionBox"
-                                       Fill="#330078D4"
-                                       Stroke="#0078D4"
-                                       StrokeThickness="1"
-                                       RadiusX="2" RadiusY="2"
-                                       Visibility="Collapsed" />
-                        </Canvas>
+
 
                         <!-- 1. Grid Görünümü: Büyük Simgeler (Windows 11 Yerel Gezgin Hover & Seçim Stili) -->
                         <GridView x:Name="FileGridView" 
@@ -748,6 +724,16 @@
                                 </DataTemplate>
                             </ListView.ItemTemplate>
                         </ListView>
+
+                        <!-- Fare ile Çerçeve Çizerek Çoklu Seçim (Windows 11 Yerel Marquee / Rubber-Band Canvas - En Üst Katman) -->
+                        <Canvas x:Name="SelectionCanvas" IsHitTestVisible="False" Canvas.ZIndex="1000" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                            <Rectangle x:Name="SelectionBox"
+                                       Fill="#280078D4"
+                                       Stroke="#800078D4"
+                                       StrokeThickness="1"
+                                       RadiusX="1" RadiusY="1"
+                                       Visibility="Collapsed" />
+                        </Canvas>
                     </Grid>
 
                     <!-- Sağ Taraf: Windows 11 Ayrıntılar ve Önizleme Bölmesi (Details / Preview Pane) -->
