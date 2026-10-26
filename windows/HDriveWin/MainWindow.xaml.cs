@@ -687,6 +687,7 @@ public sealed partial class MainWindow : Window
         if (selectedList.Count == 1)
         {
             _selectedItem = selectedList[0];
+            _lastSelectedTime = DateTime.Now;
             UpdatePreviewPane(_selectedItem);
         }
         else if (selectedList.Count > 1)
@@ -1970,7 +1971,12 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    #region Yerinde Yeniden Adlandırma (F2 Inline Rename)
+    #region Yerinde Yeniden Adlandırma (Windows 11 File Explorer Birebir)
+
+    private int _renameF2Cycle = 0;
+    private DateTime _lastSelectedTime = DateTime.MinValue;
+    private DispatcherTimer? _tipTimer;
+    private static readonly char[] InvalidFileNameChars = new[] { '/', '\\', ':', '*', '?', '"', '<', '>', '|' };
 
     private void ContextRename_Click(object sender, RoutedEventArgs e)
     {
@@ -1985,10 +1991,15 @@ public sealed partial class MainWindow : Window
     {
         if (sender is FrameworkElement fe && fe.DataContext is FileItem item)
         {
+            // Windows 11 Dosya Gezgini: Zaten seçili olan öğeye yavaşça tıklama (~500ms - 3.5s arası)
             if (item == _selectedItem && !item.IsEditing)
             {
-                e.Handled = true;
-                BeginInlineRename(item);
+                var elapsed = (DateTime.Now - _lastSelectedTime).TotalMilliseconds;
+                if (elapsed >= 500 && elapsed <= 3500)
+                {
+                    e.Handled = true;
+                    BeginInlineRename(item);
+                }
             }
         }
     }
@@ -1997,19 +2008,22 @@ public sealed partial class MainWindow : Window
     {
         if (item == null) return;
 
-        // Diğer tüm öğelerin düzenleme durumunu kapat
+        _renameF2Cycle = 0;
+
+        // Diğer tüm öğelerin düzenleme durumunu kapat ve eski adlarını koru
         foreach (var it in _items)
         {
             if (it != item && it.IsEditing)
             {
                 it.IsEditing = false;
+                it.EditingName = it.Name;
             }
         }
 
         item.EditingName = item.Name;
         item.IsEditing = true;
 
-        // İlgili container'ı görünür kıl ve odakla
+        // İlgili container'ı bul, görünür kıl ve odakla
         DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
         {
             var container = GetActiveItemContainer();
@@ -2019,7 +2033,7 @@ public sealed partial class MainWindow : Window
                 var textBox = FindVisualChild<TextBox>(itemContainer);
                 if (textBox != null && textBox.Visibility == Visibility.Visible)
                 {
-                    FocusAndSelectRenameText(textBox);
+                    FocusAndSelectRenameText(textBox, 0);
                 }
             }
         });
@@ -2039,17 +2053,37 @@ public sealed partial class MainWindow : Window
         return null;
     }
 
-    private static readonly char[] InvalidFileNameChars = new[] { '/', '\\', ':', '*', '?', '"', '<', '>', '|' };
-
     private void InlineRenameTextBox_BeforeTextChanging(TextBox sender, TextBoxBeforeTextChangingEventArgs args)
     {
+        // Windows 11: Yasaklı karakterleri engelle ve TeachingTip balonu göster
         if (args.NewText.IndexOfAny(InvalidFileNameChars) >= 0)
         {
             args.Cancel = true;
-            if (SyncStatusText != null)
+            ShowInvalidCharTip(sender);
+        }
+    }
+
+    private void ShowInvalidCharTip(TextBox textBox)
+    {
+        try
+        {
+            if (InvalidCharTip != null)
             {
-                SyncStatusText.Text = "Dosya adları \\ / : * ? \" < > | karakterlerini içeremez";
+                InvalidCharTip.Target = textBox;
+                InvalidCharTip.IsOpen = true;
+                _tipTimer?.Stop();
+                _tipTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2.5) };
+                _tipTimer.Tick += (s, e) =>
+                {
+                    _tipTimer?.Stop();
+                    if (InvalidCharTip != null) InvalidCharTip.IsOpen = false;
+                };
+                _tipTimer.Start();
             }
+        }
+        catch
+        {
+            // Görsel ağaç yenilenirken oluşabilecek istisnaları yut
         }
     }
 
@@ -2061,18 +2095,18 @@ public sealed partial class MainWindow : Window
             {
                 if (s is TextBox tb && tb.Visibility == Visibility.Visible)
                 {
-                    FocusAndSelectRenameText(tb);
+                    FocusAndSelectRenameText(tb, 0);
                 }
             });
 
             if (textBox.Visibility == Visibility.Visible)
             {
-                FocusAndSelectRenameText(textBox);
+                FocusAndSelectRenameText(textBox, 0);
             }
         }
     }
 
-    private void FocusAndSelectRenameText(TextBox textBox)
+    private void FocusAndSelectRenameText(TextBox textBox, int cycle = 0)
     {
         DispatcherQueue.TryEnqueue(() =>
         {
@@ -2080,13 +2114,32 @@ public sealed partial class MainWindow : Window
             var text = textBox.Text ?? "";
             var isDir = (textBox.DataContext as FileItem)?.IsDirectory ?? false;
             var dotIndex = text.LastIndexOf('.');
-            if (!isDir && dotIndex > 0)
+
+            if (isDir || dotIndex <= 0)
             {
-                textBox.Select(0, dotIndex);
+                // Klasörler veya uzantısız/gizli dosyalar: her zaman tümünü seç
+                textBox.SelectAll();
+                _renameF2Cycle = 0;
             }
             else
             {
-                textBox.SelectAll();
+                // Windows 11 Dosya Gezgini F2 döngüsü:
+                switch (cycle % 3)
+                {
+                    case 0:
+                        // 1. Sadece dosya adı (uzantı hariç)
+                        textBox.Select(0, dotIndex);
+                        break;
+                    case 1:
+                        // 2. Tamamı (uzantı dahil)
+                        textBox.SelectAll();
+                        break;
+                    case 2:
+                        // 3. Sadece uzantı
+                        textBox.Select(dotIndex + 1, text.Length - (dotIndex + 1));
+                        break;
+                }
+                _renameF2Cycle = cycle % 3;
             }
         });
     }
@@ -2098,36 +2151,28 @@ public sealed partial class MainWindow : Window
             if (e.Key == Windows.System.VirtualKey.Enter)
             {
                 e.Handled = true;
-                await CommitInlineRenameAsync(item, textBox.Text);
+                if (InvalidCharTip != null) InvalidCharTip.IsOpen = false;
+                await CommitInlineRenameAsync(item, textBox.Text, textBox);
             }
             else if (e.Key == Windows.System.VirtualKey.Escape)
             {
                 e.Handled = true;
-                CancelInlineRename(item);
+                if (InvalidCharTip != null) InvalidCharTip.IsOpen = false;
+                CancelInlineRename(item, textBox);
             }
             else if (e.Key == Windows.System.VirtualKey.F2)
             {
                 e.Handled = true;
-                // Windows Gezgini F2: Uzantısız seçim ile tümünü seçme arasında geçiş yap
-                var text = textBox.Text ?? "";
-                var isDir = item.IsDirectory;
-                var dotIndex = text.LastIndexOf('.');
-                if (!isDir && dotIndex > 0 && textBox.SelectionLength == dotIndex)
-                {
-                    textBox.SelectAll();
-                }
-                else if (!isDir && dotIndex > 0)
-                {
-                    textBox.Select(0, dotIndex);
-                }
+                FocusAndSelectRenameText(textBox, _renameF2Cycle + 1);
             }
             else if (e.Key == Windows.System.VirtualKey.Tab)
             {
                 e.Handled = true;
+                if (InvalidCharTip != null) InvalidCharTip.IsOpen = false;
                 var isShift = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Shift)
                     .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
 
-                await CommitInlineRenameAsync(item, textBox.Text);
+                await CommitInlineRenameAsync(item, textBox.Text, textBox);
 
                 // Windows Gezgini Tab standardı: Bir sonraki / önceki dosyayı yeniden adlandır
                 var currentIdx = _items.IndexOf(item);
@@ -2149,27 +2194,71 @@ public sealed partial class MainWindow : Window
     {
         if (sender is TextBox textBox && textBox.DataContext is FileItem item && item.IsEditing)
         {
-            await CommitInlineRenameAsync(item, textBox.Text);
+            if (InvalidCharTip != null) InvalidCharTip.IsOpen = false;
+            await CommitInlineRenameAsync(item, textBox.Text, textBox);
         }
     }
 
-    private void CancelInlineRename(FileItem item)
+    private void CancelInlineRename(FileItem item, TextBox? textBox = null)
     {
         item.IsEditing = false;
         item.EditingName = item.Name;
+        RestoreFocusToActiveItem(item);
     }
 
-    private async Task CommitInlineRenameAsync(FileItem item, string newNameText)
+    private async Task CommitInlineRenameAsync(FileItem item, string newNameText, TextBox? textBox = null)
     {
         if (!item.IsEditing) return;
-        item.IsEditing = false;
 
-        var newName = newNameText?.Trim();
-        if (string.IsNullOrWhiteSpace(newName) || newName == item.Name)
+        var raw = newNameText ?? "";
+        var trimmed = raw.Trim();
+
+        // 1. İsim değişmediyse sessizce kapat
+        if (trimmed == item.Name)
         {
+            item.IsEditing = false;
             item.EditingName = item.Name;
+            RestoreFocusToActiveItem(item);
             return;
         }
+
+        // 2. Boş isim kontrolü (Windows Gezgini uyarısı)
+        if (string.IsNullOrWhiteSpace(trimmed))
+        {
+            item.IsEditing = false;
+            item.EditingName = item.Name;
+            if (SyncStatusText != null)
+            {
+                SyncStatusText.Text = "Bir dosya adı yazmalısınız.";
+            }
+            RestoreFocusToActiveItem(item);
+            return;
+        }
+
+        // 3. Windows sonundaki nokta ve boşlukları temizler
+        var newName = trimmed.TrimEnd('.', ' ');
+        if (string.IsNullOrEmpty(newName))
+        {
+            item.IsEditing = false;
+            item.EditingName = item.Name;
+            RestoreFocusToActiveItem(item);
+            return;
+        }
+
+        // 4. Aynı konumda aynı isimde dosya var mı kontrolü
+        var collision = _items.FirstOrDefault(it => it != item && string.Equals(it.Name, newName, StringComparison.CurrentCultureIgnoreCase));
+        if (collision != null)
+        {
+            await ShowOperationErrorAsync("Dosya veya Klasör Zaten Var",
+                $"Bu konumda zaten '{newName}' adında bir {(collision.IsDirectory ? "klasör" : "dosya")} var. Lütfen farklı bir ad seçin.");
+            if (textBox != null)
+            {
+                FocusAndSelectRenameText(textBox, 0);
+            }
+            return;
+        }
+
+        item.IsEditing = false;
 
         var server = CloudreveManager.Instance.ActiveServer;
         if (server == null) return;
@@ -2185,6 +2274,7 @@ public sealed partial class MainWindow : Window
         if (success)
         {
             item.Name = newName;
+            item.EditingName = newName;
             item.Path = destPath;
             if (SyncStatusText != null)
             {
@@ -2200,6 +2290,24 @@ public sealed partial class MainWindow : Window
                 SyncStatusText.Text = $"Yeniden adlandırılamadı: '{newName}'";
             }
         }
+
+        RestoreFocusToActiveItem(item);
+    }
+
+    private void RestoreFocusToActiveItem(FileItem? item)
+    {
+        if (item == null) return;
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            var container = GetActiveItemContainer();
+            if (container != null)
+            {
+                if (container.ContainerFromItem(item) is Control ctrl)
+                {
+                    ctrl.Focus(FocusState.Programmatic);
+                }
+            }
+        });
     }
 
     #endregion
