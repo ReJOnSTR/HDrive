@@ -10,6 +10,24 @@
     Title="HDrive">
 
     <Grid>
+        <Grid.Resources>
+            <!-- Windows 11 Dosya Gezgini Birebir Yerinde Düzenleme Stili (In-Place Flat Edit Control) -->
+            <Style x:Key="ExplorerRenameTextBoxStyle" TargetType="TextBox">
+                <Setter Property="VerticalAlignment" Value="Center" />
+                <Setter Property="Padding" Value="3,1,3,1" />
+                <Setter Property="Margin" Value="0" />
+                <Setter Property="MinHeight" Value="22" />
+                <Setter Property="Height" Value="24" />
+                <Setter Property="CornerRadius" Value="1" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="BorderBrush" Value="{ThemeResource AccentFillColorDefaultBrush}" />
+                <Setter Property="Background" Value="{ThemeResource SolidBackgroundFillColorBaseBrush}" />
+                <Setter Property="SelectionHighlightColor" Value="{ThemeResource AccentFillColorDefaultBrush}" />
+                <Setter Property="FontSize" Value="12" />
+                <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Disabled" />
+                <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled" />
+            </Style>
+        </Grid.Resources>
         <Grid.RowDefinitions>
             <!-- 0: Özel Başlık Çubuğu (TitleBar) -->
             <RowDefinition Height="40" />
@@ -438,24 +456,18 @@
                                                        TextAlignment="Center"
                                                        HorizontalAlignment="Center"
                                                        Margin="0,4,0,0"
-                                                       Tapped="FileName_Tapped"
                                                        Visibility="{x:Bind NormalVisibility, Mode=OneWay}" />
 
-                                            <!-- Yerinde Yeniden Adlandırma Metin Kutusu (Windows 11 Birebir: Tam Yerel Fluent) -->
+                                            <!-- Yerinde Yeniden Adlandırma (Windows 11 Birebir) -->
                                             <TextBox Grid.Row="1" Text="{x:Bind EditingName, Mode=TwoWay}"
-                                                     FontSize="12"
+                                                     Style="{StaticResource ExplorerRenameTextBoxStyle}"
                                                      TextAlignment="Center"
                                                      HorizontalAlignment="Stretch"
                                                      Margin="0,2,0,0"
-                                                     Padding="4,2,4,2"
-                                                     MinHeight="26"
-                                                     MaxHeight="48"
+                                                     Height="Auto"
+                                                     MinHeight="24"
+                                                     MaxHeight="46"
                                                      TextWrapping="Wrap"
-                                                     CornerRadius="4"
-                                                     Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
-                                                     BorderBrush="{ThemeResource AccentFillColorDefaultBrush}"
-                                                     BorderThickness="1"
-                                                     SelectionHighlightColor="{ThemeResource AccentFillColorDefaultBrush}"
                                                      Visibility="{x:Bind EditingVisibility, Mode=OneWay}"
                                                      Loaded="InlineRenameTextBox_Loaded"
                                                      KeyDown="InlineRenameTextBox_KeyDown"
@@ -526,24 +538,19 @@
                                                        TextAlignment="Center"
                                                        HorizontalAlignment="Center"
                                                        Margin="0,2,0,0"
-                                                       Tapped="FileName_Tapped"
                                                        Visibility="{x:Bind NormalVisibility, Mode=OneWay}" />
 
-                                            <!-- Yerinde Yeniden Adlandırma (Windows 11 Birebir: Tam Yerel Fluent) -->
+                                            <!-- Yerinde Yeniden Adlandırma (Windows 11 Birebir) -->
                                             <TextBox Grid.Row="1" Text="{x:Bind EditingName, Mode=TwoWay}"
+                                                     Style="{StaticResource ExplorerRenameTextBoxStyle}"
                                                      FontSize="11"
                                                      TextAlignment="Center"
                                                      HorizontalAlignment="Stretch"
                                                      Margin="0,1,0,0"
-                                                     Padding="4,2,4,2"
-                                                     MinHeight="24"
-                                                     MaxHeight="44"
+                                                     Height="Auto"
+                                                     MinHeight="22"
+                                                     MaxHeight="42"
                                                      TextWrapping="Wrap"
-                                                     CornerRadius="4"
-                                                     Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
-                                                     BorderBrush="{ThemeResource AccentFillColorDefaultBrush}"
-                                                     BorderThickness="1"
-                                                     SelectionHighlightColor="{ThemeResource AccentFillColorDefaultBrush}"
                                                      Visibility="{x:Bind EditingVisibility, Mode=OneWay}"
                                                      Loaded="InlineRenameTextBox_Loaded"
                                                      KeyDown="InlineRenameTextBox_KeyDown"
@@ -693,22 +700,13 @@
                                             <TextBlock Grid.Column="1" Text="{x:Bind Name}" VerticalAlignment="Center" 
                                                        TextTrimming="CharacterEllipsis"
                                                        Margin="8,0,0,0"
-                                                       Tapped="FileName_Tapped"
                                                        Visibility="{x:Bind NormalVisibility, Mode=OneWay}" />
 
-                                            <!-- Yerinde Yeniden Adlandırma (Windows 11 Birebir: Tam Hizalama & Yerel Kenarlık) -->
+                                            <!-- Yerinde Yeniden Adlandırma (Windows 11 Birebir) -->
                                             <TextBox Grid.Column="1" Text="{x:Bind EditingName, Mode=TwoWay}"
-                                                     VerticalAlignment="Center"
+                                                     Style="{StaticResource ExplorerRenameTextBoxStyle}"
                                                      HorizontalAlignment="Stretch"
-                                                     Margin="4,-1,8,-1"
-                                                     FontSize="12"
-                                                     Padding="4,2,4,2"
-                                                     Height="26"
-                                                     CornerRadius="4"
-                                                     Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
-                                                     BorderBrush="{ThemeResource AccentFillColorDefaultBrush}"
-                                                     BorderThickness="1"
-                                                     SelectionHighlightColor="{ThemeResource AccentFillColorDefaultBrush}"
+                                                     Margin="5,0,8,0"
                                                      Visibility="{x:Bind EditingVisibility, Mode=OneWay}"
                                                      Loaded="InlineRenameTextBox_Loaded"
                                                      KeyDown="InlineRenameTextBox_KeyDown"
@@ -899,12 +897,5 @@
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
             </Grid>
         </Border>
-        <!-- Windows 11 Dosya Gezgini Birebir Geçersiz Karakter Uyarısı (TeachingTip) -->
-        <TeachingTip x:Name="InvalidCharTip"
-                     Title="Geçersiz karakter"
-                     Subtitle="Bir dosya adı aşağıdaki karakterlerden hiçbirini içeremez:&#x0a;\  /  :  *  ?  &quot;  &lt;  &gt;  |"
-                     PreferredPlacement="Bottom"
-                     PlacementMargin="0,4,0,0"
-                     IsLightDismissEnabled="True" />
     </Grid>
 </Window>

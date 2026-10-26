@@ -1,6 +1,6 @@
 ; HDrive Windows (WinUI 3) Inno Setup Kurulum Senaryosu
 #define MyAppName "HDrive"
-#define MyAppVersion "1.4.8"
+#define MyAppVersion "1.4.9"
 #define MyAppPublisher "ReJOnSTR"
 #define MyAppURL "https://github.com/ReJOnSTR/HDrive"
 #define MyAppExeName "HDrive.exe"

@@ -1975,7 +1975,6 @@ public sealed partial class MainWindow : Window
 
     private int _renameF2Cycle = 0;
     private DateTime _lastSelectedTime = DateTime.MinValue;
-    private DispatcherTimer? _tipTimer;
     private static readonly char[] InvalidFileNameChars = new[] { '/', '\\', ':', '*', '?', '"', '<', '>', '|' };
 
     private void ContextRename_Click(object sender, RoutedEventArgs e)
@@ -1987,22 +1986,7 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void FileName_Tapped(object sender, TappedRoutedEventArgs e)
-    {
-        if (sender is FrameworkElement fe && fe.DataContext is FileItem item)
-        {
-            // Windows 11 Dosya Gezgini: Zaten seçili olan öğeye yavaşça tıklama (~500ms - 3.5s arası)
-            if (item == _selectedItem && !item.IsEditing)
-            {
-                var elapsed = (DateTime.Now - _lastSelectedTime).TotalMilliseconds;
-                if (elapsed >= 500 && elapsed <= 3500)
-                {
-                    e.Handled = true;
-                    BeginInlineRename(item);
-                }
-            }
-        }
-    }
+
 
     private void BeginInlineRename(FileItem? item)
     {
@@ -2055,35 +2039,10 @@ public sealed partial class MainWindow : Window
 
     private void InlineRenameTextBox_BeforeTextChanging(TextBox sender, TextBoxBeforeTextChangingEventArgs args)
     {
-        // Windows 11: Yasaklı karakterleri engelle ve TeachingTip balonu göster
+        // Windows Dosya Gezgini: Yasaklı dosya adı karakterlerinin yazılmasını engelle
         if (args.NewText.IndexOfAny(InvalidFileNameChars) >= 0)
         {
             args.Cancel = true;
-            ShowInvalidCharTip(sender);
-        }
-    }
-
-    private void ShowInvalidCharTip(TextBox textBox)
-    {
-        try
-        {
-            if (InvalidCharTip != null)
-            {
-                InvalidCharTip.Target = textBox;
-                InvalidCharTip.IsOpen = true;
-                _tipTimer?.Stop();
-                _tipTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2.5) };
-                _tipTimer.Tick += (s, e) =>
-                {
-                    _tipTimer?.Stop();
-                    if (InvalidCharTip != null) InvalidCharTip.IsOpen = false;
-                };
-                _tipTimer.Start();
-            }
-        }
-        catch
-        {
-            // Görsel ağaç yenilenirken oluşabilecek istisnaları yut
         }
     }
 
@@ -2151,13 +2110,11 @@ public sealed partial class MainWindow : Window
             if (e.Key == Windows.System.VirtualKey.Enter)
             {
                 e.Handled = true;
-                if (InvalidCharTip != null) InvalidCharTip.IsOpen = false;
                 await CommitInlineRenameAsync(item, textBox.Text, textBox);
             }
             else if (e.Key == Windows.System.VirtualKey.Escape)
             {
                 e.Handled = true;
-                if (InvalidCharTip != null) InvalidCharTip.IsOpen = false;
                 CancelInlineRename(item, textBox);
             }
             else if (e.Key == Windows.System.VirtualKey.F2)
@@ -2168,7 +2125,6 @@ public sealed partial class MainWindow : Window
             else if (e.Key == Windows.System.VirtualKey.Tab)
             {
                 e.Handled = true;
-                if (InvalidCharTip != null) InvalidCharTip.IsOpen = false;
                 var isShift = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Shift)
                     .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
 
@@ -2194,7 +2150,6 @@ public sealed partial class MainWindow : Window
     {
         if (sender is TextBox textBox && textBox.DataContext is FileItem item && item.IsEditing)
         {
-            if (InvalidCharTip != null) InvalidCharTip.IsOpen = false;
             await CommitInlineRenameAsync(item, textBox.Text, textBox);
         }
     }

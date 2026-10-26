@@ -2268,14 +2268,6 @@ public struct NativeExplorerView: View {
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
                     .frame(width: 92)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        if isSelected && renamingFileID == nil {
-                            startRenaming(file)
-                        } else {
-                            handleFileTap(file)
-                        }
-                    }
             }
             
             Text(file.formattedSize)
@@ -2454,14 +2446,6 @@ public struct NativeExplorerView: View {
                         .foregroundColor(isSelected ? Color.accentColor : .primary)
                         .lineLimit(1)
                         .truncationMode(.middle)
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            if isSelected && renamingFileID == nil {
-                                startRenaming(file)
-                            } else {
-                                handleFileTap(file)
-                            }
-                        }
                 }
                 Spacer(minLength: 0)
             }
