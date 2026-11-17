@@ -84,6 +84,7 @@ public static class WindowsClipboardHelper
             if (storageItems.Count > 0)
             {
                 dp.SetStorageItems(storageItems);
+                dp.SetText(string.Join("\r\n", localPaths));
             }
             Clipboard.SetContent(dp);
         }

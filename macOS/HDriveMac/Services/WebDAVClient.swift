@@ -325,12 +325,26 @@ public final class WebDAVClient: NSObject, URLSessionDelegate, URLSessionTaskDel
         }
 
         guard let baseParsed = URL(string: base) else { return nil }
-        let basePath = baseParsed.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        if !basePath.isEmpty {
-            if cleanPath == basePath {
-                cleanPath = ""
-            } else if cleanPath.hasPrefix(basePath + "/") {
-                cleanPath = String(cleanPath.dropFirst(basePath.count + 1))
+        let baseSegments = baseParsed.path.split(separator: "/").map { String($0) }
+        let cleanSegments = cleanPath.split(separator: "/").map { String($0) }
+
+        let maxOverlap = min(baseSegments.count, cleanSegments.count)
+        var overlapFound = 0
+        for k in stride(from: maxOverlap, through: 1, by: -1) {
+            let baseTail = baseSegments.suffix(k)
+            let cleanHead = cleanSegments.prefix(k)
+            let matches = zip(baseTail, cleanHead).allSatisfy { b, c in
+                (b.removingPercentEncoding ?? b) == (c.removingPercentEncoding ?? c)
+            }
+            if matches {
+                overlapFound = k
+                break
+            }
+        }
+        if overlapFound > 0 {
+            cleanPath = cleanSegments.dropFirst(overlapFound).joined(separator: "/")
+            if trimmed.hasSuffix("/") && !cleanPath.isEmpty && !cleanPath.hasSuffix("/") {
+                cleanPath += "/"
             }
         }
 

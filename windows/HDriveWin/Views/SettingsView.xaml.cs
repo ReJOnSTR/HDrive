@@ -30,7 +30,17 @@ public sealed partial class SettingsView : UserControl
         AppVersionText.Text = "Sürüm " + typeof(App).Assembly.GetName().Version?.ToString(3) + " (Windows)";
 
         UpdateCurrentVersion.Text = "Mevcut sürüm: " + InstalledVersion;
-        Unloaded += (_, _) => _updateCancellation?.Cancel();
+        Unloaded += (_, _) =>
+        {
+            _updateCancellation?.Cancel();
+            BonjourBrowserService.Instance.StopSearching();
+        };
+
+        BonjourDevicesList.ItemsSource = BonjourBrowserService.Instance.DiscoveredDevices;
+        BonjourBrowserService.Instance.DevicesUpdated += (_, _) =>
+        {
+            DispatcherQueue?.TryEnqueue(UpdateBonjourUiState);
+        };
 
         _editingServer = CloudreveManager.Instance.ActiveServer ?? new ServerConfig();
         ServersListView.ItemsSource = CloudreveManager.Instance.Servers;
@@ -285,9 +295,54 @@ public sealed partial class SettingsView : UserControl
             {
                 CloudInfoTipBorder.Visibility = Visibility.Collapsed;
             }
+
+            if (_editingServer.Protocol == StorageProtocol.WebDAV)
+            {
+                BonjourDiscoveryPanel.Visibility = Visibility.Visible;
+                BonjourBrowserService.Instance.StartSearching(action => DispatcherQueue?.TryEnqueue(() => action()));
+                UpdateBonjourUiState();
+            }
+            else
+            {
+                BonjourDiscoveryPanel.Visibility = Visibility.Collapsed;
+                BonjourBrowserService.Instance.StopSearching();
+            }
         }
 
         TestResultInfoBar.IsOpen = false;
+    }
+
+    private void UpdateBonjourUiState()
+    {
+        if (BonjourDiscoveryPanel == null) return;
+        var svc = BonjourBrowserService.Instance;
+        RefreshBonjourBtnText.Text = svc.IsSearching ? "Taranıyor..." : "Yeniden Tara";
+        if (svc.DiscoveredDevices.Count == 0)
+        {
+            BonjourStatusText.Visibility = Visibility.Visible;
+            BonjourStatusText.Text = svc.IsSearching
+                ? "Yerel ağdaki WebDAV servisleri aranıyor..."
+                : "Yerel ağda yayın yapan WebDAV sunucusu bulunamadı.";
+        }
+        else
+        {
+            BonjourStatusText.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private void RefreshBonjourBtn_Click(object sender, RoutedEventArgs e)
+    {
+        BonjourBrowserService.Instance.StartSearching(action => DispatcherQueue?.TryEnqueue(() => action()));
+        UpdateBonjourUiState();
+    }
+
+    private void DiscoveredDevice_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button btn && btn.Tag is DiscoveredWebDavDevice device)
+        {
+            ServerNameBox.Text = device.Name;
+            ServerUrlBox.Text = device.ConnectionUrl;
+        }
     }
 
     private async void OAuthLoginButton_Click(object sender, RoutedEventArgs e)

@@ -90,7 +90,16 @@ enum FileExportService {
                 try await materialize(child, to: target, config: config, ancestors: ancestors.union([path]), list: list, download: download)
             }
         } else {
-            try await download(file.href, destination)
+            do {
+                try await download(file.href, destination)
+            } catch let error as NSError where error.code == 404 {
+                let navPath = file.navigationPath(relativeTo: config)
+                if navPath != file.href {
+                    try await download(navPath, destination)
+                } else {
+                    throw error
+                }
+            }
             guard FileManager.default.fileExists(atPath: destination.path) else {
                 throw CocoaError(.fileNoSuchFile)
             }

@@ -105,44 +105,57 @@ public final class FileOpener: ObservableObject {
 
     private var fileWatchers: [String: DispatchSourceFileSystemObject] = [:]
     private var lastModifiedDates: [String: Date] = [:]
+    private var uploadingPaths: Set<String> = []
+    private var pendingUploadPaths: Set<String> = []
 
-    private func watchForLiveEdits(localFile: URL, remoteHref: String, client: WebDAVClient) {
+    private func watchForLiveEdits(localFile: URL, remoteHref: String, client: WebDAVClient, preserveBaseline: Bool = false) {
         let path = localFile.path
         if let existing = fileWatchers[path] {
             existing.cancel()
+            fileWatchers.removeValue(forKey: path)
         }
         
-        lastModifiedDates[path] = (try? localFile.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? Date()
+        if !preserveBaseline || lastModifiedDates[path] == nil {
+            lastModifiedDates[path] = (try? localFile.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? Date()
+        }
 
         let fileDescriptor = open(path, O_EVTONLY)
         guard fileDescriptor >= 0 else { return }
 
-        let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fileDescriptor, eventMask: [.write, .extend, .attrib], queue: DispatchQueue.global(qos: .utility))
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fileDescriptor,
+            eventMask: [.write, .extend, .attrib, .delete, .rename, .link],
+            queue: DispatchQueue.global(qos: .utility)
+        )
         
         var debounceWorkItem: DispatchWorkItem?
         
-        source.setEventHandler { [weak self] in
+        let scheduleUpload: () -> Void = { [weak self] in
             guard let self = self else { return }
-            
             debounceWorkItem?.cancel()
-            let workItem = DispatchWorkItem {
-                let currentModDate = (try? localFile.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? Date()
-                if let lastDate = self.lastModifiedDates[path], currentModDate <= lastDate {
-                    return
-                }
-                guard let owner = CloudreveManager.shared.servers.first(where: { $0.id == client.config.id && $0.isConnected }), OfflineStore.identity(owner) == OfflineStore.identity(client.config) else {
-                    SyncLogManager.shared.log("Düzenleme yüklenemedi: hesabın bağlantısı kesildi.", isError: true); return
-                }
-                let uploadClient = WebDAVClient(config: owner)
-                uploadClient.replaceFile(href: remoteHref, localURL: localFile) { err in
-                    DispatchQueue.main.async {
-                        if let err = err { SyncLogManager.shared.log("Düzenleme yüklenemedi: " + err.localizedDescription, isError: true) }
-                        else { self.lastModifiedDates[path] = currentModDate; SyncLogManager.shared.log("Düzenleme kaydedildi: " + localFile.lastPathComponent) }
-                    }
-                }
+            let workItem = DispatchWorkItem { [weak self] in
+                self?.performLiveUploadIfReady(localFile: localFile, remoteHref: remoteHref, client: client)
             }
             debounceWorkItem = workItem
-            DispatchQueue.global().asyncAfter(deadline: .now() + 1.2, execute: workItem)
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 1.2, execute: workItem)
+        }
+
+        source.setEventHandler { [weak self] in
+            guard let self = self else { return }
+            let flags = source.data
+            if flags.contains(.delete) || flags.contains(.rename) {
+                // Atomic save (e.g., Word, Excel, TextEdit, Preview replaces the file via temp rename).
+                // Rebind watcher to the new inode at the same path and trigger upload.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+                    guard let self = self else { return }
+                    if FileManager.default.fileExists(atPath: path) {
+                        self.watchForLiveEdits(localFile: localFile, remoteHref: remoteHref, client: client, preserveBaseline: true)
+                        scheduleUpload()
+                    }
+                }
+                return
+            }
+            scheduleUpload()
         }
 
         source.setCancelHandler {
@@ -151,5 +164,64 @@ public final class FileOpener: ObservableObject {
 
         fileWatchers[path] = source
         source.resume()
+    }
+
+    private func isFileReady(_ url: URL) -> Bool {
+        let fd = open(url.path, O_RDONLY | O_SHLOCK | O_NONBLOCK)
+        if fd >= 0 {
+            flock(fd, LOCK_UN)
+            close(fd)
+            return true
+        }
+        return FileManager.default.isReadableFile(atPath: url.path)
+    }
+
+    private func performLiveUploadIfReady(localFile: URL, remoteHref: String, client: WebDAVClient, attempt: Int = 0) {
+        let path = localFile.path
+        guard FileManager.default.fileExists(atPath: path) else { return }
+
+        if !isFileReady(localFile) && attempt < 5 {
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                self?.performLiveUploadIfReady(localFile: localFile, remoteHref: remoteHref, client: client, attempt: attempt + 1)
+            }
+            return
+        }
+
+        let currentModDate = (try? localFile.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? Date()
+        if let lastDate = self.lastModifiedDates[path], currentModDate <= lastDate {
+            return
+        }
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            if self.uploadingPaths.contains(path) {
+                self.pendingUploadPaths.insert(path)
+                return
+            }
+            guard let owner = CloudreveManager.shared.servers.first(where: { $0.id == client.config.id && $0.isConnected }),
+                  OfflineStore.identity(owner) == OfflineStore.identity(client.config) else {
+                SyncLogManager.shared.log("Düzenleme yüklenemedi: hesabın bağlantısı kesildi.", isError: true)
+                return
+            }
+            self.uploadingPaths.insert(path)
+            let uploadClient = WebDAVClient(config: owner)
+            uploadClient.replaceFile(href: remoteHref, localURL: localFile) { [weak self] err in
+                DispatchQueue.main.async {
+                    guard let self = self else { return }
+                    self.uploadingPaths.remove(path)
+                    if let err = err {
+                        SyncLogManager.shared.log("Düzenleme yüklenemedi: " + err.localizedDescription, isError: true)
+                    } else {
+                        self.lastModifiedDates[path] = currentModDate
+                        SyncLogManager.shared.log("Düzenleme kaydedildi: " + localFile.lastPathComponent)
+                    }
+                    if self.pendingUploadPaths.remove(path) != nil {
+                        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.4) { [weak self] in
+                            self?.performLiveUploadIfReady(localFile: localFile, remoteHref: remoteHref, client: client)
+                        }
+                    }
+                }
+            }
+        }
     }
 }

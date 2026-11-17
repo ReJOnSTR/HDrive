@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Threading.Tasks;
+using Windows.Media.Core;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media.Imaging;
@@ -32,13 +33,14 @@ public sealed partial class QuickLookDialog : ContentDialog
         HeaderIconGlyph.Glyph = item.GlyphIcon;
         HeaderIconGlyph.Foreground = item.IconBrush;
 
-        if (item.IconImage != null)
+        var headerThumb = item.ThumbnailImage ?? item.IconImage;
+        if (headerThumb != null)
         {
-            PreviewGenericIconImage.Source = item.IconImage;
+            PreviewGenericIconImage.Source = headerThumb;
             PreviewGenericIconImage.Visibility = Visibility.Visible;
             PreviewGenericGlyph.Visibility = Visibility.Collapsed;
 
-            HeaderIconImage.Source = item.IconImage;
+            HeaderIconImage.Source = headerThumb;
             HeaderIconImage.Visibility = Visibility.Visible;
             HeaderIconGlyph.Visibility = Visibility.Collapsed;
         }
@@ -48,10 +50,32 @@ public sealed partial class QuickLookDialog : ContentDialog
             ShouldOpenNatively = true;
         };
 
+        Closing += (s, e) => CleanupMedia();
+        Unloaded += (s, e) => CleanupMedia();
+
         LoadPreview(localFilePath);
     }
 
-    private void LoadPreview(string? localFilePath)
+    private void CleanupMedia()
+    {
+        try
+        {
+            if (PreviewMediaPlayer?.MediaPlayer != null)
+            {
+                PreviewMediaPlayer.MediaPlayer.Pause();
+                PreviewMediaPlayer.Source = null;
+            }
+        }
+        catch { }
+
+        try
+        {
+            PreviewWebView?.Close();
+        }
+        catch { }
+    }
+
+    private async void LoadPreview(string? localFilePath)
     {
         if (string.IsNullOrEmpty(localFilePath) || !File.Exists(localFilePath))
         {
@@ -74,28 +98,73 @@ public sealed partial class QuickLookDialog : ContentDialog
                 PreviewImage.Visibility = Visibility.Visible;
                 PreviewGenericStack.Visibility = Visibility.Collapsed;
                 PreviewTextScroll.Visibility = Visibility.Collapsed;
+                PreviewWebView.Visibility = Visibility.Collapsed;
+                PreviewMediaPlayer.Visibility = Visibility.Collapsed;
                 return;
             }
             catch { }
         }
 
-        // 2. Metin ve Kod Dosyaları
-        if (ext is ".txt" or ".json" or ".xml" or ".md" or ".cs" or ".js" or ".ts" or ".html" or ".css" or ".log" or ".yaml" or ".yml" or ".csv" or ".sql" or ".py" or ".swift")
+        // 2. PDF ve SVG Dosyaları (WebView2 ile Çok Sayfalı Yerel Önizleme)
+        if (ext is ".pdf" or ".svg")
+        {
+            try
+            {
+                PreviewWebView.Visibility = Visibility.Visible;
+                PreviewGenericStack.Visibility = Visibility.Collapsed;
+                PreviewImage.Visibility = Visibility.Collapsed;
+                PreviewTextScroll.Visibility = Visibility.Collapsed;
+                PreviewMediaPlayer.Visibility = Visibility.Collapsed;
+                await PreviewWebView.EnsureCoreWebView2Async();
+                PreviewWebView.Source = new Uri(localFilePath);
+                return;
+            }
+            catch
+            {
+                PreviewWebView.Visibility = Visibility.Collapsed;
+                PreviewGenericStack.Visibility = Visibility.Visible;
+            }
+        }
+
+        // 3. Video ve Ses Dosyaları (MediaPlayerElement ile Yerleşik Oynatıcı)
+        if (ext is ".mp4" or ".mov" or ".mkv" or ".avi" or ".m4v" or ".wmv" or ".mp3" or ".m4a" or ".wav" or ".flac" or ".aac")
+        {
+            try
+            {
+                PreviewMediaPlayer.Source = MediaSource.CreateFromUri(new Uri(localFilePath));
+                PreviewMediaPlayer.Visibility = Visibility.Visible;
+                PreviewGenericStack.Visibility = Visibility.Collapsed;
+                PreviewImage.Visibility = Visibility.Collapsed;
+                PreviewTextScroll.Visibility = Visibility.Collapsed;
+                PreviewWebView.Visibility = Visibility.Collapsed;
+                return;
+            }
+            catch
+            {
+                PreviewMediaPlayer.Visibility = Visibility.Collapsed;
+                PreviewGenericStack.Visibility = Visibility.Visible;
+            }
+        }
+
+        // 4. Metin ve Kod Dosyaları
+        if (ext is ".txt" or ".json" or ".xml" or ".md" or ".cs" or ".js" or ".ts" or ".html" or ".htm" or ".css" or ".log" or ".yaml" or ".yml" or ".csv" or ".sql" or ".py" or ".swift" or ".sh" or ".bat" or ".ini")
         {
             try
             {
                 var fileInfo = new FileInfo(localFilePath);
-                if (fileInfo.Length < 1024 * 500) // 500 KB limit
+                if (fileInfo.Length < 1024 * 1024) // 1 MB limit
                 {
                     var text = File.ReadAllText(localFilePath);
-                    if (text.Length > 8000)
+                    if (text.Length > 12000)
                     {
-                        text = text[..8000] + "\n\n... (Daha fazlası için dosyayı açın)";
+                        text = text[..12000] + "\n\n... (Daha fazlası için dosyayı açın)";
                     }
                     PreviewTextContent.Text = text;
                     PreviewTextScroll.Visibility = Visibility.Visible;
                     PreviewImage.Visibility = Visibility.Collapsed;
                     PreviewGenericStack.Visibility = Visibility.Collapsed;
+                    PreviewWebView.Visibility = Visibility.Collapsed;
+                    PreviewMediaPlayer.Visibility = Visibility.Collapsed;
                     return;
                 }
             }

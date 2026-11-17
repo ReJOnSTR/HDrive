@@ -23,7 +23,6 @@ final class FileDragView: NSView, NSDraggingSource {
     var onError: ((Error) -> Void)?
     private var monitor: Any?
     private var origin: NSPoint?
-    private var captured: FileDragSelection?
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -34,33 +33,45 @@ final class FileDragView: NSView, NSDraggingSource {
             let point = self.convert(event.locationInWindow, from: nil)
             switch event.type {
             case .leftMouseDown:
-                // Capture the selection before the SwiftUI row changes it on mouse-down.
-                let inside = self.bounds.contains(point) && !self.isHiddenOrHasHiddenAncestor
+                guard !self.isHiddenOrHasHiddenAncestor else {
+                    self.origin = nil
+                    return event
+                }
+                let visible = self.visibleRect
+                let inside = !visible.isEmpty && visible.contains(point)
                 self.origin = inside && event.clickCount == 1 ? point : nil
-                self.captured = self.origin == nil ? nil : self.selection?()
             case .leftMouseUp:
-                self.origin = nil; self.captured = nil
+                self.origin = nil
             case .leftMouseDragged:
-                guard let start = self.origin, hypot(point.x - start.x, point.y - start.y) >= 5,
-                      let capture = self.captured, !capture.files.isEmpty else { return event }
-                self.origin = nil; self.captured = nil
-                let providers = FileDragPromise.providers(for: capture, onError: self.onError ?? { _ in })
-                var items: [NSDraggingItem] = providers.enumerated().map { index, provider in
+                guard let start = self.origin, hypot(point.x - start.x, point.y - start.y) >= 5 else { return event }
+                self.origin = nil
+                guard let capture = self.selection?(), !capture.files.isEmpty else { return event }
+                let batch = DragBatch(prepare: { try await FileExportService.prepare(capture.files, client: capture.client) })
+                batch.start()
+                let providers = FileDragPromise.providers(for: capture, batch: batch, onError: self.onError ?? { _ in })
+                let items: [NSDraggingItem] = providers.enumerated().map { index, provider in
                     let item = NSDraggingItem(pasteboardWriter: provider)
                     let image = NSWorkspace.shared.icon(for: capture.files[index].isDirectory ? .folder : .data)
                     item.setDraggingFrame(NSRect(x: point.x - 20 + CGFloat(min(index, 3) * 3), y: point.y - 20 - CGFloat(min(index, 3) * 3), width: 40, height: 40), contents: image)
                     return item
                 }
-                // Add internal drag payload with remote hrefs for internal folder drop/move
-                if let internalData = try? JSONEncoder().encode(capture.files.map { $0.href }) {
-                    let internalPasteboardItem = NSPasteboardItem()
-                    internalPasteboardItem.setData(internalData, forType: NSPasteboard.PasteboardType("com.hdrv.remote-hrefs"))
-                    let internalDragItem = NSDraggingItem(pasteboardWriter: internalPasteboardItem)
-                    internalDragItem.setDraggingFrame(NSRect(x: point.x, y: point.y, width: 1, height: 1), contents: nil)
-                    items.append(internalDragItem)
-                }
                 let session = self.beginDraggingSession(with: items, event: event, source: self)
                 session.draggingFormation = .pile
+
+                // Write lazy file URLs to the drag pasteboard for external apps (WhatsApp, Chrome, Safari, Slack, etc.)
+                // This ensures external targets receive file URLs without creating duplicate visual dragging items.
+                let urlWriters = (0..<capture.files.count).map { index in
+                    LazyFileURLWriter { [weak self] in
+                        guard let urls = batch.blockingValue(onError: self?.onError), index < urls.count else { return nil }
+                        return urls[index]
+                    }
+                }
+                session.draggingPasteboard.writeObjects(urlWriters)
+
+                // Add internal drag payload with remote hrefs for internal folder drop/move
+                if let internalData = try? JSONEncoder().encode(capture.files.map { $0.href }) {
+                    session.draggingPasteboard.setData(internalData, forType: NSPasteboard.PasteboardType("com.hdrv.remote-hrefs"))
+                }
                 return nil
             default: break
             }
@@ -69,10 +80,41 @@ final class FileDragView: NSView, NSDraggingSource {
     }
     func stopMonitoring() {
         if let monitor { NSEvent.removeMonitor(monitor) }
-        monitor = nil; origin = nil; captured = nil
+        monitor = nil; origin = nil
     }
     deinit { if let monitor { NSEvent.removeMonitor(monitor) } }
     func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation { .copy }
+}
+
+/// A promised pasteboard writer that provides .fileURL and .string lazily on drop.
+/// Returning .promised ensures AppKit starts the drag session instantly without blocking,
+/// while providing full compatibility with apps (WhatsApp, Chrome, Slack, etc.) that inspect
+/// public.file-url and NSFilenamesPboardType.
+final class LazyFileURLWriter: NSObject, NSPasteboardWriting {
+    let getURL: () -> URL?
+
+    init(getURL: @escaping () -> URL?) {
+        self.getURL = getURL
+    }
+
+    func writableTypes(for pasteboard: NSPasteboard) -> [NSPasteboard.PasteboardType] {
+        return [.fileURL, .string]
+    }
+
+    func writingOptions(forType type: NSPasteboard.PasteboardType, pasteboard: NSPasteboard) -> NSPasteboard.WritingOptions {
+        return .promised
+    }
+
+    func pasteboardPropertyList(forType type: NSPasteboard.PasteboardType) -> Any? {
+        guard let url = getURL() else { return nil }
+        if type == .fileURL {
+            return (url as NSURL).pasteboardPropertyList(forType: .fileURL)
+        }
+        if type == .string {
+            return url.path
+        }
+        return nil
+    }
 }
 
 final class FileDragPromise: NSObject, NSFilePromiseProviderDelegate {
@@ -83,11 +125,11 @@ final class FileDragPromise: NSObject, NSFilePromiseProviderDelegate {
     private init(name: String, index: Int, batch: DragBatch, onError: @escaping (Error) -> Void) {
         self.name = name; self.index = index; self.batch = batch; self.onError = onError
     }
-    static func providers(for selection: FileDragSelection, prepare: (() async throws -> [URL])? = nil, onError: @escaping (Error) -> Void) -> [NSFilePromiseProvider] {
-        let batch = DragBatch(prepare: prepare ?? { try await FileExportService.prepare(selection.files, client: selection.client) })
+    static func providers(for selection: FileDragSelection, prepare: (() async throws -> [URL])? = nil, batch: DragBatch? = nil, onError: @escaping (Error) -> Void) -> [NSFilePromiseProvider] {
+        let effectiveBatch = batch ?? DragBatch(prepare: prepare ?? { try await FileExportService.prepare(selection.files, client: selection.client) })
         let names = FileExportService.exportNames(selection.files, config: selection.client.config)
         return selection.files.enumerated().map { index, file in
-            let delegate = FileDragPromise(name: names[index], index: index, batch: batch, onError: onError)
+            let delegate = FileDragPromise(name: names[index], index: index, batch: effectiveBatch, onError: onError)
             let type = file.isDirectory ? UTType.folder : (UTType(filenameExtension: (names[index] as NSString).pathExtension) ?? .data)
             let provider = NSFilePromiseProvider(fileType: type.identifier, delegate: delegate)
             provider.userInfo = delegate // NSFilePromiseProvider's delegate reference is weak.
@@ -110,13 +152,58 @@ final class FileDragPromise: NSObject, NSFilePromiseProviderDelegate {
     }
 }
 
-private actor DragBatch {
+final class DragBatch: @unchecked Sendable {
+    private let lock = NSLock()
     private var task: Task<[URL], Error>?
     private let prepare: () async throws -> [URL]
-    init(prepare: @escaping () async throws -> [URL]) { self.prepare = prepare }
+
+    init(prepare: @escaping () async throws -> [URL]) {
+        self.prepare = prepare
+    }
+
+    @discardableResult
+    func start() -> Task<[URL], Error> {
+        lock.lock()
+        defer { lock.unlock() }
+        if let task { return task }
+        let t = Task { try await prepare() }
+        self.task = t
+        return t
+    }
+
     func value() async throws -> [URL] {
-        if let task { return try await task.value }
-        let task = Task { try await prepare() }; self.task = task
-        return try await task.value
+        let t = start()
+        return try await t.value
+    }
+
+    func blockingValue(onError: ((Error) -> Void)? = nil) -> [URL]? {
+        let t = start()
+        var completed = false
+        var result: Result<[URL], Error>?
+
+        Task {
+            do {
+                let urls = try await t.value
+                result = .success(urls)
+            } catch {
+                result = .failure(error)
+            }
+            completed = true
+        }
+
+        let timeout = Date(timeIntervalSinceNow: 25.0)
+        while !completed && Date() < timeout {
+            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+        }
+
+        switch result {
+        case .success(let urls):
+            return urls
+        case .failure(let error):
+            onError?(error)
+            return nil
+        case .none:
+            return nil
+        }
     }
 }

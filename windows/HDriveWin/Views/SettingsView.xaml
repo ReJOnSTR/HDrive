@@ -424,6 +424,50 @@
                                                    FontSize="11.5" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
                                     </Border>
 
+                                    <!-- Yerel Ağ WebDAV (Bonjour / mDNS) Keşif Paneli -->
+                                    <Border x:Name="BonjourDiscoveryPanel" Background="{ThemeResource LayerFillColorDefaultBrush}"
+                                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                                            CornerRadius="8" Padding="12,10" Visibility="Collapsed">
+                                        <StackPanel Spacing="8">
+                                            <Grid>
+                                                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                                    <FontIcon Glyph="&#xE701;" FontSize="12" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                                    <TextBlock Text="Yerel Ağdaki WebDAV Sunucuları (Bonjour)" FontSize="12" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                </StackPanel>
+                                                <Button x:Name="RefreshBonjourBtn" Click="RefreshBonjourBtn_Click" HorizontalAlignment="Right"
+                                                        Style="{ThemeResource SubtleButtonStyle}" Padding="8,4" CornerRadius="4">
+                                                    <StackPanel Orientation="Horizontal" Spacing="5">
+                                                        <FontIcon Glyph="&#xE72C;" FontSize="11" />
+                                                        <TextBlock x:Name="RefreshBonjourBtnText" Text="Yeniden Tara" FontSize="11" />
+                                                    </StackPanel>
+                                                </Button>
+                                            </Grid>
+                                            <TextBlock x:Name="BonjourStatusText" Text="Yerel ağdaki WebDAV servisleri aranıyor..." FontSize="11.5" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                                            <ItemsControl x:Name="BonjourDevicesList">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <Button Click="DiscoveredDevice_Click" Tag="{Binding}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                                                                Style="{ThemeResource SubtleButtonStyle}" Padding="10,6" Margin="0,2">
+                                                            <Grid>
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="Auto" />
+                                                                    <ColumnDefinition Width="*" />
+                                                                    <ColumnDefinition Width="Auto" />
+                                                                </Grid.ColumnDefinitions>
+                                                                <FontIcon Grid.Column="0" Glyph="&#xE968;" FontSize="12" Margin="0,0,8,0" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                                                                    <TextBlock Text="{Binding Name}" FontSize="12" FontWeight="SemiBold" />
+                                                                    <TextBlock Text="{Binding DisplaySubtitle}" FontSize="11.5" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                                </StackPanel>
+                                                                <TextBlock Grid.Column="2" Text="Seç" FontSize="11.5" FontWeight="SemiBold" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                                            </Grid>
+                                                        </Button>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </StackPanel>
+                                    </Border>
+
                                     <!-- Bağlantı Testi ve Bilgi Barı -->
                                     <StackPanel Spacing="10" Margin="0,4,0,0">
                                         <InfoBar x:Name="TestResultInfoBar" IsOpen="False" Severity="Informational" />

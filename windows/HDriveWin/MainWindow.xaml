@@ -438,13 +438,16 @@
                                             </Grid.RowDefinitions>
 
                                             <Grid Grid.Row="0" Width="48" Height="48" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                                <Image Source="{x:Bind IconImage}" Width="48" Height="48" Stretch="Uniform"
-                                                       Visibility="{x:Bind HasIconImageVisibility}"
+                                                <Image Source="{x:Bind DisplayIconLarge, Mode=OneWay}" Width="48" Height="48" Stretch="Uniform"
+                                                       Visibility="{x:Bind HasIconImageVisibility, Mode=OneWay}"
                                                        HorizontalAlignment="Center" VerticalAlignment="Center" />
                                                 <FontIcon Glyph="{x:Bind GlyphIcon}" FontSize="40"
                                                           Foreground="{x:Bind IconBrush}"
-                                                          Visibility="{x:Bind HasNoIconImageVisibility}"
+                                                          Visibility="{x:Bind HasNoIconImageVisibility, Mode=OneWay}"
                                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                                <Ellipse Width="8" Height="8" Fill="{x:Bind TagBrush, Mode=OneWay}"
+                                                         Visibility="{x:Bind HasTagVisibility, Mode=OneWay}"
+                                                         HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,2,2,0" />
                                             </Grid>
 
                                             <!-- Normal İsim -->
@@ -520,13 +523,16 @@
                                             </Grid.RowDefinitions>
 
                                             <Grid Grid.Row="0" Width="36" Height="36" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                                <Image Source="{x:Bind IconImage}" Width="36" Height="36" Stretch="Uniform"
-                                                       Visibility="{x:Bind HasIconImageVisibility}"
+                                                <Image Source="{x:Bind DisplayIconLarge, Mode=OneWay}" Width="36" Height="36" Stretch="Uniform"
+                                                       Visibility="{x:Bind HasIconImageVisibility, Mode=OneWay}"
                                                        HorizontalAlignment="Center" VerticalAlignment="Center" />
                                                 <FontIcon Glyph="{x:Bind GlyphIcon}" FontSize="30"
                                                           Foreground="{x:Bind IconBrush}"
-                                                          Visibility="{x:Bind HasNoIconImageVisibility}"
+                                                          Visibility="{x:Bind HasNoIconImageVisibility, Mode=OneWay}"
                                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                                <Ellipse Width="7" Height="7" Fill="{x:Bind TagBrush, Mode=OneWay}"
+                                                         Visibility="{x:Bind HasTagVisibility, Mode=OneWay}"
+                                                         HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,1,1,0" />
                                             </Grid>
 
                                             <!-- Normal İsim -->
@@ -687,20 +693,24 @@
 
                                             <!-- İkon -->
                                             <Grid Grid.Column="0" Width="18" Height="18" VerticalAlignment="Center" HorizontalAlignment="Left">
-                                                <Image Source="{x:Bind IconImageSmall}" Width="16" Height="16" Stretch="Uniform"
-                                                       Visibility="{x:Bind HasIconImageVisibility}"
+                                                <Image Source="{x:Bind DisplayIconSmall, Mode=OneWay}" Width="16" Height="16" Stretch="Uniform"
+                                                       Visibility="{x:Bind HasIconImageVisibility, Mode=OneWay}"
                                                        HorizontalAlignment="Center" VerticalAlignment="Center" />
                                                 <FontIcon Glyph="{x:Bind GlyphIcon}" FontSize="16" 
                                                           Foreground="{x:Bind IconBrush}"
-                                                          Visibility="{x:Bind HasNoIconImageVisibility}"
+                                                          Visibility="{x:Bind HasNoIconImageVisibility, Mode=OneWay}"
                                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
                                             </Grid>
 
-                                            <!-- Normal İsim -->
-                                            <TextBlock Grid.Column="1" Text="{x:Bind Name}" VerticalAlignment="Center" 
-                                                       TextTrimming="CharacterEllipsis"
-                                                       Margin="8,0,0,0"
-                                                       Visibility="{x:Bind NormalVisibility, Mode=OneWay}" />
+                                            <!-- Normal İsim ve Etiket -->
+                                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" Margin="8,0,0,0"
+                                                        Visibility="{x:Bind NormalVisibility, Mode=OneWay}">
+                                                <TextBlock Text="{x:Bind Name}" VerticalAlignment="Center" 
+                                                           TextTrimming="CharacterEllipsis" />
+                                                <Ellipse Width="8" Height="8" Fill="{x:Bind TagBrush, Mode=OneWay}"
+                                                         Visibility="{x:Bind HasTagVisibility, Mode=OneWay}"
+                                                         VerticalAlignment="Center" />
+                                            </StackPanel>
 
                                             <!-- Yerinde Yeniden Adlandırma (Windows 11 Birebir) -->
                                             <TextBox Grid.Column="1" Text="{x:Bind EditingName, Mode=TwoWay}"
@@ -825,11 +835,25 @@
                                     <FontIcon Glyph="&#xE890;" />
                                 </MenuFlyoutItem.Icon>
                             </MenuFlyoutItem>
-                            <MenuFlyoutItem x:Name="ContextPinItem" Text="Kenar Çubuğuna Sabitle" Click="ContextPin_Click" Visibility="Collapsed">
+                            <MenuFlyoutItem x:Name="ContextPinItem" Text="Kenar Çubuğuna Sabitle" Click="ContextPin_Click" Visibility="Visible">
                                 <MenuFlyoutItem.Icon>
                                     <FontIcon x:Name="ContextPinIcon" Glyph="&#xE718;" />
                                 </MenuFlyoutItem.Icon>
                             </MenuFlyoutItem>
+                            <MenuFlyoutSubItem x:Name="ContextTagsSubItem" Text="Etiketler">
+                                <MenuFlyoutSubItem.Icon>
+                                    <FontIcon Glyph="&#xE8EC;" />
+                                </MenuFlyoutSubItem.Icon>
+                                <MenuFlyoutItem Text="Kırmızı" Click="ContextTag_Click" Tag="#FF453A" />
+                                <MenuFlyoutItem Text="Turuncu" Click="ContextTag_Click" Tag="#FF9F0A" />
+                                <MenuFlyoutItem Text="Sarı" Click="ContextTag_Click" Tag="#FFD60A" />
+                                <MenuFlyoutItem Text="Yeşil" Click="ContextTag_Click" Tag="#30D158" />
+                                <MenuFlyoutItem Text="Mavi" Click="ContextTag_Click" Tag="#0A84FF" />
+                                <MenuFlyoutItem Text="Mor" Click="ContextTag_Click" Tag="#BF5AF2" />
+                                <MenuFlyoutItem Text="Gri" Click="ContextTag_Click" Tag="#8E8E93" />
+                                <MenuFlyoutSeparator />
+                                <MenuFlyoutItem Text="Etiketi Kaldır" Click="ContextClearTag_Click" />
+                            </MenuFlyoutSubItem>
                             <MenuFlyoutItem Text="İndir ve Kaydet" Click="ContextDownload_Click">
                                 <MenuFlyoutItem.Icon>
                                     <FontIcon Glyph="&#xE896;" />

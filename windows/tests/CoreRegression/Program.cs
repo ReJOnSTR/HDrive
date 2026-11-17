@@ -134,6 +134,25 @@ await Check("Cache isolates accounts, preserves filenames and fetches fresh copi
     Require(one != two && one != three && File.ReadAllText(one!) != File.ReadAllText(two!), "Stale/cross-account cache reused");
     Require(Path.GetFileName(one) == "report.txt" && File.ReadAllText(three!) == "other-account", "Filename or account content changed");
 });
+await Check("Local file naming sanitizes cloud titles, infers missing extensions and avoids Windows reserved names", async () => {
+    Require(WebDAVClient.SafeFileName("2026/01 Rapor: taslak. ") == "2026_01 Rapor_ taslak", "Cloud title sanitization truncated or kept trailing dot/space");
+    Require(WebDAVClient.SafeFileName("CON.txt") == "_CON.txt", "Windows reserved device name was not escaped");
+    var webdav = Client(Account(StorageProtocol.WebDAV), (_, _) => Task.FromResult(Json("pdf-bytes")));
+    var fromHref = await webdav.DownloadFileToCacheAsync("docs/2000376847012_0_0.pdf", "2000376847012_0_0");
+    Require(Path.GetFileName(fromHref) == "2000376847012_0_0.pdf", "WebDAV extension was not inferred from remote path");
+    var onedrive = Client(Account(StorageProtocol.OneDrive), (_, _) => Task.FromResult(Json("pdf-bytes")));
+    var fromMime = await onedrive.DownloadFileToCacheAsync("item-1", "2026/01 Rapor", "application/pdf");
+    Require(Path.GetFileName(fromMime) == "2026_01 Rapor.pdf", "MIME extension was not inferred or slash title was truncated");
+});
+await Check("Folder download deduplicates colliding local filenames", async () => {
+    var client = Client(Account(StorageProtocol.OneDrive), (request, _) => Task.FromResult(
+        request.RequestUri!.AbsolutePath.EndsWith("/folder-id/children")
+            ? Json("""{"value":[{"id":"f1","name":"a/b.txt","file":{"mimeType":"text/plain"},"size":1},{"id":"f2","name":"a:b.txt","file":{"mimeType":"text/plain"},"size":1}]}""")
+            : Json("data")));
+    var folder = await client.DownloadFolderToCacheAsync("folder-id", "Export");
+    var files = Directory.GetFiles(folder!).Select(Path.GetFileName).OrderBy(x => x).ToArray();
+    Require(files.SequenceEqual(new[] { "a_b (2).txt", "a_b.txt" }), "Colliding local filenames overwrote each other");
+});
 await Check("Google download resolves native Sheets through the export API", async () => {
     var client = Client(Account(StorageProtocol.GoogleDrive), (request, _) => Task.FromResult(
         request.RequestUri!.Query.Contains("fields=") ? Json("{\"mimeType\":\"application/vnd.google-apps.spreadsheet\"}") :

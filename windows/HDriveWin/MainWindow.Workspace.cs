@@ -77,8 +77,9 @@ public sealed partial class MainWindow
         foreach (var item in GetSelectedItems()) {
             if (item.IsDirectory) { errors.Add(item.Name + ": Klasörün içindeki dosyaları seçin."); continue; }
             try {
-                var target = OfflineLibrary.Destination(account, item.Path, item.Name);
-                TransferManager.Instance.EnqueueDownload(item.Name, item.Path, target, client, item.Size);
+                var localName = client.LocalFileName(item.Path, item.Name, item.ContentType);
+                var target = OfflineLibrary.Destination(account, item.Path, localName);
+                TransferManager.Instance.EnqueueDownload(localName, item.Path, target, client, item.Size);
             } catch (Exception error) { errors.Add(item.Name + ": " + error.Message); }
         }
         if (errors.Count > 0) await ShowOperationErrorAsync("Çevrimdışı kaydetme", string.Join("\n", errors));

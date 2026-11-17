@@ -16,7 +16,7 @@ public static class FileExportService
         {
             var path = item.IsDirectory
                 ? await client.DownloadFolderToCacheAsync(item.Path, item.Name)
-                : await client.DownloadFileToCacheAsync(item.Path, item.Name);
+                : await client.DownloadFileToCacheAsync(item.Path, item.Name, item.ContentType);
             if (string.IsNullOrEmpty(path) || (item.IsDirectory ? !Directory.Exists(path) : !File.Exists(path)))
                 throw new IOException($"Dosya indirilemedi: {item.Name}");
 

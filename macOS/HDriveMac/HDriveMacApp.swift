@@ -64,6 +64,13 @@ struct HDriveMacApp: App {
             
             Divider()
             
+            Button("HDrive'ı Göster") {
+                NSApplication.shared.activate(ignoringOtherApps: true)
+                if let mainWin = NSApplication.shared.windows.first(where: { $0.title.contains("HDrive") || $0.isVisible }) {
+                    mainWin.makeKeyAndOrderFront(nil)
+                }
+            }
+            
             Button("Ayarlar...") {
                 SettingsWindowManager.shared.showSettings()
             }

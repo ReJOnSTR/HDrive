@@ -453,6 +453,8 @@ public partial class WebDAVClient
                     modDate = parsedDate;
                 }
 
+                var contentType = resp.Descendants(d + "getcontenttype").FirstOrDefault()?.Value;
+
                 var itemPath = relativePath.TrimEnd('/') + "/" + displayName;
                 if (items.Any(i => i.Path.Equals(itemPath, StringComparison.OrdinalIgnoreCase))) continue;
 
@@ -462,7 +464,8 @@ public partial class WebDAVClient
                     Path = itemPath,
                     IsDirectory = isDirectory,
                     Size = size,
-                    ModifiedDate = modDate
+                    ModifiedDate = modDate,
+                    ContentType = contentType
                 });
             }
         }
@@ -482,14 +485,14 @@ public partial class WebDAVClient
         return items;
     }
 
-    public async Task<string?> DownloadFileToCacheAsync(string remotePath, string? preferredFileName = null)
+    public async Task<string?> DownloadFileToCacheAsync(string remotePath, string? preferredFileName = null, string? contentType = null)
     {
-        var name = SafeFileName(preferredFileName ?? Path.GetFileName(remotePath.TrimEnd('/')));
+        var name = LocalFileName(remotePath, preferredFileName, contentType);
         if (_config.Protocol == StorageProtocol.GoogleDrive)
         {
             var info = await GoogleMetadataAsync(remotePath);
-            if (string.IsNullOrWhiteSpace(preferredFileName) && !string.IsNullOrWhiteSpace(info.Name)) name = SafeFileName(info.Name);
-            name = NativeFileName(name, info.Mime);
+            var rawName = string.IsNullOrWhiteSpace(preferredFileName) ? info.Name : preferredFileName;
+            name = LocalFileName(remotePath, rawName, string.IsNullOrWhiteSpace(info.Mime) ? contentType : info.Mime);
         }
         var destination = CachePath(remotePath, name);
         await DownloadToAsync(remotePath, destination, fileName: name);
@@ -500,7 +503,7 @@ public partial class WebDAVClient
     {
         var folderName = preferredFolderName ?? Path.GetFileName(remotePath.TrimEnd('/'));
         if (string.IsNullOrEmpty(folderName)) folderName = "HDriveFolder";
-        var localFolder = Path.Combine(Path.GetDirectoryName(CachePath(remotePath, "folder"))!, SafeFileName(folderName));
+        var localFolder = Path.Combine(Path.GetDirectoryName(CachePath(remotePath, "folder"))!, SafeFileName(folderName, "folder"));
         Directory.CreateDirectory(localFolder);
 
         await DownloadFolderRecursiveInternalAsync(remotePath, localFolder);
@@ -512,9 +515,12 @@ public partial class WebDAVClient
         Directory.CreateDirectory(localFolder);
         foreach (var item in await ListDirectoryAsync(remotePath))
         {
-            var destination = Path.Combine(localFolder, SafeFileName(item.Name));
+            var localName = item.IsDirectory
+                ? SafeFileName(item.Name, "folder")
+                : LocalFileName(item.Path, item.Name, item.ContentType);
+            var destination = UniquePath(Path.Combine(localFolder, localName));
             if (item.IsDirectory) await DownloadFolderRecursiveInternalAsync(item.Path, destination);
-            else await DownloadToAsync(item.Path, destination, fileName: item.Name);
+            else await DownloadToAsync(item.Path, destination, fileName: localName);
         }
     }
 
@@ -812,7 +818,7 @@ public partial class WebDAVClient
         var clean = (folderIdOrPath ?? "").Trim().Trim('/');
         var parent = string.IsNullOrEmpty(clean) || clean == "." ? "root" : clean;
         var query = Uri.EscapeDataString($"'{parent.Replace("'", "\\'")}' in parents and trashed = false");
-        var initial = $"https://www.googleapis.com/drive/v3/files?q={query}&fields=nextPageToken,files(id,name,mimeType,size,modifiedTime)&pageSize=1000&supportsAllDrives=true";
+        var initial = $"https://www.googleapis.com/drive/v3/files?q={query}&fields=nextPageToken,files(id,name,mimeType,size,modifiedTime,thumbnailLink)&pageSize=1000&supportsAllDrives=true";
         var result = new List<FileItem>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
         string? token = null;
@@ -826,11 +832,13 @@ public partial class WebDAVClient
             {
                 var size = file.TryGetProperty("size", out var value) && long.TryParse(value.ToString(), out var bytes) ? bytes : 0;
                 var modified = file.TryGetProperty("modifiedTime", out value) && DateTime.TryParse(value.GetString(), out var date) ? date : DateTime.MinValue;
+                var thumbUrl = file.TryGetProperty("thumbnailLink", out var thumbProp) ? thumbProp.GetString() : null;
+                var mimeType = file.GetProperty("mimeType").GetString() ?? "";
                 result.Add(new FileItem {
-                    Name = NativeFileName(file.GetProperty("name").GetString() ?? "", file.GetProperty("mimeType").GetString() ?? ""),
+                    Name = NativeFileName(file.GetProperty("name").GetString() ?? "", mimeType),
                     Path = file.GetProperty("id").GetString() ?? "",
-                    IsDirectory = file.GetProperty("mimeType").GetString() == "application/vnd.google-apps.folder",
-                    Size = size, ModifiedDate = modified
+                    IsDirectory = mimeType == "application/vnd.google-apps.folder",
+                    Size = size, ModifiedDate = modified, ThumbnailUrl = thumbUrl, ContentType = mimeType
                 });
             }
             token = document.RootElement.TryGetProperty("nextPageToken", out var next) ? next.GetString() : null;
@@ -859,9 +867,19 @@ public partial class WebDAVClient
             {
                 var size = file.TryGetProperty("size", out var value) && long.TryParse(value.ToString(), out var bytes) ? bytes : 0;
                 var modified = file.TryGetProperty("lastModifiedDateTime", out value) && DateTime.TryParse(value.GetString(), out var date) ? date : DateTime.MinValue;
+                string? thumbUrl = null;
+                if (file.TryGetProperty("thumbnails", out var thumbs) && thumbs.ValueKind == JsonValueKind.Array && thumbs.GetArrayLength() > 0)
+                {
+                    var firstThumb = thumbs[0];
+                    if (firstThumb.TryGetProperty("medium", out var med) && med.TryGetProperty("url", out var medUrl))
+                        thumbUrl = medUrl.GetString();
+                    else if (firstThumb.TryGetProperty("large", out var lrg) && lrg.TryGetProperty("url", out var lrgUrl))
+                        thumbUrl = lrgUrl.GetString();
+                }
+                string? mimeType = file.TryGetProperty("file", out var fileObj) && fileObj.TryGetProperty("mimeType", out var mt) ? mt.GetString() : null;
                 result.Add(new FileItem {
                     Name = file.GetProperty("name").GetString() ?? "", Path = file.GetProperty("id").GetString() ?? "",
-                    IsDirectory = file.TryGetProperty("folder", out _), Size = size, ModifiedDate = modified
+                    IsDirectory = file.TryGetProperty("folder", out _), Size = size, ModifiedDate = modified, ThumbnailUrl = thumbUrl, ContentType = mimeType
                 });
             }
             url = document.RootElement.TryGetProperty("@odata.nextLink", out var next) ? next.GetString() : null;

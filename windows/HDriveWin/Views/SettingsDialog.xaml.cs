@@ -245,19 +245,9 @@ public sealed partial class SettingsDialog : ContentDialog
             Region = RegionBox.Text.Trim(),
             SmbShareName = SmbShareBox.Text.Trim(),
             ClientId = ClientIdBox.Text.Trim(),
-            ClientSecret = ClientSecretBox.Password
+            ClientSecret = ClientSecretBox.Password,
+            RefreshToken = _editingServer.RefreshToken
         };
-
-        if (tempConfig.Protocol == StorageProtocol.GoogleDrive || tempConfig.Protocol == StorageProtocol.OneDrive)
-        {
-            await System.Threading.Tasks.Task.Delay(300);
-            TestResultInfoBar.Severity = InfoBarSeverity.Success;
-            TestResultInfoBar.Title = "Bağlantı Profili Hazır";
-            TestResultInfoBar.Message = $"{tempConfig.ProviderName} bağlantı ve kimlik doğrulama profili hazır.";
-            TestResultInfoBar.IsOpen = true;
-            TestButton.IsEnabled = true;
-            return;
-        }
 
         var client = new WebDAVClient(tempConfig);
         var (success, msg) = await client.TestConnectionAsync();

@@ -73,6 +73,12 @@
                     <TextBlock x:Name="PreviewTextContent" FontFamily="Consolas, Cascadia Code, Courier New" FontSize="12" LineHeight="18" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
                 </ScrollViewer>
 
+                <!-- PDF / SVG / Web Belgesi Önizleme (WebView2) -->
+                <WebView2 x:Name="PreviewWebView" Visibility="Collapsed" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
+
+                <!-- Ses ve Video Önizleme (MediaPlayerElement) -->
+                <MediaPlayerElement x:Name="PreviewMediaPlayer" Visibility="Collapsed" AreTransportControlsEnabled="True" AutoPlay="False" Stretch="Uniform" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
+
                 <!-- Jenerik / Büyük İkonlu Önizleme (macOS Finder Tarzı) -->
                 <StackPanel x:Name="PreviewGenericStack" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="16" Visibility="Visible">
                     <Border Width="88" Height="88" CornerRadius="16" Background="{ThemeResource LayerFillColorDefaultBrush}" 

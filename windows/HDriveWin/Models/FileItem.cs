@@ -94,6 +94,31 @@ public class FileItem : INotifyPropertyChanged
         }
     }
 
+    private string? _thumbnailUrl;
+    public string? ThumbnailUrl
+    {
+        get => _thumbnailUrl;
+        set => SetProperty(ref _thumbnailUrl, value);
+    }
+
+    public string? ContentType { get; set; }
+
+    private Microsoft.UI.Xaml.Media.Imaging.BitmapImage? _thumbnailImage;
+    public Microsoft.UI.Xaml.Media.Imaging.BitmapImage? ThumbnailImage
+    {
+        get => _thumbnailImage;
+        set
+        {
+            if (SetProperty(ref _thumbnailImage, value))
+            {
+                OnPropertyChanged(nameof(DisplayIconLarge));
+                OnPropertyChanged(nameof(DisplayIconSmall));
+                OnPropertyChanged(nameof(HasIconImageVisibility));
+                OnPropertyChanged(nameof(HasNoIconImageVisibility));
+            }
+        }
+    }
+
     public double Opacity => IsCut ? 0.45 : 1.0;
 
     public Microsoft.UI.Xaml.Visibility EditingVisibility =>
@@ -108,11 +133,17 @@ public class FileItem : INotifyPropertyChanged
     public Microsoft.UI.Xaml.Media.Imaging.BitmapImage? IconImageSmall =>
         Services.FileIconService.GetIcon(Name, IsDirectory, large: false);
 
+    public Microsoft.UI.Xaml.Media.Imaging.BitmapImage? DisplayIconLarge =>
+        _thumbnailImage ?? IconImage;
+
+    public Microsoft.UI.Xaml.Media.Imaging.BitmapImage? DisplayIconSmall =>
+        _thumbnailImage ?? IconImageSmall;
+
     public Microsoft.UI.Xaml.Visibility HasIconImageVisibility =>
-        IconImage != null ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
+        DisplayIconLarge != null ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
 
     public Microsoft.UI.Xaml.Visibility HasNoIconImageVisibility =>
-        IconImage != null ? Microsoft.UI.Xaml.Visibility.Collapsed : Microsoft.UI.Xaml.Visibility.Visible;
+        DisplayIconLarge != null ? Microsoft.UI.Xaml.Visibility.Collapsed : Microsoft.UI.Xaml.Visibility.Visible;
 
     public string GlyphIcon => IsDirectory ? "\uE8B7" : GetFileIcon(Name); // Windows 11 Segoe Fluent Icons Fallback
 
@@ -123,6 +154,65 @@ public class FileItem : INotifyPropertyChanged
     public string FormattedDate => ModifiedDate?.ToString("dd.MM.yyyy HH:mm") ?? "-";
 
     public string Extension => System.IO.Path.GetExtension(Name).ToUpperInvariant();
+
+    private string? _tagColor;
+    public string? TagColor
+    {
+        get => _tagColor;
+        set
+        {
+            if (SetProperty(ref _tagColor, value))
+            {
+                OnPropertyChanged(nameof(TagBrush));
+                OnPropertyChanged(nameof(HasTagVisibility));
+            }
+        }
+    }
+
+    public Microsoft.UI.Xaml.Media.SolidColorBrush? TagBrush =>
+        !string.IsNullOrEmpty(_tagColor) ? new Microsoft.UI.Xaml.Media.SolidColorBrush(ParseColorHex(_tagColor)) : null;
+
+    public Microsoft.UI.Xaml.Visibility HasTagVisibility =>
+        !string.IsNullOrEmpty(_tagColor) ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
+
+    private bool _isPinned;
+    public bool IsPinned
+    {
+        get => _isPinned;
+        set => SetProperty(ref _isPinned, value);
+    }
+
+    private DateTime? _lastAccessDate;
+    public DateTime? LastAccessDate
+    {
+        get => _lastAccessDate;
+        set => SetProperty(ref _lastAccessDate, value);
+    }
+
+    private static Windows.UI.Color ParseColorHex(string hex)
+    {
+        try
+        {
+            hex = hex.TrimStart('#');
+            if (hex.Length == 6)
+            {
+                byte r = Convert.ToByte(hex.Substring(0, 2), 16);
+                byte g = Convert.ToByte(hex.Substring(2, 2), 16);
+                byte b = Convert.ToByte(hex.Substring(4, 2), 16);
+                return Windows.UI.Color.FromArgb(255, r, g, b);
+            }
+            if (hex.Length == 8)
+            {
+                byte a = Convert.ToByte(hex.Substring(0, 2), 16);
+                byte r = Convert.ToByte(hex.Substring(2, 2), 16);
+                byte g = Convert.ToByte(hex.Substring(4, 2), 16);
+                byte b = Convert.ToByte(hex.Substring(6, 2), 16);
+                return Windows.UI.Color.FromArgb(a, r, g, b);
+            }
+        }
+        catch { }
+        return Windows.UI.Color.FromArgb(255, 128, 128, 128);
+    }
 
     public bool IsImage => System.IO.Path.GetExtension(Name).ToLowerInvariant() is ".png" or ".jpg" or ".jpeg" or ".gif" or ".webp" or ".svg" or ".bmp";
 

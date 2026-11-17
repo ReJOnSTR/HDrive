@@ -40,13 +40,104 @@ public partial class WebDAVClient
         }
     }
 
-    internal static string SafeFileName(string name)
+    private static readonly System.Collections.Generic.HashSet<string> WindowsReservedNames = new(StringComparer.OrdinalIgnoreCase)
     {
-        name = Path.GetFileName(name.Replace('\\', '/'));
-        foreach (var invalid in Path.GetInvalidFileNameChars()) name = name.Replace(invalid, '_');
-        if (string.IsNullOrWhiteSpace(name) || name is "." or "..") return "download";
-        return name;
+        "CON", "PRN", "AUX", "NUL",
+        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+    };
+
+    internal static string SafeFileName(string? name, string fallback = "download")
+    {
+        if (string.IsNullOrWhiteSpace(name)) return fallback;
+        // Cloud titles may contain '/', '\', or ':'; replace them instead of stripping everything before a slash.
+        var builder = new StringBuilder(name.Length);
+        var invalidChars = Path.GetInvalidFileNameChars();
+        foreach (var ch in name)
+        {
+            if (ch == '/' || ch == '\\' || ch == ':' || ch == '\0' || Array.IndexOf(invalidChars, ch) >= 0)
+                builder.Append('_');
+            else
+                builder.Append(ch);
+        }
+        var sanitized = builder.ToString().Trim();
+        if (sanitized is "." or ".." || string.IsNullOrWhiteSpace(sanitized)) return fallback;
+        sanitized = sanitized.TrimEnd('.', ' ');
+        if (string.IsNullOrWhiteSpace(sanitized) || sanitized is "." or "..") return fallback;
+        var stem = Path.GetFileNameWithoutExtension(sanitized);
+        if (WindowsReservedNames.Contains(stem)) sanitized = "_" + sanitized;
+        return sanitized;
     }
+
+    internal static string UniquePath(string path)
+    {
+        if (!File.Exists(path) && !Directory.Exists(path)) return path;
+        var dir = Path.GetDirectoryName(path) ?? "";
+        var name = Path.GetFileName(path);
+        var ext = Path.GetExtension(name);
+        var stem = string.IsNullOrEmpty(ext) ? name : Path.GetFileNameWithoutExtension(name);
+        for (var number = 2; ; number++)
+        {
+            var candidate = Path.Combine(dir, $"{stem} ({number}){ext}");
+            if (!File.Exists(candidate) && !Directory.Exists(candidate)) return candidate;
+        }
+    }
+
+    internal string LocalFileName(string remotePath, string? preferredFileName, string? contentType = null)
+    {
+        var raw = string.IsNullOrWhiteSpace(preferredFileName)
+            ? Path.GetFileName(remotePath.TrimEnd('/'))
+            : preferredFileName;
+        var name = SafeFileName(raw);
+        var mime = (contentType ?? "").Split(';')[0].Trim().ToLowerInvariant();
+        if (_config.Protocol == StorageProtocol.GoogleDrive && !string.IsNullOrEmpty(mime))
+        {
+            name = NativeFileName(name, mime);
+        }
+        if (string.IsNullOrEmpty(Path.GetExtension(name)))
+        {
+            if (_config.Protocol is StorageProtocol.WebDAV or StorageProtocol.SMB or StorageProtocol.S3)
+            {
+                var remoteExt = Path.GetExtension(remotePath.TrimEnd('/'));
+                if (!string.IsNullOrEmpty(remoteExt) && remoteExt.Length > 1 && remoteExt[1..].All(char.IsLetterOrDigit))
+                {
+                    name += remoteExt;
+                }
+            }
+            if (string.IsNullOrEmpty(Path.GetExtension(name)) && !string.IsNullOrEmpty(mime))
+            {
+                var mimeExt = ExtensionForMimeType(mime);
+                if (!string.IsNullOrEmpty(mimeExt)) name += mimeExt;
+            }
+        }
+        return SafeFileName(name);
+    }
+
+    private static string ExtensionForMimeType(string mime) => mime switch
+    {
+        "application/pdf" => ".pdf",
+        "text/plain" => ".txt",
+        "text/markdown" => ".md",
+        "text/csv" => ".csv",
+        "text/html" => ".html",
+        "application/json" => ".json",
+        "application/xml" or "text/xml" => ".xml",
+        "application/zip" => ".zip",
+        "image/jpeg" => ".jpg",
+        "image/png" => ".png",
+        "image/gif" => ".gif",
+        "image/webp" => ".webp",
+        "image/svg+xml" => ".svg",
+        "audio/mpeg" => ".mp3",
+        "video/mp4" => ".mp4",
+        "application/msword" => ".doc",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document" => ".docx",
+        "application/vnd.ms-excel" => ".xls",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" => ".xlsx",
+        "application/vnd.ms-powerpoint" => ".ppt",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation" => ".pptx",
+        _ => ""
+    };
 
     internal static string StorageIdentity(ServerConfig config) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
         $"{config.Id}|{config.Protocol}|{config.ServerURL}|{config.Username}|{config.BucketName}|{config.SmbShareName}")));

@@ -44,11 +44,81 @@ public struct PinnedFolder: Identifiable, Codable, Equatable {
     public var id: String { path }
     public let name: String
     public let path: String
+    public var isDirectory: Bool
     
-    public init(name: String, path: String) {
+    public init(name: String, path: String, isDirectory: Bool = true) {
         self.name = name
         self.path = path
+        self.isDirectory = isDirectory
     }
+    
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.name = try container.decode(String.self, forKey: .name)
+        self.path = try container.decode(String.self, forKey: .path)
+        self.isDirectory = try container.decodeIfPresent(Bool.self, forKey: .isDirectory) ?? true
+    }
+}
+
+public struct RecentItem: Identifiable, Codable, Equatable {
+    public var id: String { path }
+    public let name: String
+    public let path: String
+    public let isDirectory: Bool
+    public let size: Int64
+    public let accessDate: Date
+    public let contentType: String?
+    
+    public init(name: String, path: String, isDirectory: Bool, size: Int64, accessDate: Date = Date(), contentType: String? = nil) {
+        self.name = name
+        self.path = path
+        self.isDirectory = isDirectory
+        self.size = size
+        self.accessDate = accessDate
+        self.contentType = contentType
+    }
+}
+
+public enum TagColor: String, CaseIterable, Codable, Identifiable {
+    case red = "red"
+    case orange = "orange"
+    case yellow = "yellow"
+    case green = "green"
+    case blue = "blue"
+    case purple = "purple"
+    case gray = "gray"
+    
+    public var id: String { rawValue }
+    
+    public var displayName: String {
+        switch self {
+        case .red: return "Kırmızı"
+        case .orange: return "Turuncu"
+        case .yellow: return "Sarı"
+        case .green: return "Yeşil"
+        case .blue: return "Mavi"
+        case .purple: return "Mor"
+        case .gray: return "Gri"
+        }
+    }
+    
+    public var color: Color {
+        switch self {
+        case .red: return Color(red: 1.0, green: 0.27, blue: 0.23)
+        case .orange: return Color(red: 1.0, green: 0.62, blue: 0.04)
+        case .yellow: return Color(red: 1.0, green: 0.84, blue: 0.04)
+        case .green: return Color(red: 0.19, green: 0.82, blue: 0.35)
+        case .blue: return Color(red: 0.04, green: 0.52, blue: 1.0)
+        case .purple: return Color(red: 0.75, green: 0.35, blue: 0.95)
+        case .gray: return Color(red: 0.56, green: 0.56, blue: 0.58)
+        }
+    }
+}
+
+public enum SidebarViewMode: Equatable {
+    case normal
+    case recents
+    case tag(TagColor)
 }
 
 public enum ExplorerColumnId: String, CaseIterable, Codable, Identifiable {
@@ -439,6 +509,9 @@ public struct NativeExplorerView: View {
     
     // Sabitlenen Favori Klasörler & Kenar Çubuğu
     @State private var pinnedFolders: [PinnedFolder] = []
+    @State private var recentItems: [RecentItem] = []
+    @State private var fileTags: [String: String] = [:]
+    @State private var activeSidebarViewMode: SidebarViewMode = .normal
     @State private var isSidebarDropTargeted: Bool = false
     @State private var isFileAreaDropTargeted: Bool = false
     @State private var targetedFolderID: String? = nil
@@ -448,6 +521,7 @@ public struct NativeExplorerView: View {
     // Sistem Panosu (Kopyala / Kes / Yapıştır)
     @State private var copiedRemoteItems: [RemoteFileItem] = []
     @State private var isClipboardCut: Bool = false
+    @State private var lastExportedLocalPaths: Set<String> = []
     
     // Depolama Kotası & Derin Arama (Deep Search)
     @State private var storageQuotas: [UUID: StorageQuota] = [:]
@@ -511,6 +585,8 @@ public struct NativeExplorerView: View {
 
         .onAppear {
             loadPinnedFolders()
+            loadRecentItems()
+            loadFileTags()
             if let first = tabs.first {
                 activeTabID = first.id
             }
@@ -525,6 +601,10 @@ public struct NativeExplorerView: View {
         .onChange(of: manager.activeServer?.id) { _, newServerID in
             searchTask?.cancel(); searchGeneration = UUID(); isDeepSearching = false; searchError = nil
             deepSearchResults = []; isDeepSearchEnabled = false
+            loadPinnedFolders()
+            loadRecentItems()
+            loadFileTags()
+            activeSidebarViewMode = .normal
             guard newServerID != nil else {
                 directoryLoadGeneration = UUID()
                 isLoading = false
@@ -1588,29 +1668,71 @@ public struct NativeExplorerView: View {
                     }
                 }
                 
-                // FAVORİLER (Sabitlenen Kısayol Klasörler)
+                // HIZLI ERİŞİM (Son Kullanılanlar)
+                Section("Hızlı Erişim") {
+                    let isRecents = (activeSidebarViewMode == .recents)
+                    Button(action: {
+                        activeSidebarViewMode = .recents
+                    }) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "clock")
+                                .foregroundColor(isRecents ? .accentColor : .secondary)
+                                .font(.system(size: 13))
+                            
+                            Text("Son Kullanılanlar")
+                                .font(.system(size: 13, weight: isRecents ? .semibold : .regular))
+                                .foregroundColor(isRecents ? .primary : .primary.opacity(0.85))
+                                .lineLimit(1)
+                            
+                            Spacer()
+                            
+                            if !recentItems.isEmpty {
+                                Text("\(recentItems.count)")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        .padding(.vertical, 2)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .contextMenu {
+                        Button(role: .destructive, action: { clearRecentItems() }) {
+                            Label("Son Kullanılanları Temizle", systemImage: "trash")
+                        }
+                    }
+                }
+                
+                // FAVORİLER (Sabitlenen Kısayol Klasör ve Dosyalar)
                 Section("Favoriler") {
                     if pinnedFolders.isEmpty {
                         HStack(spacing: 6) {
                             Image(systemName: "pin")
                                 .font(.system(size: 11))
                                 .foregroundColor(.secondary)
-                            Text("Klasör sabitlemek için sürükleyin veya sağ tıklayın")
+                            Text("Öğe sabitlemek için sürükleyin veya sağ tıklayın")
                                 .font(.system(size: 11))
                                 .foregroundColor(.secondary)
                                 .lineLimit(2)
                         }
                         .padding(.vertical, 4)
                     } else {
-                        ForEach(pinnedFolders) { folder in
-                            let isCurrent = currentPath == folder.path
-                            Button(action: { navigateTo(folder.path) }) {
+                        ForEach(pinnedFolders) { item in
+                            let isCurrent = (activeSidebarViewMode == .normal && currentPath == item.path)
+                            Button(action: {
+                                activeSidebarViewMode = .normal
+                                if item.isDirectory {
+                                    navigateTo(item.path)
+                                } else {
+                                    openPinnedItem(item)
+                                }
+                            }) {
                                 HStack(spacing: 8) {
-                                    Image(systemName: isCurrent ? "folder.fill" : "folder")
+                                    Image(systemName: item.isDirectory ? (isCurrent ? "folder.fill" : "folder") : "doc.fill")
                                         .foregroundColor(isCurrent ? .accentColor : .secondary)
                                         .font(.system(size: 13))
                                     
-                                    Text(folder.name)
+                                    Text(item.name)
                                         .font(.system(size: 13))
                                         .foregroundColor(isCurrent ? .primary : .primary.opacity(0.85))
                                         .lineLimit(1)
@@ -1622,11 +1744,17 @@ public struct NativeExplorerView: View {
                             }
                             .buttonStyle(.plain)
                             .contextMenu {
-                                Button(action: { navigateTo(folder.path) }) {
-                                    Label("Klasöre Git", systemImage: "folder")
+                                if item.isDirectory {
+                                    Button(action: { activeSidebarViewMode = .normal; navigateTo(item.path) }) {
+                                        Label("Klasöre Git", systemImage: "folder")
+                                    }
+                                } else {
+                                    Button(action: { openPinnedItem(item) }) {
+                                        Label("Dosyayı Aç", systemImage: "arrow.up.forward.app")
+                                    }
                                 }
                                 Divider()
-                                Button(role: .destructive, action: { unpinFolder(path: folder.path) }) {
+                                Button(role: .destructive, action: { unpinFolder(path: item.path) }) {
                                     Label("Kenar Çubuğundan Kaldır", systemImage: "pin.slash")
                                 }
                             }
@@ -1635,6 +1763,36 @@ public struct NativeExplorerView: View {
                 }
                 .onDrop(of: [.plainText, .utf8PlainText, .fileURL], isTargeted: $isSidebarDropTargeted) { providers in
                     handleSidebarFolderDrop(providers)
+                }
+
+                // ETİKETLER (Tags / Renk Filtreleri)
+                Section("Etiketler") {
+                    ForEach(TagColor.allCases) { tag in
+                        let isSelected = (activeSidebarViewMode == .tag(tag))
+                        Button(action: {
+                            if activeSidebarViewMode == .tag(tag) {
+                                activeSidebarViewMode = .normal
+                            } else {
+                                activeSidebarViewMode = .tag(tag)
+                            }
+                        }) {
+                            HStack(spacing: 8) {
+                                Circle()
+                                    .fill(tag.color)
+                                    .frame(width: 10, height: 10)
+                                
+                                Text(tag.displayName)
+                                    .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
+                                    .foregroundColor(isSelected ? .primary : .primary.opacity(0.85))
+                                    .lineLimit(1)
+                                
+                                Spacer()
+                            }
+                            .padding(.vertical, 2)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
             }
             .listStyle(.sidebar)
@@ -1878,34 +2036,69 @@ public struct NativeExplorerView: View {
     // MARK: - Ekmek Kırıntısı (Breadcrumbs)
     private var breadcrumbsView: some View {
         HStack(spacing: 4) {
-            Button(action: { navigateToRoot() }) {
-                Image(systemName: "house.fill")
-                    .foregroundColor(.secondary)
-            }
-            .buttonStyle(.plain)
-            
-            if !currentPath.isEmpty {
-                let segments = currentPath.components(separatedBy: "/").filter { !$0.isEmpty }
-                ForEach(0..<segments.count, id: \.self) { idx in
-                    Text("/")
+            switch activeSidebarViewMode {
+            case .recents:
+                Button(action: { activeSidebarViewMode = .normal; navigateToRoot() }) {
+                    Image(systemName: "house.fill")
                         .foregroundColor(.secondary)
-                        .font(.caption2)
-                    
-                    let subPath = segments[0...idx].joined(separator: "/")
-                    Button(action: { navigateTo(subPath) }) {
-                        Text(segments[idx].removingPercentEncoding ?? segments[idx])
-                            .font(.subheadline)
-                            .foregroundColor(idx == segments.count - 1 ? .primary : .secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .contextMenu {
-                        if isFolderPinned(path: subPath) {
-                            Button(action: { unpinFolder(path: subPath) }) {
-                                Label("Kenar Çubuğundan Kaldır", systemImage: "pin.slash")
-                            }
-                        } else {
-                            Button(action: { pinFolder(name: segments[idx].removingPercentEncoding ?? segments[idx], path: subPath) }) {
-                                Label("Kenar Çubuğuna Sabitle", systemImage: "pin")
+                }
+                .buttonStyle(.plain)
+                Text("/")
+                    .foregroundColor(.secondary)
+                    .font(.caption2)
+                Image(systemName: "clock")
+                    .foregroundColor(.accentColor)
+                    .font(.caption)
+                Text("Son Kullanılanlar")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(.primary)
+                
+            case .tag(let tag):
+                Button(action: { activeSidebarViewMode = .normal; navigateToRoot() }) {
+                    Image(systemName: "house.fill")
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                Text("/")
+                    .foregroundColor(.secondary)
+                    .font(.caption2)
+                Circle()
+                    .fill(tag.color)
+                    .frame(width: 8, height: 8)
+                Text("Etiket: \(tag.displayName)")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(.primary)
+                
+            case .normal:
+                Button(action: { navigateToRoot() }) {
+                    Image(systemName: "house.fill")
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                
+                if !currentPath.isEmpty {
+                    let segments = currentPath.components(separatedBy: "/").filter { !$0.isEmpty }
+                    ForEach(0..<segments.count, id: \.self) { idx in
+                        Text("/")
+                            .foregroundColor(.secondary)
+                            .font(.caption2)
+                        
+                        let subPath = segments[0...idx].joined(separator: "/")
+                        Button(action: { navigateTo(subPath) }) {
+                            Text(segments[idx].removingPercentEncoding ?? segments[idx])
+                                .font(.subheadline)
+                                .foregroundColor(idx == segments.count - 1 ? .primary : .secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .contextMenu {
+                            if isFolderPinned(path: subPath) {
+                                Button(action: { unpinFolder(path: subPath) }) {
+                                    Label("Kenar Çubuğundan Kaldır", systemImage: "pin.slash")
+                                }
+                            } else {
+                                Button(action: { pinFolder(name: segments[idx].removingPercentEncoding ?? segments[idx], path: subPath) }) {
+                                    Label("Kenar Çubuğuna Sabitle", systemImage: "pin")
+                                }
                             }
                         }
                     }
@@ -2215,13 +2408,18 @@ public struct NativeExplorerView: View {
     }
 
     // MARK: - Dosya Izgara Kartı (Finder Görünümü)
+    private func isItemCut(_ file: RemoteFileItem) -> Bool {
+        isClipboardCut && copiedRemoteItems.contains(where: { $0.id == file.id })
+    }
+
     private func fileGridItem(_ file: RemoteFileItem) -> some View {
         let isHovered = hoveredFileID == file.id
         let isSelected = selectedFileIDs.contains(file.id) || selectedFileID == file.id
         let isRenaming = renamingFileID == file.id
+        let isCut = isItemCut(file)
         
         return VStack(spacing: 6) {
-            ZStack {
+            ZStack(alignment: .topTrailing) {
                 if let img = previewManager.cachedImages[file.id] {
                     Image(nsImage: img)
                         .resizable()
@@ -2235,6 +2433,13 @@ public struct NativeExplorerView: View {
                         .scaledToFit()
                         .frame(width: 58, height: 50)
                         .shadow(color: .black.opacity(0.10), radius: 2, y: 1)
+                }
+                
+                if let tag = tagForFile(file) {
+                    Circle()
+                        .fill(tag.color)
+                        .frame(width: 8, height: 8)
+                        .offset(x: 2, y: -2)
                 }
             }
             .onAppear {
@@ -2275,6 +2480,7 @@ public struct NativeExplorerView: View {
                 .foregroundColor(.secondary)
         }
         .padding(8)
+        .opacity(isCut ? 0.45 : 1.0)
         .background(gridItemBackground(for: file, isSelected: isSelected, isHovered: isHovered))
         .contentShape(Rectangle())
         .onDrop(of: [.fileURL, .text, .plainText], isTargeted: folderDropBinding(for: file)) { providers in
@@ -2319,6 +2525,7 @@ public struct NativeExplorerView: View {
         let isHovered = hoveredFileID == file.id
         let isSelected = selectedFileIDs.contains(file.id) || selectedFileID == file.id
         let isRenaming = renamingFileID == file.id
+        let isCut = isItemCut(file)
         let visibleCols = columnOrder.filter { isColumnVisible($0) }
         
         return HStack(spacing: 0) {
@@ -2332,6 +2539,7 @@ public struct NativeExplorerView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 5)
+        .opacity(isCut ? 0.45 : 1.0)
         .background(rowItemBackground(for: file, isSelected: isSelected, isHovered: isHovered, isEven: isEven))
         .contentShape(Rectangle())
         .onDrop(of: [.fileURL, .text, .plainText], isTargeted: folderDropBinding(for: file)) { providers in
@@ -2446,6 +2654,12 @@ public struct NativeExplorerView: View {
                         .foregroundColor(isSelected ? Color.accentColor : .primary)
                         .lineLimit(1)
                         .truncationMode(.middle)
+                    
+                    if let tag = tagForFile(file) {
+                        Circle()
+                            .fill(tag.color)
+                            .frame(width: 7, height: 7)
+                    }
                 }
                 Spacer(minLength: 0)
             }
@@ -2524,16 +2738,40 @@ public struct NativeExplorerView: View {
             Button(action: { handleDoubleClick(file) }) {
                 Label("Klasörü Aç", systemImage: "folder")
             }
+        }
             
-            let folderPath = manager.activeServer.map { file.navigationPath(relativeTo: $0) } ?? file.href
-            if isFolderPinned(path: folderPath) {
-                Button(action: { unpinFolder(path: folderPath) }) {
-                    Label("Kenar Çubuğundan Kaldır", systemImage: "pin.slash")
+        let itemPath = manager.activeServer.map { file.navigationPath(relativeTo: $0) } ?? file.href
+        if isFolderPinned(path: itemPath) {
+            Button(action: { unpinFolder(path: itemPath) }) {
+                Label("Kenar Çubuğundan Kaldır", systemImage: "pin.slash")
+            }
+        } else {
+            Button(action: { pinItem(name: file.name, path: itemPath, isDirectory: file.isDirectory) }) {
+                Label(file.isDirectory ? "Kenar Çubuğuna Sabitle" : "Favorilere Ekle", systemImage: "pin")
+            }
+        }
+        
+        Menu {
+            ForEach(TagColor.allCases) { tag in
+                Button(action: { setTag(tag, for: file) }) {
+                    Text(tag.displayName)
                 }
-            } else {
-                Button(action: { pinFolder(name: file.name, path: folderPath) }) {
-                    Label("Kenar Çubuğuna Sabitle", systemImage: "pin")
-                }
+            }
+            Divider()
+            Button("Etiketi Kaldır") {
+                removeTag(for: file)
+            }
+        } label: {
+            Label("Etiketler", systemImage: "tag")
+        }
+
+        if activeSidebarViewMode == .recents {
+            Button(action: {
+                let parent = (itemPath as NSString).deletingLastPathComponent
+                activeSidebarViewMode = .normal
+                navigateTo(parent)
+            }) {
+                Label("Bulunduğu Klasöre Git", systemImage: "folder")
             }
         }
         
@@ -2681,6 +2919,7 @@ public struct NativeExplorerView: View {
             statusAlertMessage = "Lütfen önce bir sunucu seçin veya yapılandırın."
             return
         }
+        recordRecentAccess(for: file)
         let client = WebDAVClient(config: server)
         opener.openFileNatively(file: file, client: client) { success, errorMsg in
             if !success, let msg = errorMsg {
@@ -2691,7 +2930,25 @@ public struct NativeExplorerView: View {
     
     // MARK: - Gezinti ve Sıralama
     private var filteredFiles: [RemoteFileItem] {
-        let source = isDeepSearchEnabled ? deepSearchResults : files
+        let source: [RemoteFileItem]
+        switch activeSidebarViewMode {
+        case .recents:
+            source = recentItems.map { r in
+                RemoteFileItem(
+                    id: r.path,
+                    name: r.name,
+                    href: r.path,
+                    isDirectory: r.isDirectory,
+                    size: r.size,
+                    modificationDate: r.accessDate,
+                    contentType: r.contentType
+                )
+            }
+        case .tag(let tagColor):
+            source = files.filter { tagForFile($0) == tagColor }
+        case .normal:
+            source = isDeepSearchEnabled ? deepSearchResults : files
+        }
         let filter = ExplorerSearchFilter(query: searchText, fileExtension: searchExtension,
             minimumBytes: Int64(min(Double(Int64.max / 2), max(0, searchMinimumMB.isFinite ? searchMinimumMB : 0) * 1024 * 1024)),
             modifiedAfter: searchDateEnabled ? Calendar.current.startOfDay(for: searchAfterDate) : nil)
@@ -2766,6 +3023,7 @@ public struct NativeExplorerView: View {
 
     private func triggerQuickLook(for file: RemoteFileItem) {
         if file.isDirectory { return }
+        recordRecentAccess(for: file)
         
         // 1. Yerel dosya zaten var mı?
         if let local = previewManager.resolvedLocalURL(for: file) {
@@ -3209,8 +3467,12 @@ public struct NativeExplorerView: View {
                 selectedFileIDs = Set(filteredFiles[start...end].map { $0.id })
             }
         } else {
-            selectedFileIDs = [file.id]
-            selectedFileID = file.id
+            // Finder standardı: Çoklu seçim varken seçili dosyalardan birine tıklandığında
+            // diğerlerinin seçimini hemen kaldırma (hepsi birlikte sürüklenebilsin).
+            if !selectedFileIDs.contains(file.id) {
+                selectedFileIDs = [file.id]
+                selectedFileID = file.id
+            }
         }
     }
 
@@ -3434,11 +3696,20 @@ public struct NativeExplorerView: View {
     
     // MARK: - Sistem Panosu (Kopyala, Kes, Yapıştır)
     private func copySelectedFiles() {
+        exportSelectedFilesToClipboard(isCut: false)
+    }
+
+    private func cutSelectedFiles() {
+        exportSelectedFilesToClipboard(isCut: true)
+    }
+
+    private func exportSelectedFilesToClipboard(isCut: Bool) {
         let targets = filteredFiles.filter { selectedFileIDs.contains($0.id) || selectedFileID == $0.id }
         guard !targets.isEmpty, let server = manager.activeServer else { return }
-        isClipboardCut = false
+        isClipboardCut = isCut
         copiedRemoteItems = targets
         let client = WebDAVClient(config: server)
+        self.dragDropStatus = "\(targets.count) öğe panoya hazırlanıyor..."
         Task {
             do {
                 let localURLs = try await FileExportService.prepare(targets, client: client)
@@ -3446,43 +3717,52 @@ public struct NativeExplorerView: View {
                     let pasteboard = NSPasteboard.general
                     pasteboard.clearContents()
                     if pasteboard.writeObjects(localURLs as [NSURL]) {
-                        SyncLogManager.shared.log("\(localURLs.count) öğe içeriğiyle panoya kopyalandı.")
-                    } else { statusAlertMessage = "Dosyalar panoya yazılamadı." }
+                        pasteboard.setPropertyList(localURLs.map { $0.path }, forType: NSPasteboard.PasteboardType("NSFilenamesPboardType"))
+                        pasteboard.setString(localURLs.map { $0.path }.joined(separator: "\n"), forType: .string)
+                        lastExportedLocalPaths = Set(localURLs.map { $0.standardizedFileURL.path })
+                        self.dragDropStatus = "✓ \(localURLs.count) öğe panoya \(isCut ? "kesildi" : "kopyalandı")"
+                        SyncLogManager.shared.log("\(localURLs.count) öğe içeriğiyle panoya \(isCut ? "kesildi" : "kopyalandı").")
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                            if self.dragDropStatus?.hasPrefix("✓") == true { self.dragDropStatus = nil }
+                        }
+                    } else {
+                        self.dragDropStatus = nil
+                        statusAlertMessage = "Dosyalar panoya yazılamadı."
+                    }
                 }
             } catch {
-                await MainActor.run { statusAlertMessage = "Kopyalama tamamlanamadı: " + error.localizedDescription }
+                await MainActor.run {
+                    self.dragDropStatus = nil
+                    statusAlertMessage = "\(isCut ? "Kesme" : "Kopyalama") tamamlanamadı: " + error.localizedDescription
+                }
             }
         }
-    }
-
-    private func cutSelectedFiles() {
-        let targets = filteredFiles.filter { selectedFileIDs.contains($0.id) || selectedFileID == $0.id }
-        guard !targets.isEmpty else { return }
-        isClipboardCut = true
-        copiedRemoteItems = targets
-        copySelectedFiles()
     }
     
     private func pasteFiles() {
         guard let server = manager.activeServer else { return }
         let client = WebDAVClient(config: server)
         
-        // 1. Finder / Masaüstü vb. dışarıdan panoya kopyalanan dosyaları kontrol et
+        // 1. Finder / Masaüstü vb. dışarıdan panoya kopyalanan dosyaları kontrol et (HDrive'ın kendi dışa aktardığı kopyalar hariç)
         if let fileURLs = NSPasteboard.general.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !fileURLs.isEmpty {
-            isLoading = true
-            let group = DispatchGroup()
-            for url in fileURLs {
-                group.enter()
-                uploadLocalItemRecursively(localURL: url, remoteBaseDir: currentPath, client: client) {
-                    group.leave()
+            let pasteboardPaths = Set(fileURLs.map { $0.standardizedFileURL.path })
+            let isInternalExport = !copiedRemoteItems.isEmpty && !lastExportedLocalPaths.isEmpty && pasteboardPaths.isSubset(of: lastExportedLocalPaths)
+            if !isInternalExport {
+                isLoading = true
+                let group = DispatchGroup()
+                for url in fileURLs {
+                    group.enter()
+                    uploadLocalItemRecursively(localURL: url, remoteBaseDir: currentPath, client: client) {
+                        group.leave()
+                    }
                 }
+                group.notify(queue: .main) {
+                    isLoading = false
+                    loadDirectory(at: currentPath)
+                    SyncLogManager.shared.log("\(fileURLs.count) öge panodan başarıyla yüklendi.")
+                }
+                return
             }
-            group.notify(queue: .main) {
-                isLoading = false
-                loadDirectory(at: currentPath)
-                SyncLogManager.shared.log("\(fileURLs.count) öge panodan başarıyla yüklendi.")
-            }
-            return
         }
         
         // 2. HDrive içi kesme / kopyalama
@@ -3493,12 +3773,44 @@ public struct NativeExplorerView: View {
                 group.enter()
                 let dest = currentPath.isEmpty ? item.name : "\(currentPath)/\(item.name)"
                 if isClipboardCut {
-                    client.move(from: item.href, to: dest) { _ in
-                        group.leave()
+                    client.move(from: item.href, to: dest) { moveErr in
+                        if moveErr == nil {
+                            group.leave()
+                        } else {
+                            Task {
+                                do {
+                                    let prepared = try await FileExportService.prepare([item], client: client)
+                                    if let local = prepared.first {
+                                        self.uploadLocalItemRecursively(localURL: local, remoteBaseDir: self.currentPath, client: client) {
+                                            client.delete(at: item.href) { _ in
+                                                group.leave()
+                                            }
+                                        }
+                                    } else { group.leave() }
+                                } catch {
+                                    group.leave()
+                                }
+                            }
+                        }
                     }
                 } else {
-                    client.copy(from: item.href, to: dest) { _ in
-                        group.leave()
+                    client.copy(from: item.href, to: dest) { copyErr in
+                        if copyErr == nil {
+                            group.leave()
+                        } else {
+                            Task {
+                                do {
+                                    let prepared = try await FileExportService.prepare([item], client: client)
+                                    if let local = prepared.first {
+                                        self.uploadLocalItemRecursively(localURL: local, remoteBaseDir: self.currentPath, client: client) {
+                                            group.leave()
+                                        }
+                                    } else { group.leave() }
+                                } catch {
+                                    group.leave()
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -3506,6 +3818,7 @@ public struct NativeExplorerView: View {
                 isLoading = false
                 if isClipboardCut {
                     copiedRemoteItems.removeAll()
+                    lastExportedLocalPaths.removeAll()
                     isClipboardCut = false
                 }
                 loadDirectory(at: currentPath)
@@ -3518,14 +3831,30 @@ public struct NativeExplorerView: View {
     private func dragSelection(for file: RemoteFileItem) -> FileDragSelection? {
         guard let server = manager.activeServer else { return nil }
         let selected = selectedFileIDs.contains(file.id) || selectedFileID == file.id
-        let targets = selected ? filteredFiles.filter { selectedFileIDs.contains($0.id) || selectedFileID == $0.id } : [file]
+        let targets: [RemoteFileItem]
+        if selected {
+            let list = filteredFiles.filter { selectedFileIDs.contains($0.id) || selectedFileID == $0.id }
+            targets = list.isEmpty ? [file] : list
+        } else {
+            targets = [file]
+        }
         return FileDragSelection(files: targets, client: WebDAVClient(config: server))
     }
 
-    // MARK: - Favori Klasörleri Yönetme (Pinned Shortcuts)
+    // MARK: - Favori Klasörleri ve Dosyaları Yönetme (Pinned Shortcuts)
     private var pinnedFoldersKey: String {
         let serverID = manager.activeServer?.id.uuidString ?? "global"
         return "HDrive_PinnedFolders_\(serverID)"
+    }
+    
+    private var recentItemsKey: String {
+        let serverID = manager.activeServer?.id.uuidString ?? "global"
+        return "HDrive_RecentItems_\(serverID)"
+    }
+    
+    private var fileTagsKey: String {
+        let serverID = manager.activeServer?.id.uuidString ?? "global"
+        return "HDrive_Tags_\(serverID)"
     }
     
     private func loadPinnedFolders() {
@@ -3543,13 +3872,17 @@ public struct NativeExplorerView: View {
         }
     }
     
-    private func pinFolder(name: String, path: String) {
+    private func pinItem(name: String, path: String, isDirectory: Bool) {
         let cleanPath = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         guard !cleanPath.isEmpty else { return }
         if !pinnedFolders.contains(where: { $0.path == cleanPath }) {
-            pinnedFolders.append(PinnedFolder(name: name, path: cleanPath))
+            pinnedFolders.append(PinnedFolder(name: name, path: cleanPath, isDirectory: isDirectory))
             savePinnedFolders()
         }
+    }
+    
+    private func pinFolder(name: String, path: String) {
+        pinItem(name: name, path: path, isDirectory: true)
     }
     
     private func unpinFolder(path: String) {
@@ -3561,6 +3894,88 @@ public struct NativeExplorerView: View {
     private func isFolderPinned(path: String) -> Bool {
         let cleanPath = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         return pinnedFolders.contains(where: { $0.path == cleanPath })
+    }
+
+    private func openPinnedItem(_ item: PinnedFolder) {
+        if item.isDirectory {
+            activeSidebarViewMode = .normal
+            navigateTo(item.path)
+            return
+        }
+        let dummy = RemoteFileItem(id: item.path, name: item.name, href: item.path, isDirectory: false, size: 0, modificationDate: nil, contentType: nil)
+        openFileDirectly(dummy)
+    }
+
+    // MARK: - Son Kullanılanlar (Recent Items)
+    private func loadRecentItems() {
+        if let data = UserDefaults.standard.data(forKey: recentItemsKey),
+           let items = try? JSONDecoder().decode([RecentItem].self, from: data) {
+            self.recentItems = items
+        } else {
+            self.recentItems = []
+        }
+    }
+    
+    private func saveRecentItems() {
+        if let data = try? JSONEncoder().encode(recentItems) {
+            UserDefaults.standard.set(data, forKey: recentItemsKey)
+        }
+    }
+    
+    private func recordRecentAccess(for file: RemoteFileItem) {
+        let filePath = manager.activeServer.map { file.navigationPath(relativeTo: $0) } ?? file.href
+        let cleanPath = filePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard !cleanPath.isEmpty else { return }
+        
+        var list = recentItems
+        list.removeAll(where: { $0.path == cleanPath })
+        let newRecent = RecentItem(name: file.name, path: cleanPath, isDirectory: file.isDirectory, size: file.size, accessDate: Date(), contentType: file.contentType)
+        list.insert(newRecent, at: 0)
+        if list.count > 50 {
+            list = Array(list.prefix(50))
+        }
+        self.recentItems = list
+        saveRecentItems()
+    }
+    
+    private func clearRecentItems() {
+        self.recentItems = []
+        saveRecentItems()
+    }
+
+    // MARK: - Etiketler (Tags / Color Labels)
+    private func loadFileTags() {
+        if let dict = UserDefaults.standard.dictionary(forKey: fileTagsKey) as? [String: String] {
+            self.fileTags = dict
+        } else {
+            self.fileTags = [:]
+        }
+    }
+    
+    private func saveFileTags() {
+        UserDefaults.standard.set(fileTags, forKey: fileTagsKey)
+    }
+    
+    private func setTag(_ tag: TagColor, for file: RemoteFileItem) {
+        let filePath = manager.activeServer.map { file.navigationPath(relativeTo: $0) } ?? file.href
+        let cleanPath = filePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard !cleanPath.isEmpty else { return }
+        fileTags[cleanPath] = tag.rawValue
+        saveFileTags()
+    }
+    
+    private func removeTag(for file: RemoteFileItem) {
+        let filePath = manager.activeServer.map { file.navigationPath(relativeTo: $0) } ?? file.href
+        let cleanPath = filePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        fileTags.removeValue(forKey: cleanPath)
+        saveFileTags()
+    }
+    
+    private func tagForFile(_ file: RemoteFileItem) -> TagColor? {
+        let filePath = manager.activeServer.map { file.navigationPath(relativeTo: $0) } ?? file.href
+        let cleanPath = filePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard let raw = fileTags[cleanPath] else { return nil }
+        return TagColor(rawValue: raw)
     }
     
     private func handleSidebarFolderDrop(_ providers: [NSItemProvider]) -> Bool {
@@ -3623,8 +4038,26 @@ public struct NativeExplorerView: View {
                 
                 group.enter()
                 client.move(from: sourceItem.href, to: dest) { err in
-                    if err == nil { movedCount += 1 }
-                    group.leave()
+                    if err == nil {
+                        movedCount += 1
+                        group.leave()
+                    } else {
+                        Task {
+                            do {
+                                let prepared = try await FileExportService.prepare([sourceItem], client: client)
+                                if let local = prepared.first {
+                                    self.uploadLocalItemRecursively(localURL: local, remoteBaseDir: targetDir, client: client) {
+                                        client.delete(at: sourceItem.href) { delErr in
+                                            if delErr == nil { movedCount += 1 }
+                                            group.leave()
+                                        }
+                                    }
+                                } else { group.leave() }
+                            } catch {
+                                group.leave()
+                            }
+                        }
+                    }
                 }
             }
             group.notify(queue: .main) {
@@ -4389,6 +4822,7 @@ public struct HDriveSettingsView: View {
     }
     
     @ObservedObject var manager = CloudreveManager.shared
+    @ObservedObject private var bonjour = BonjourBrowser.shared
     
     @State private var currentTab: SettingsTab = .account
     @State private var connectionMode: ConnectionViewMode = .list
@@ -4858,6 +5292,59 @@ public struct HDriveSettingsView: View {
                         SecureField("WebDAV şifreniz", text: $password)
                             .textFieldStyle(.roundedBorder)
                     }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "antenna.radiowaves.left.and.right")
+                                .font(.system(size: 11))
+                                .foregroundColor(.accentColor)
+                            Text("Yerel Ağdaki WebDAV Sunucuları (Bonjour)")
+                                .font(.system(size: 11.5, weight: .semibold))
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Button(action: { bonjour.startSearching() }) {
+                                Label(bonjour.isSearching ? "Taranıyor..." : "Yeniden Tara", systemImage: "arrow.clockwise")
+                                    .font(.system(size: 11))
+                            }
+                            .buttonStyle(.borderless)
+                        }
+
+                        if bonjour.discoveredDevices.isEmpty {
+                            Text(bonjour.isSearching ? "Yerel ağdaki WebDAV servisleri aranıyor..." : "Yerel ağda yayın yapan WebDAV sunucusu bulunamadı.")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                        } else {
+                            ForEach(bonjour.discoveredDevices) { device in
+                                Button(action: {
+                                    serverName = device.name
+                                    serverURL = device.connectionURL
+                                }) {
+                                    HStack(spacing: 8) {
+                                        Image(systemName: "server.rack")
+                                            .font(.system(size: 12))
+                                            .foregroundColor(.accentColor)
+                                        Text(device.name)
+                                            .font(.system(size: 12, weight: .medium))
+                                        Text("(\(device.connectionURL))")
+                                            .font(.system(size: 11, design: .monospaced))
+                                            .foregroundColor(.secondary)
+                                        Spacer()
+                                        Text("Seç")
+                                            .font(.system(size: 11, weight: .semibold))
+                                            .foregroundColor(.accentColor)
+                                    }
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 5)
+                                    .background(Color.accentColor.opacity(0.08))
+                                    .cornerRadius(6)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                    .padding(.top, 4)
+                    .onAppear { bonjour.startSearching() }
+                    .onDisappear { bonjour.stopSearching() }
                 } else if storageProtocol == .s3 {
                     HStack {
                         Text("S3 Uç Noktası (Endpoint)")

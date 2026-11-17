@@ -285,6 +285,7 @@ public sealed partial class MainWindow : Window
     }
 
     private bool _isFirstActivation = true;
+    private SystemTrayService? _systemTray;
 
     private void MainWindow_Activated(object sender, WindowActivatedEventArgs args)
     {
@@ -292,7 +293,26 @@ public sealed partial class MainWindow : Window
         {
             _isFirstActivation = false;
             TryApplyMicaBackdrop();
+            try
+            {
+                var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+                _systemTray = new SystemTrayService(
+                    hwnd,
+                    onOpenWindow: () => DispatcherQueue?.TryEnqueue(() => this.Activate()),
+                    onOpenSettings: () => DispatcherQueue?.TryEnqueue(() => OpenSettingsWindow()),
+                    onExit: () => DispatcherQueue?.TryEnqueue(() =>
+                    {
+                        _systemTray?.Dispose();
+                        Application.Current.Exit();
+                    }));
+                this.Closed += (_, _) => _systemTray?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                App.LogCrash("MainWindow.SystemTrayInit", ex);
+            }
         }
+        _systemTray?.UpdateTooltip();
     }
 
     private void TryApplyMicaBackdrop()
@@ -579,6 +599,17 @@ public sealed partial class MainWindow : Window
             var uniqueList = list.GroupBy(x => x.Path, StringComparer.OrdinalIgnoreCase)
                                  .Select(g => g.First())
                                  .ToList();
+
+            var tags = OrganizationService.Instance.GetAllTags(config);
+            foreach (var item in uniqueList)
+            {
+                var clean = item.Path.Trim('/');
+                if (tags.TryGetValue(clean, out var tagColor))
+                {
+                    item.TagColor = tagColor;
+                }
+            }
+
             _allItems.AddRange(uniqueList);
 
             ApplySearchFilter(SearchBox?.Text ?? "");
@@ -586,6 +617,7 @@ public sealed partial class MainWindow : Window
             if (ItemCountText != null) ItemCountText.Text = $"{_items.Count} öğe";
 
             _ = RefreshStorageQuotaAsync();
+            _ = LoadThumbnailsForDirectoryAsync(uniqueList, config, sessionId);
         }
         catch (Exception ex)
         {
@@ -595,6 +627,53 @@ public sealed partial class MainWindow : Window
         finally
         {
             if (sessionId == _loadSessionId && LoadingRing != null) LoadingRing.IsActive = false;
+        }
+    }
+
+    private async Task LoadThumbnailsForDirectoryAsync(List<FileItem> items, ServerConfig config, int sessionId)
+    {
+        var candidates = items.Where(i => !i.IsDirectory && (!string.IsNullOrEmpty(i.ThumbnailUrl) || (i.IsImage && i.Size > 0 && i.Size <= 15 * 1024 * 1024))).Take(40).ToList();
+        if (candidates.Count == 0) return;
+
+        var client = new WebDAVClient(config);
+        foreach (var item in candidates)
+        {
+            if (sessionId != _loadSessionId || config.Id != CloudreveManager.Instance.ActiveServer?.Id) return;
+
+            try
+            {
+                if (!string.IsNullOrEmpty(item.ThumbnailUrl) && Uri.TryCreate(item.ThumbnailUrl, UriKind.Absolute, out var thumbUri))
+                {
+                    DispatcherQueue?.TryEnqueue(() =>
+                    {
+                        if (sessionId != _loadSessionId) return;
+                        try
+                        {
+                            item.ThumbnailImage = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(thumbUri) { DecodePixelWidth = 96 };
+                        }
+                        catch { }
+                    });
+                    continue;
+                }
+
+                if (item.IsImage)
+                {
+                    var localPath = await client.DownloadFileToCacheAsync(item.Path, item.Name, item.ContentType);
+                    if (!string.IsNullOrEmpty(localPath) && File.Exists(localPath))
+                    {
+                        DispatcherQueue?.TryEnqueue(() =>
+                        {
+                            if (sessionId != _loadSessionId) return;
+                            try
+                            {
+                                item.ThumbnailImage = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(localPath)) { DecodePixelWidth = 96 };
+                            }
+                            catch { }
+                        });
+                    }
+                }
+            }
+            catch { }
         }
     }
 
@@ -852,9 +931,10 @@ public sealed partial class MainWindow : Window
             LoadingRing.IsActive = true;
             var config = CloudreveManager.Instance.ActiveServer;
             if (config == null) return;
+            OrganizationService.Instance.AddRecent(config, item.Path, item.Name, item.IsDirectory, item.Size);
             var client = new WebDAVClient(config);
 
-            var localPath = await client.DownloadFileToCacheAsync(item.Path, item.Name);
+            var localPath = await client.DownloadFileToCacheAsync(item.Path, item.Name, item.ContentType);
             LoadingRing.IsActive = false;
 
             if (!string.IsNullOrEmpty(localPath) && File.Exists(localPath))
@@ -1538,99 +1618,62 @@ public sealed partial class MainWindow : Window
         var ext = item.Extension?.TrimStart('.').ToLowerInvariant() ?? "";
         bool isText = new[] { "txt", "md", "json", "xml", "csv", "log", "cs", "py", "js", "ts", "html", "css", "yml", "yaml", "sql", "ini", "sh", "bat" }.Contains(ext);
 
-        var safePrefix = (item.Path ?? "").Trim('/').Replace('/', '_').Replace('\\', '_');
-        if (safePrefix.Length > 32) safePrefix = safePrefix.Substring(0, 32);
-        var cachedFileName = $"{safePrefix}_{item.Name}";
-        var cacheDir = Path.Combine(Path.GetTempPath(), "HDriveCache");
-        var cachedFile = Path.Combine(cacheDir, cachedFileName);
-
         if (item.IsImage)
         {
-            if (File.Exists(cachedFile) && new FileInfo(cachedFile).Length > 0)
+            _ = Task.Run(async () =>
             {
-                try
+                var srv = CloudreveManager.Instance.ActiveServer;
+                if (srv == null) return;
+                var client = new WebDAVClient(srv);
+                var downloaded = await client.DownloadFileToCacheAsync(item.Path ?? "", item.Name, item.ContentType);
+                if (!string.IsNullOrEmpty(downloaded) && File.Exists(downloaded))
                 {
-                    if (PreviewImage != null)
+                    DispatcherQueue.TryEnqueue(() =>
                     {
-                        PreviewImage.Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(cachedFile));
-                        PreviewImage.Visibility = Visibility.Visible;
-                    }
-                    if (PreviewIconContainer != null) PreviewIconContainer.Visibility = Visibility.Collapsed;
-                }
-                catch { }
-            }
-            else
-            {
-                _ = Task.Run(async () =>
-                {
-                    var srv = CloudreveManager.Instance.ActiveServer;
-                    if (srv == null) return;
-                    var client = new WebDAVClient(srv);
-                    var downloaded = await client.DownloadFileToCacheAsync(item.Path ?? "", item.Name);
-                    if (!string.IsNullOrEmpty(downloaded) && File.Exists(downloaded))
-                    {
-                        DispatcherQueue.TryEnqueue(() =>
+                        if (_selectedItem?.Path == item.Path)
                         {
-                            if (_selectedItem?.Path == item.Path)
+                            try
                             {
-                                try
+                                if (PreviewImage != null)
                                 {
-                                    if (PreviewImage != null)
-                                    {
-                                        PreviewImage.Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(downloaded));
-                                        PreviewImage.Visibility = Visibility.Visible;
-                                    }
-                                    if (PreviewIconContainer != null) PreviewIconContainer.Visibility = Visibility.Collapsed;
+                                    PreviewImage.Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(downloaded));
+                                    PreviewImage.Visibility = Visibility.Visible;
                                 }
-                                catch { }
+                                if (PreviewIconContainer != null) PreviewIconContainer.Visibility = Visibility.Collapsed;
                             }
-                        });
-                    }
-                });
-            }
+                            catch { }
+                        }
+                    });
+                }
+            });
         }
         else if (isText && item.Size < 5 * 1024 * 1024)
         {
-            if (File.Exists(cachedFile) && new FileInfo(cachedFile).Length > 0)
+            _ = Task.Run(async () =>
             {
-                try
+                var srv = CloudreveManager.Instance.ActiveServer;
+                if (srv == null) return;
+                var client = new WebDAVClient(srv);
+                var downloaded = await client.DownloadFileToCacheAsync(item.Path ?? "", item.Name, item.ContentType);
+                if (!string.IsNullOrEmpty(downloaded) && File.Exists(downloaded))
                 {
-                    var content = File.ReadAllText(cachedFile);
-                    if (content.Length > 8000) content = content.Substring(0, 8000) + "\n\n... (Önizleme sınırı)";
-                    if (PreviewTextContent != null) PreviewTextContent.Text = content;
-                    if (PreviewTextScroll != null) PreviewTextScroll.Visibility = Visibility.Visible;
-                    if (PreviewIconContainer != null) PreviewIconContainer.Visibility = Visibility.Collapsed;
-                }
-                catch { }
-            }
-            else
-            {
-                _ = Task.Run(async () =>
-                {
-                    var srv = CloudreveManager.Instance.ActiveServer;
-                    if (srv == null) return;
-                    var client = new WebDAVClient(srv);
-                    var downloaded = await client.DownloadFileToCacheAsync(item.Path ?? "", item.Name);
-                    if (!string.IsNullOrEmpty(downloaded) && File.Exists(downloaded))
+                    DispatcherQueue.TryEnqueue(() =>
                     {
-                        DispatcherQueue.TryEnqueue(() =>
+                        if (_selectedItem?.Path == item.Path)
                         {
-                            if (_selectedItem?.Path == item.Path)
+                            try
                             {
-                                try
-                                {
-                                    var content = File.ReadAllText(downloaded);
-                                    if (content.Length > 8000) content = content.Substring(0, 8000) + "\n\n... (Önizleme sınırı)";
-                                    if (PreviewTextContent != null) PreviewTextContent.Text = content;
-                                    if (PreviewTextScroll != null) PreviewTextScroll.Visibility = Visibility.Visible;
-                                    if (PreviewIconContainer != null) PreviewIconContainer.Visibility = Visibility.Collapsed;
-                                }
-                                catch { }
+                                var content = File.ReadAllText(downloaded);
+                                if (content.Length > 8000) content = content.Substring(0, 8000) + "\n\n... (Önizleme sınırı)";
+                                if (PreviewTextContent != null) PreviewTextContent.Text = content;
+                                if (PreviewTextScroll != null) PreviewTextScroll.Visibility = Visibility.Visible;
+                                if (PreviewIconContainer != null) PreviewIconContainer.Visibility = Visibility.Collapsed;
                             }
-                        });
-                    }
-                });
-            }
+                            catch { }
+                        }
+                    });
+                }
+            });
         }
     }
 
@@ -1738,10 +1781,23 @@ public sealed partial class MainWindow : Window
             {
                 if (tag == "cloud")
                 {
+                    _currentSidebarTag = "cloud";
                     NavigateToPath("");
+                }
+                else if (tag == "recents")
+                {
+                    _currentSidebarTag = "recents";
+                    LoadRecentsView();
+                }
+                else if (tag.StartsWith("tag:"))
+                {
+                    var colorHex = tag.Substring("tag:".Length);
+                    _currentSidebarTag = tag;
+                    LoadTaggedView(colorHex);
                 }
                 else if (tag.StartsWith("server:"))
                 {
+                    _currentSidebarTag = "cloud";
                     var serverId = tag.Substring("server:".Length);
                     SwitchToRemoteServer(serverId);
                 }
@@ -1752,7 +1808,17 @@ public sealed partial class MainWindow : Window
                 else if (tag.StartsWith("pinned:"))
                 {
                     var pinnedPath = tag.Substring("pinned:".Length);
-                    NavigateToPath(pinnedPath);
+                    var pinned = _pinnedFolders.FirstOrDefault(p => p.Path.Equals(pinnedPath, StringComparison.OrdinalIgnoreCase));
+                    if (pinned != null && !pinned.IsDirectory)
+                    {
+                        var dummy = new FileItem { Name = pinned.Name, Path = pinned.Path, IsDirectory = false };
+                        await OpenFileAsync(dummy);
+                    }
+                    else
+                    {
+                        _currentSidebarTag = "cloud";
+                        NavigateToPath(pinnedPath);
+                    }
                 }
             }
         }
@@ -1807,23 +1873,16 @@ public sealed partial class MainWindow : Window
                 container.SelectedItem = item;
             }
 
-            if (item.IsDirectory)
+            ContextPinItem.Visibility = Visibility.Visible;
+            if (IsFolderPinned(item.Path))
             {
-                ContextPinItem.Visibility = Visibility.Visible;
-                if (IsFolderPinned(item.Path))
-                {
-                    ContextPinItem.Text = "Kenar Çubuğundan Kaldır";
-                    ContextPinIcon.Glyph = "\uE77A";
-                }
-                else
-                {
-                    ContextPinItem.Text = "Kenar Çubuğuna Sabitle";
-                    ContextPinIcon.Glyph = "\uE718";
-                }
+                ContextPinItem.Text = "Kenar Çubuğundan Kaldır";
+                ContextPinIcon.Glyph = "\uE77A";
             }
             else
             {
-                ContextPinItem.Visibility = Visibility.Collapsed;
+                ContextPinItem.Text = item.IsDirectory ? "Kenar Çubuğuna Sabitle" : "Favorilere Ekle";
+                ContextPinIcon.Glyph = "\uE718";
             }
         }
     }
@@ -1858,6 +1917,7 @@ public sealed partial class MainWindow : Window
     private async Task ShowQuickLookAsync(FileItem item)
     {
         if (item.IsDirectory) return;
+        OrganizationService.Instance.AddRecent(CloudreveManager.Instance.ActiveServer, item.Path, item.Name, item.IsDirectory, item.Size);
 
         string? localPath = null;
         try
@@ -1866,7 +1926,7 @@ public sealed partial class MainWindow : Window
             if (config != null && item.Size < 20 * 1024 * 1024)
             {
                 var client = new WebDAVClient(config);
-                localPath = await client.DownloadFileToCacheAsync(item.Path, item.Name);
+                localPath = await client.DownloadFileToCacheAsync(item.Path, item.Name, item.ContentType);
             }
         }
         catch { }
@@ -1929,10 +1989,11 @@ public sealed partial class MainWindow : Window
         if (itemsToDownload.Count == 1)
         {
             var item = itemsToDownload[0];
+            var localName = client.LocalFileName(item.Path, item.Name, item.ContentType);
             var savePicker = new Windows.Storage.Pickers.FileSavePicker();
             savePicker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.Downloads;
-            savePicker.SuggestedFileName = item.Name;
-            var ext = Path.GetExtension(item.Name);
+            savePicker.SuggestedFileName = localName;
+            var ext = Path.GetExtension(localName);
             if (!string.IsNullOrEmpty(ext))
             {
                 savePicker.FileTypeChoices.Add($"{ext.ToUpperInvariant().TrimStart('.')} Dosyası", new List<string> { ext });
@@ -1945,7 +2006,7 @@ public sealed partial class MainWindow : Window
             var file = await savePicker.PickSaveFileAsync();
             if (file != null)
             {
-                TransferManager.Instance.EnqueueDownload(item.Name, item.Path, file.Path, client, item.Size);
+                TransferManager.Instance.EnqueueDownload(localName, item.Path, file.Path, client, item.Size);
                 TransferFlyout.ShowAt(TransferButton);
             }
         }
@@ -1961,10 +2022,20 @@ public sealed partial class MainWindow : Window
             var folder = await folderPicker.PickSingleFolderAsync();
             if (folder != null)
             {
+                var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var item in itemsToDownload)
                 {
-                    var targetPath = Path.Combine(folder.Path, item.Name);
-                    TransferManager.Instance.EnqueueDownload(item.Name, item.Path, targetPath, client, item.Size);
+                    var localName = client.LocalFileName(item.Path, item.Name, item.ContentType);
+                    var targetPath = WebDAVClient.UniquePath(Path.Combine(folder.Path, localName));
+                    var ext = Path.GetExtension(localName);
+                    var stem = string.IsNullOrEmpty(ext) ? localName : Path.GetFileNameWithoutExtension(localName);
+                    var candidateName = Path.GetFileName(targetPath);
+                    for (var n = 2; !usedNames.Add(candidateName); n++)
+                    {
+                        candidateName = $"{stem} ({n}){ext}";
+                        targetPath = WebDAVClient.UniquePath(Path.Combine(folder.Path, candidateName));
+                    }
+                    TransferManager.Instance.EnqueueDownload(candidateName, item.Path, targetPath, client, item.Size);
                 }
                 TransferFlyout.ShowAt(TransferButton);
             }
@@ -2270,6 +2341,7 @@ public sealed partial class MainWindow : Window
     #region Sistem Panosu İşlemleri (Ctrl+C, Ctrl+X, Ctrl+V)
 
     private readonly List<FileItem> _clipboardItems = new();
+    private readonly HashSet<string> _lastExportedClipboardPaths = new(StringComparer.OrdinalIgnoreCase);
     private bool _isClipboardCut = false;
 
     private void ContextCopy_Click(object sender, RoutedEventArgs e)
@@ -2309,24 +2381,13 @@ public sealed partial class MainWindow : Window
 
         try
         {
-            var localPaths = new List<string>();
-            foreach (var item in selected)
-            {
-                if (item.IsDirectory)
-                {
-                    var dir = await client.DownloadFolderToCacheAsync(item.Path);
-                    if (!string.IsNullOrEmpty(dir)) localPaths.Add(dir);
-                }
-                else
-                {
-                    var local = await client.DownloadFileToCacheAsync(item.Path, item.Name);
-                    if (!string.IsNullOrEmpty(local)) localPaths.Add(local);
-                }
-            }
+            var localPaths = await FileExportService.PrepareAsync(client, selected);
 
             if (localPaths.Count > 0)
             {
                 await WindowsClipboardHelper.SetClipboardFilesAsync(localPaths, isCut: false);
+                _lastExportedClipboardPaths.Clear();
+                foreach (var p in localPaths) _lastExportedClipboardPaths.Add(Path.GetFullPath(p));
             }
 
             if (SyncStatusText != null)
@@ -2371,24 +2432,13 @@ public sealed partial class MainWindow : Window
 
         try
         {
-            var localPaths = new List<string>();
-            foreach (var item in selected)
-            {
-                if (item.IsDirectory)
-                {
-                    var dir = await client.DownloadFolderToCacheAsync(item.Path);
-                    if (!string.IsNullOrEmpty(dir)) localPaths.Add(dir);
-                }
-                else
-                {
-                    var local = await client.DownloadFileToCacheAsync(item.Path, item.Name);
-                    if (!string.IsNullOrEmpty(local)) localPaths.Add(local);
-                }
-            }
+            var localPaths = await FileExportService.PrepareAsync(client, selected);
 
             if (localPaths.Count > 0)
             {
                 await WindowsClipboardHelper.SetClipboardFilesAsync(localPaths, isCut: true);
+                _lastExportedClipboardPaths.Clear();
+                foreach (var p in localPaths) _lastExportedClipboardPaths.Add(Path.GetFullPath(p));
             }
 
             if (SyncStatusText != null)
@@ -2412,7 +2462,7 @@ public sealed partial class MainWindow : Window
         if (server == null) return;
         var client = new WebDAVClient(server);
 
-        // 1. Windows Sistem Panosundan dışarıdan kopyalanan dosyaları kontrol et
+        // 1. Windows Sistem Panosundan dışarıdan kopyalanan dosyaları kontrol et (HDrive'ın kendi dışa aktardığı kopyalar hariç)
         try
         {
             var clipData = Clipboard.GetContent();
@@ -2421,28 +2471,35 @@ public sealed partial class MainWindow : Window
                 var storageItems = await clipData.GetStorageItemsAsync();
                 if (storageItems != null && storageItems.Count > 0)
                 {
-                    LoadingRing.IsActive = true;
-                    int successCount = 0;
-                    foreach (var it in storageItems)
+                    bool isInternalExport = _clipboardItems.Count > 0 &&
+                        _lastExportedClipboardPaths.Count > 0 &&
+                        storageItems.All(it => !string.IsNullOrEmpty(it.Path) && _lastExportedClipboardPaths.Contains(Path.GetFullPath(it.Path)));
+
+                    if (!isInternalExport)
                     {
-                        if (it is Windows.Storage.StorageFile file)
+                        LoadingRing.IsActive = true;
+                        int successCount = 0;
+                        foreach (var it in storageItems)
                         {
-                            var ok = await client.UploadFileAsync(file.Path, _currentPath);
-                            if (ok) successCount++;
+                            if (it is Windows.Storage.StorageFile file)
+                            {
+                                var ok = await client.UploadFileAsync(file.Path, _currentPath);
+                                if (ok) successCount++;
+                            }
+                            else if (it is Windows.Storage.StorageFolder folder)
+                            {
+                                var ok = await client.UploadFolderRecursiveAsync(folder.Path, _currentPath);
+                                if (ok) successCount++;
+                            }
                         }
-                        else if (it is Windows.Storage.StorageFolder folder)
+                        LoadingRing.IsActive = false;
+                        if (SyncStatusText != null)
                         {
-                            var ok = await client.UploadFolderRecursiveAsync(folder.Path, _currentPath);
-                            if (ok) successCount++;
+                            SyncStatusText.Text = $"{successCount} öğe panodan yüklendi";
                         }
+                        await LoadDirectoryAsync(_currentPath);
+                        return;
                     }
-                    LoadingRing.IsActive = false;
-                    if (SyncStatusText != null)
-                    {
-                        SyncStatusText.Text = $"{successCount} öğe panodan yüklendi";
-                    }
-                    await LoadDirectoryAsync(_currentPath);
-                    return;
                 }
             }
             else if (clipData.Contains(StandardDataFormats.Text))
@@ -2452,7 +2509,12 @@ public sealed partial class MainWindow : Window
                 {
                     var lines = text.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
                     var validPaths = lines.Where(l => File.Exists(l) || Directory.Exists(l)).ToList();
-                    if (validPaths.Count > 0)
+                    bool isInternalExport = _clipboardItems.Count > 0 &&
+                        _lastExportedClipboardPaths.Count > 0 &&
+                        validPaths.Count > 0 &&
+                        validPaths.All(p => _lastExportedClipboardPaths.Contains(Path.GetFullPath(p)));
+
+                    if (validPaths.Count > 0 && !isInternalExport)
                     {
                         LoadingRing.IsActive = true;
                         int successCount = 0;
@@ -2495,11 +2557,43 @@ public sealed partial class MainWindow : Window
 
                 if (_isClipboardCut)
                 {
-                    await client.MoveAsync(item.Path, destPath);
+                    try
+                    {
+                        await client.MoveAsync(item.Path, destPath);
+                    }
+                    catch
+                    {
+                        if (item.IsDirectory)
+                        {
+                            var localDir = await client.DownloadFolderToCacheAsync(item.Path, item.Name);
+                            if (!string.IsNullOrEmpty(localDir) && Directory.Exists(localDir))
+                            {
+                                await client.UploadFolderRecursiveAsync(localDir, _currentPath);
+                                await client.DeleteAsync(item.Path);
+                            }
+                        }
+                        else
+                        {
+                            var local = await client.DownloadFileToCacheAsync(item.Path, item.Name, item.ContentType);
+                            if (!string.IsNullOrEmpty(local) && File.Exists(local))
+                            {
+                                await client.UploadFileAsync(local, _currentPath);
+                                await client.DeleteAsync(item.Path);
+                            }
+                        }
+                    }
+                }
+                else if (item.IsDirectory)
+                {
+                    var localDir = await client.DownloadFolderToCacheAsync(item.Path, item.Name);
+                    if (!string.IsNullOrEmpty(localDir) && Directory.Exists(localDir))
+                    {
+                        await client.UploadFolderRecursiveAsync(localDir, _currentPath);
+                    }
                 }
                 else
                 {
-                    var local = await client.DownloadFileToCacheAsync(item.Path, item.Name);
+                    var local = await client.DownloadFileToCacheAsync(item.Path, item.Name, item.ContentType);
                     if (!string.IsNullOrEmpty(local) && File.Exists(local))
                     {
                         await client.UploadFileAsync(local, _currentPath);
@@ -2508,8 +2602,12 @@ public sealed partial class MainWindow : Window
             }
 
             foreach (var it in _items) it.IsCut = false;
-            _clipboardItems.Clear();
-            _isClipboardCut = false;
+            if (_isClipboardCut)
+            {
+                _clipboardItems.Clear();
+                _lastExportedClipboardPaths.Clear();
+                _isClipboardCut = false;
+            }
             LoadingRing.IsActive = false;
 
             await LoadDirectoryAsync(_currentPath);
@@ -2795,6 +2893,7 @@ public sealed partial class MainWindow : Window
         // DragItemsStarting has no deferral. Advertise files immediately and materialize
         // them when the target requests StorageItems, including on a cold cache.
         var prepared = new Lazy<Task<List<IStorageItem>>>(() => PrepareDraggedItemsAsync(client, selection));
+        _ = prepared.Value;
         e.Data.SetDataProvider(StandardDataFormats.StorageItems, async request =>
         {
             var deferral = request.GetDeferral();
@@ -3151,6 +3250,8 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private string _currentSidebarTag = "cloud";
+
     private void UpdateSidebar()
     {
         // 1. TÜM DOSYALAR (Aktif Sürücü Kökü)
@@ -3175,7 +3276,36 @@ public sealed partial class MainWindow : Window
             NavView.MenuItems.Remove(item);
         }
 
-        // 3. FAVORİLER (Sabit Klasörler)
+        // 3. HIZLI ERİŞİM (Son Kullanılanlar)
+        var recentsNavItem = new NavigationViewItem
+        {
+            Content = "Son Kullanılanlar",
+            Tag = "recents",
+            Icon = new FontIcon 
+            { 
+                Glyph = "\uE823", 
+                Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 0, 120, 212)) 
+            }
+        };
+        var recentsFlyout = new MenuFlyout();
+        var clearRecentsItem = new MenuFlyoutItem
+        {
+            Text = "Son Kullanılanları Temizle",
+            Icon = new FontIcon { Glyph = "\uE74D" }
+        };
+        clearRecentsItem.Click += (s, e) =>
+        {
+            OrganizationService.Instance.ClearRecents(CloudreveManager.Instance.ActiveServer);
+            if (_currentSidebarTag == "recents")
+            {
+                LoadRecentsView();
+            }
+        };
+        recentsFlyout.Items.Add(clearRecentsItem);
+        recentsNavItem.ContextFlyout = recentsFlyout;
+        NavView.MenuItems.Add(recentsNavItem);
+
+        // 4. FAVORİLER (Sabit Klasör ve Dosyalar)
         if (_pinnedFolders.Count > 0)
         {
             NavView.MenuItems.Add(new NavigationViewItemHeader { Content = "Favoriler" });
@@ -3188,7 +3318,7 @@ public sealed partial class MainWindow : Window
                     Tag = $"pinned:{pinned.Path}",
                     Icon = new FontIcon 
                     { 
-                        Glyph = "\uE8B7", 
+                        Glyph = pinned.IsDirectory ? "\uE8B7" : "\uE7C3", 
                         Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 234, 163, 0)) 
                     }
                 };
@@ -3207,16 +3337,34 @@ public sealed partial class MainWindow : Window
                 NavView.MenuItems.Add(navItem);
             }
         }
+
+        // 5. ETİKETLER (Renk Filtreleri)
+        NavView.MenuItems.Add(new NavigationViewItemHeader { Content = "Etiketler" });
+        foreach (var tagDef in TagColorDefinition.All)
+        {
+            var hex = tagDef.Hex;
+            var tagItem = new NavigationViewItem
+            {
+                Content = tagDef.Name,
+                Tag = $"tag:{hex}",
+                Icon = new FontIcon
+                {
+                    Glyph = "\uE8EC",
+                    Foreground = new SolidColorBrush(ParseColorHex(hex))
+                }
+            };
+            NavView.MenuItems.Add(tagItem);
+        }
     }
 
-    private void PinFolder(string name, string path)
+    private void PinFolder(string name, string path, bool isDirectory = true)
     {
         var cleanPath = path.Trim('/');
         if (string.IsNullOrEmpty(cleanPath)) return;
 
         if (!_pinnedFolders.Any(p => p.Path.Equals(cleanPath, StringComparison.OrdinalIgnoreCase)))
         {
-            _pinnedFolders.Add(new PinnedFolder(name, cleanPath));
+            _pinnedFolders.Add(new PinnedFolder(name, cleanPath, isDirectory));
             SavePinnedFolders();
             UpdateSidebar();
         }
@@ -3238,9 +3386,120 @@ public sealed partial class MainWindow : Window
 
     private void ContextPin_Click(object sender, RoutedEventArgs e)
     {
-        if (_selectedItem != null && _selectedItem.IsDirectory)
+        if (_selectedItem != null)
         {
             if (IsFolderPinned(_selectedItem.Path))
+            {
+                UnpinFolder(_selectedItem.Path);
+            }
+            else
+            {
+                PinFolder(_selectedItem.Name, _selectedItem.Path, _selectedItem.IsDirectory);
+            }
+        }
+    }
+
+    private void ContextTag_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is MenuFlyoutItem menuItem && menuItem.Tag is string colorHex && _selectedItem != null)
+        {
+            var server = CloudreveManager.Instance.ActiveServer;
+            OrganizationService.Instance.SetTag(server, _selectedItem.Path, colorHex);
+            _selectedItem.TagColor = colorHex;
+        }
+    }
+
+    private void ContextClearTag_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selectedItem != null)
+        {
+            var server = CloudreveManager.Instance.ActiveServer;
+            OrganizationService.Instance.RemoveTag(server, _selectedItem.Path);
+            _selectedItem.TagColor = null;
+        }
+    }
+
+    private void LoadRecentsView()
+    {
+        var recents = OrganizationService.Instance.GetRecents(CloudreveManager.Instance.ActiveServer);
+        var tags = OrganizationService.Instance.GetAllTags(CloudreveManager.Instance.ActiveServer);
+
+        _allItems.Clear();
+        _items.Clear();
+
+        foreach (var r in recents)
+        {
+            var item = new FileItem
+            {
+                Name = r.Name,
+                Path = r.Path,
+                IsDirectory = r.IsDirectory,
+                Size = r.Size,
+                ModifiedDate = r.LastAccessDate,
+                TagColor = tags.TryGetValue(r.Path.Trim('/'), out var color) ? color : null
+            };
+            _allItems.Add(item);
+            _items.Add(item);
+        }
+
+        _breadcrumbs.Clear();
+        _breadcrumbs.Add("Son Kullanılanlar");
+        if (ItemCountText != null) ItemCountText.Text = _items.Count == 0 ? "Son kullanılan dosya yok" : $"{_items.Count} öğe";
+    }
+
+    private void LoadTaggedView(string colorHex)
+    {
+        var tags = OrganizationService.Instance.GetAllTags(CloudreveManager.Instance.ActiveServer);
+        var tagName = TagColorDefinition.All.FirstOrDefault(t => t.Hex.Equals(colorHex, StringComparison.OrdinalIgnoreCase))?.Name ?? "Etiketli";
+
+        _allItems.Clear();
+        _items.Clear();
+
+        foreach (var kvp in tags.Where(t => t.Value.Equals(colorHex, StringComparison.OrdinalIgnoreCase)))
+        {
+            var cleanPath = kvp.Key;
+            var fileName = Path.GetFileName(cleanPath);
+            if (string.IsNullOrEmpty(fileName)) fileName = cleanPath;
+            var item = new FileItem
+            {
+                Name = fileName,
+                Path = cleanPath,
+                IsDirectory = false,
+                TagColor = kvp.Value
+            };
+            _allItems.Add(item);
+            _items.Add(item);
+        }
+
+        _breadcrumbs.Clear();
+        _breadcrumbs.Add($"Etiket: {tagName}");
+        if (ItemCountText != null) ItemCountText.Text = _items.Count == 0 ? "Bu etikete sahip dosya yok" : $"{_items.Count} öğe";
+    }
+
+    private static Windows.UI.Color ParseColorHex(string hex)
+    {
+        try
+        {
+            hex = hex.TrimStart('#');
+            if (hex.Length == 6)
+            {
+                byte r = Convert.ToByte(hex.Substring(0, 2), 16);
+                byte g = Convert.ToByte(hex.Substring(2, 2), 16);
+                byte b = Convert.ToByte(hex.Substring(4, 2), 16);
+                return Windows.UI.Color.FromArgb(255, r, g, b);
+            }
+            if (hex.Length == 8)
+            {
+                byte a = Convert.ToByte(hex.Substring(0, 2), 16);
+                byte r = Convert.ToByte(hex.Substring(2, 2), 16);
+                byte g = Convert.ToByte(hex.Substring(4, 2), 16);
+                byte b = Convert.ToByte(hex.Substring(6, 2), 16);
+                return Windows.UI.Color.FromArgb(a, r, g, b);
+            }
+        }
+        catch { }
+        return Windows.UI.Color.FromArgb(255, 128, 128, 128);
+    }
             {
                 UnpinFolder(_selectedItem.Path);
             }
@@ -3300,6 +3559,7 @@ public sealed partial class MainWindow : Window
         {
             var config = CloudreveManager.Instance.ActiveServer;
             if (config == null) return;
+            OrganizationService.Instance.AddRecent(config, item.Path, item.Name, item.IsDirectory, item.Size);
             var client = new WebDAVClient(config);
             var quota = await client.GetQuotaAsync();
             if (quota.HasValue)

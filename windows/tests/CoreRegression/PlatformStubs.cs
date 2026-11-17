@@ -24,6 +24,7 @@ namespace HDriveWin.Models
         public bool IsDirectory { get; set; }
         public long Size { get; set; }
         public DateTime? ModifiedDate { get; set; }
+        public string? ThumbnailUrl { get; set; }
     }
 }
 namespace Windows.UI
