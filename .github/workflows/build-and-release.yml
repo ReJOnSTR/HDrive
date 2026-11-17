@@ -133,7 +133,7 @@ jobs:
 
   build-macos:
     needs: core-regression
-    runs-on: macos-14
+    runs-on: macos-latest
     timeout-minutes: 25
     env:
       HDRIVE_REQUIRE_SIGNING: ${{ needs.core-regression.outputs.require_signing }}
