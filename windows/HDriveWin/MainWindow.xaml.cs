@@ -3500,15 +3500,6 @@ public sealed partial class MainWindow : Window
         catch { }
         return Windows.UI.Color.FromArgb(255, 128, 128, 128);
     }
-            {
-                UnpinFolder(_selectedItem.Path);
-            }
-            else
-            {
-                PinFolder(_selectedItem.Name, _selectedItem.Path);
-            }
-        }
-    }
 
     private void NavView_DragOver(object sender, DragEventArgs e)
     {
