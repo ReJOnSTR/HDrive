@@ -3550,7 +3550,6 @@ public sealed partial class MainWindow : Window
         {
             var config = CloudreveManager.Instance.ActiveServer;
             if (config == null) return;
-            OrganizationService.Instance.AddRecent(config, item.Path, item.Name, item.IsDirectory, item.Size);
             var client = new WebDAVClient(config);
             var quota = await client.GetQuotaAsync();
             if (quota.HasValue)
