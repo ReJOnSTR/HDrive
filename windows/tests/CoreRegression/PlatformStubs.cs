@@ -25,6 +25,7 @@ namespace HDriveWin.Models
         public long Size { get; set; }
         public DateTime? ModifiedDate { get; set; }
         public string? ThumbnailUrl { get; set; }
+        public string? ContentType { get; set; }
     }
 }
 namespace Windows.UI
