@@ -107,7 +107,7 @@ public sealed partial class MainWindow : Window
                         .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
 
                     var focused = Microsoft.UI.Xaml.Input.FocusManager.GetFocusedElement(this.Content.XamlRoot);
-                    var isTypingInBox = focused is TextBox || focused is AutoSuggestBox || focused is PasswordBox;
+                    var isTypingInBox = focused is TextBox || focused is AutoSuggestBox || focused is PasswordBox || _items.Any(i => i.IsEditing);
 
                     if (isCtrl)
                     {
@@ -171,7 +171,7 @@ public sealed partial class MainWindow : Window
                             ContextDelete_Click(s, new RoutedEventArgs());
                         }
                     }
-                    else if (e.Key == Windows.System.VirtualKey.Escape)
+                    else if (e.Key == Windows.System.VirtualKey.Escape && !isTypingInBox)
                     {
                         ClearSelection();
                     }
@@ -858,6 +858,14 @@ public sealed partial class MainWindow : Window
 
     private async void FileList_KeyDown(object sender, KeyRoutedEventArgs e)
     {
+        var focused = this.Content?.XamlRoot != null
+            ? Microsoft.UI.Xaml.Input.FocusManager.GetFocusedElement(this.Content.XamlRoot)
+            : null;
+        if (e.OriginalSource is TextBox || focused is TextBox || focused is AutoSuggestBox || focused is PasswordBox || _items.Any(i => i.IsEditing))
+        {
+            return;
+        }
+
         var isCtrl = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control)
             .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
 
