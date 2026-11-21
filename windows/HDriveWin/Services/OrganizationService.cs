@@ -45,6 +45,7 @@ public sealed class OrganizationService
     private readonly object _lock = new();
     private readonly Dictionary<string, List<RecentItem>> _recentsCache = new();
     private readonly Dictionary<string, Dictionary<string, string>> _tagsCache = new();
+    private readonly Dictionary<string, Dictionary<string, string>> _folderColorsCache = new();
 
     private OrganizationService() { }
 
@@ -171,6 +172,45 @@ public sealed class OrganizationService
         }
     }
 
+    public void SetFolderColor(ServerConfig? server, string path, string colorHex)
+    {
+        var key = NormalizeServerKey(server);
+        var cleanPath = CleanPath(path);
+        if (string.IsNullOrEmpty(cleanPath)) return;
+
+        lock (_lock)
+        {
+            var dict = EnsureDictionaryLoaded(_folderColorsCache, $"folder_colors_{key}.json");
+            dict[cleanPath] = colorHex;
+            SaveDictionary($"folder_colors_{key}.json", dict);
+        }
+    }
+
+    public void RemoveFolderColor(ServerConfig? server, string path)
+    {
+        var key = NormalizeServerKey(server);
+        var cleanPath = CleanPath(path);
+        if (string.IsNullOrEmpty(cleanPath)) return;
+
+        lock (_lock)
+        {
+            var dict = EnsureDictionaryLoaded(_folderColorsCache, $"folder_colors_{key}.json");
+            if (dict.Remove(cleanPath))
+            {
+                SaveDictionary($"folder_colors_{key}.json", dict);
+            }
+        }
+    }
+
+    public Dictionary<string, string> GetAllFolderColors(ServerConfig? server)
+    {
+        var key = NormalizeServerKey(server);
+        lock (_lock)
+        {
+            return new Dictionary<string, string>(EnsureDictionaryLoaded(_folderColorsCache, $"folder_colors_{key}.json"), StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
     private List<RecentItem> EnsureRecentsLoaded(string serverKey)
     {
         if (_recentsCache.TryGetValue(serverKey, out var cached))
@@ -210,12 +250,18 @@ public sealed class OrganizationService
         catch { }
     }
 
-    private Dictionary<string, string> EnsureTagsLoaded(string serverKey)
+    private Dictionary<string, string> EnsureTagsLoaded(string serverKey) =>
+        EnsureDictionaryLoaded(_tagsCache, $"tags_{serverKey}.json");
+
+    private static void SaveTags(string serverKey, Dictionary<string, string> dict) =>
+        SaveDictionary($"tags_{serverKey}.json", dict);
+
+    private static Dictionary<string, string> EnsureDictionaryLoaded(Dictionary<string, Dictionary<string, string>> cache, string fileName)
     {
-        if (_tagsCache.TryGetValue(serverKey, out var cached))
+        if (cache.TryGetValue(fileName, out var cached))
             return cached;
 
-        var file = Path.Combine(GetStorageDirectory(), $"tags_{serverKey}.json");
+        var file = Path.Combine(GetStorageDirectory(), fileName);
         Dictionary<string, string> dict;
         try
         {
@@ -234,15 +280,15 @@ public sealed class OrganizationService
             dict = new(StringComparer.OrdinalIgnoreCase);
         }
 
-        _tagsCache[serverKey] = dict;
+        cache[fileName] = dict;
         return dict;
     }
 
-    private static void SaveTags(string serverKey, Dictionary<string, string> dict)
+    private static void SaveDictionary(string fileName, Dictionary<string, string> dict)
     {
         try
         {
-            var file = Path.Combine(GetStorageDirectory(), $"tags_{serverKey}.json");
+            var file = Path.Combine(GetStorageDirectory(), fileName);
             var json = JsonSerializer.Serialize(dict, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(file, json);
         }

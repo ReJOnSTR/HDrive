@@ -113,6 +113,69 @@ public enum TagColor: String, CaseIterable, Codable, Identifiable {
         case .gray: return Color(red: 0.56, green: 0.56, blue: 0.58)
         }
     }
+    public var nsColor: NSColor {
+        switch self {
+        case .red: return NSColor(srgbRed: 1.0, green: 0.27, blue: 0.23, alpha: 1.0)
+        case .orange: return NSColor(srgbRed: 1.0, green: 0.62, blue: 0.04, alpha: 1.0)
+        case .yellow: return NSColor(srgbRed: 1.0, green: 0.84, blue: 0.04, alpha: 1.0)
+        case .green: return NSColor(srgbRed: 0.19, green: 0.82, blue: 0.35, alpha: 1.0)
+        case .blue: return NSColor(srgbRed: 0.04, green: 0.52, blue: 1.0, alpha: 1.0)
+        case .purple: return NSColor(srgbRed: 0.75, green: 0.35, blue: 0.95, alpha: 1.0)
+        case .gray: return NSColor(srgbRed: 0.56, green: 0.56, blue: 0.58, alpha: 1.0)
+        }
+    }
+}
+
+public enum FolderColor: String, CaseIterable, Codable, Identifiable {
+    case blue = "#0078D4"
+    case green = "#107C10"
+    case red = "#D13438"
+    case orange = "#CA5010"
+    case purple = "#8764B8"
+    case teal = "#008272"
+    case pink = "#E3008C"
+    case gray = "#7A7574"
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .blue: return "Mavi"
+        case .green: return "Yeşil"
+        case .red: return "Kırmızı"
+        case .orange: return "Turuncu"
+        case .purple: return "Mor"
+        case .teal: return "Turkuaz"
+        case .pink: return "Pembe"
+        case .gray: return "Gri"
+        }
+    }
+
+    public var color: Color {
+        switch self {
+        case .blue: return Color(red: 0.0, green: 0.47, blue: 0.83)
+        case .green: return Color(red: 0.06, green: 0.49, blue: 0.06)
+        case .red: return Color(red: 0.82, green: 0.20, blue: 0.22)
+        case .orange: return Color(red: 0.79, green: 0.31, blue: 0.06)
+        case .purple: return Color(red: 0.53, green: 0.39, blue: 0.72)
+        case .teal: return Color(red: 0.0, green: 0.51, blue: 0.45)
+        case .pink: return Color(red: 0.89, green: 0.0, blue: 0.55)
+        case .gray: return Color(red: 0.48, green: 0.46, blue: 0.45)
+        }
+    }
+
+    public var nsColor: NSColor {
+        switch self {
+        case .blue: return NSColor(srgbRed: 0.0, green: 0.47, blue: 0.83, alpha: 1.0)
+        case .green: return NSColor(srgbRed: 0.06, green: 0.49, blue: 0.06, alpha: 1.0)
+        case .red: return NSColor(srgbRed: 0.82, green: 0.20, blue: 0.22, alpha: 1.0)
+        case .orange: return NSColor(srgbRed: 0.79, green: 0.31, blue: 0.06, alpha: 1.0)
+        case .purple: return NSColor(srgbRed: 0.53, green: 0.39, blue: 0.72, alpha: 1.0)
+        case .teal: return NSColor(srgbRed: 0.0, green: 0.51, blue: 0.45, alpha: 1.0)
+        case .pink: return NSColor(srgbRed: 0.89, green: 0.0, blue: 0.55, alpha: 1.0)
+        case .gray: return NSColor(srgbRed: 0.48, green: 0.46, blue: 0.45, alpha: 1.0)
+        }
+    }
 }
 
 public enum SidebarViewMode: Equatable {
@@ -511,6 +574,8 @@ public struct NativeExplorerView: View {
     @State private var pinnedFolders: [PinnedFolder] = []
     @State private var recentItems: [RecentItem] = []
     @State private var fileTags: [String: String] = [:]
+    @State private var folderColors: [String: String] = [:]
+    @AppStorage("HDrive_SidebarTagsExpanded") private var isTagsSectionExpanded: Bool = false
     @State private var activeSidebarViewMode: SidebarViewMode = .normal
     @State private var isSidebarDropTargeted: Bool = false
     @State private var isFileAreaDropTargeted: Bool = false
@@ -587,6 +652,7 @@ public struct NativeExplorerView: View {
             loadPinnedFolders()
             loadRecentItems()
             loadFileTags()
+            loadFolderColors()
             if let first = tabs.first {
                 activeTabID = first.id
             }
@@ -604,6 +670,7 @@ public struct NativeExplorerView: View {
             loadPinnedFolders()
             loadRecentItems()
             loadFileTags()
+            loadFolderColors()
             activeSidebarViewMode = .normal
             guard newServerID != nil else {
                 directoryLoadGeneration = UUID()
@@ -739,13 +806,13 @@ public struct NativeExplorerView: View {
                 Button(action: goBack) {
                     Image(systemName: "chevron.left")
                 }
-                .disabled(historyIndex <= 0)
+                .disabled(historyIndex <= 0 && activeSidebarViewMode == .normal)
                 .help("Geri")
                 
                 Button(action: goForward) {
                     Image(systemName: "chevron.right")
                 }
-                .disabled(historyIndex >= pathHistory.count - 1)
+                .disabled(historyIndex >= pathHistory.count - 1 || activeSidebarViewMode != .normal)
                 .help("İleri")
             }
         }
@@ -1672,7 +1739,7 @@ public struct NativeExplorerView: View {
                 Section("Hızlı Erişim") {
                     let isRecents = (activeSidebarViewMode == .recents)
                     Button(action: {
-                        activeSidebarViewMode = .recents
+                        activeSidebarViewMode = isRecents ? .normal : .recents
                     }) {
                         HStack(spacing: 8) {
                             Image(systemName: "clock")
@@ -1765,33 +1832,74 @@ public struct NativeExplorerView: View {
                     handleSidebarFolderDrop(providers)
                 }
 
-                // ETİKETLER (Tags / Renk Filtreleri)
-                Section("Etiketler") {
-                    ForEach(TagColor.allCases) { tag in
-                        let isSelected = (activeSidebarViewMode == .tag(tag))
-                        Button(action: {
-                            if activeSidebarViewMode == .tag(tag) {
-                                activeSidebarViewMode = .normal
-                            } else {
-                                activeSidebarViewMode = .tag(tag)
-                            }
-                        }) {
-                            HStack(spacing: 8) {
-                                Circle()
-                                    .fill(tag.color)
-                                    .frame(width: 10, height: 10)
-                                
-                                Text(tag.displayName)
-                                    .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
-                                    .foregroundColor(isSelected ? .primary : .primary.opacity(0.85))
-                                    .lineLimit(1)
-                                
-                                Spacer()
-                            }
-                            .padding(.vertical, 2)
-                            .contentShape(Rectangle())
+                // ETİKETLER (Açılır-Kapanır Etiket Filtreleri)
+                Section {
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: 0.16)) {
+                            isTagsSectionExpanded.toggle()
                         }
-                        .buttonStyle(.plain)
+                    }) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "tag.fill")
+                                .font(.system(size: 12))
+                                .foregroundColor(activeSidebarViewMode != .normal && activeSidebarViewMode != .recents ? .accentColor : .secondary)
+
+                            Text("Etiketler")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(.primary.opacity(0.9))
+
+                            Spacer()
+
+                            if !fileTags.isEmpty {
+                                Text("\(fileTags.count)")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+
+                            Image(systemName: isTagsSectionExpanded ? "chevron.down" : "chevron.right")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.vertical, 2)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+
+                    if isTagsSectionExpanded {
+                        ForEach(TagColor.allCases) { tag in
+                            let isSelected = (activeSidebarViewMode == .tag(tag))
+                            let tagCount = fileTags.values.filter { $0 == tag.rawValue }.count
+                            Button(action: {
+                                if activeSidebarViewMode == .tag(tag) {
+                                    activeSidebarViewMode = .normal
+                                } else {
+                                    activeSidebarViewMode = .tag(tag)
+                                }
+                            }) {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "tag.fill")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(tag.color)
+
+                                    Text(tag.displayName)
+                                        .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
+                                        .foregroundColor(isSelected ? .primary : .primary.opacity(0.85))
+                                        .lineLimit(1)
+
+                                    Spacer()
+
+                                    if tagCount > 0 {
+                                        Text("\(tagCount)")
+                                            .font(.caption2)
+                                            .foregroundColor(.secondary)
+                                    }
+                                }
+                                .padding(.leading, 10)
+                                .padding(.vertical, 2)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
                 }
             }
@@ -2038,9 +2146,17 @@ public struct NativeExplorerView: View {
         HStack(spacing: 4) {
             switch activeSidebarViewMode {
             case .recents:
-                Button(action: { activeSidebarViewMode = .normal; navigateToRoot() }) {
-                    Image(systemName: "house.fill")
-                        .foregroundColor(.secondary)
+                Button(action: { activeSidebarViewMode = .normal }) {
+                    HStack(spacing: 3) {
+                        Image(systemName: "chevron.left")
+                            .font(.caption.weight(.semibold))
+                        Text("Dosyalara Dön")
+                            .font(.caption.weight(.medium))
+                    }
+                    .foregroundColor(.accentColor)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(Color.accentColor.opacity(0.12)))
                 }
                 .buttonStyle(.plain)
                 Text("/")
@@ -2054,17 +2170,25 @@ public struct NativeExplorerView: View {
                     .foregroundColor(.primary)
                 
             case .tag(let tag):
-                Button(action: { activeSidebarViewMode = .normal; navigateToRoot() }) {
-                    Image(systemName: "house.fill")
-                        .foregroundColor(.secondary)
+                Button(action: { activeSidebarViewMode = .normal }) {
+                    HStack(spacing: 3) {
+                        Image(systemName: "chevron.left")
+                            .font(.caption.weight(.semibold))
+                        Text("Dosyalara Dön")
+                            .font(.caption.weight(.medium))
+                    }
+                    .foregroundColor(.accentColor)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(Color.accentColor.opacity(0.12)))
                 }
                 .buttonStyle(.plain)
                 Text("/")
                     .foregroundColor(.secondary)
                     .font(.caption2)
-                Circle()
-                    .fill(tag.color)
-                    .frame(width: 8, height: 8)
+                Image(systemName: "tag.fill")
+                    .foregroundColor(tag.color)
+                    .font(.caption)
                 Text("Etiket: \(tag.displayName)")
                     .font(.subheadline.weight(.semibold))
                     .foregroundColor(.primary)
@@ -2428,18 +2552,25 @@ public struct NativeExplorerView: View {
                         .cornerRadius(4)
                         .shadow(color: .black.opacity(0.12), radius: 2, y: 1)
                 } else {
-                    Image(nsImage: FileIconProvider.shared.icon(for: file.name, isDirectory: file.isDirectory, size: 64, contentType: file.contentType))
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 58, height: 50)
+                    fileIconView(for: file, iconSize: 64, displayWidth: 58, displayHeight: 50)
                         .shadow(color: .black.opacity(0.10), radius: 2, y: 1)
                 }
                 
                 if let tag = tagForFile(file) {
-                    Circle()
-                        .fill(tag.color)
-                        .frame(width: 8, height: 8)
-                        .offset(x: 2, y: -2)
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            .fill(tag.color)
+                            .frame(width: 16, height: 16)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                    .stroke(Color(NSColor.windowBackgroundColor), lineWidth: 1)
+                            )
+                        Image(systemName: "tag.fill")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundColor(.white)
+                    }
+                    .shadow(color: .black.opacity(0.18), radius: 1.5, y: 0.5)
+                    .offset(x: 4, y: -3)
                 }
             }
             .onAppear {
@@ -2473,6 +2604,10 @@ public struct NativeExplorerView: View {
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
                     .frame(width: 92)
+
+                if let tag = tagForFile(file) {
+                    tagPillView(tag, fontSize: 9, dotSize: 5)
+                }
             }
             
             Text(file.formattedSize)
@@ -2625,10 +2760,7 @@ public struct NativeExplorerView: View {
                         .frame(width: 18, height: 18)
                         .cornerRadius(3)
                 } else {
-                    Image(nsImage: FileIconProvider.shared.icon(for: file.name, isDirectory: file.isDirectory, size: 20, contentType: file.contentType))
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 18, height: 18)
+                    fileIconView(for: file, iconSize: 20, displayWidth: 18, displayHeight: 18)
                 }
                 
                 if isRenaming {
@@ -2656,9 +2788,7 @@ public struct NativeExplorerView: View {
                         .truncationMode(.middle)
                     
                     if let tag = tagForFile(file) {
-                        Circle()
-                            .fill(tag.color)
-                            .frame(width: 7, height: 7)
+                        tagPillView(tag, fontSize: 10, dotSize: 6)
                     }
                 }
                 Spacer(minLength: 0)
@@ -2754,15 +2884,39 @@ public struct NativeExplorerView: View {
         Menu {
             ForEach(TagColor.allCases) { tag in
                 Button(action: { setTag(tag, for: file) }) {
-                    Text(tag.displayName)
+                    Label {
+                        Text(tag.displayName)
+                    } icon: {
+                        Image(nsImage: swatchImage(color: tag.nsColor))
+                    }
                 }
             }
             Divider()
-            Button("Etiketi Kaldır") {
-                removeTag(for: file)
+            Button(action: { removeTag(for: file) }) {
+                Label("Etiketi Kaldır", systemImage: "trash")
             }
         } label: {
             Label("Etiketler", systemImage: "tag")
+        }
+
+        if file.isDirectory {
+            Menu {
+                ForEach(FolderColor.allCases) { folderColor in
+                    Button(action: { setFolderColor(folderColor, for: file) }) {
+                        Label {
+                            Text(folderColor.displayName)
+                        } icon: {
+                            Image(nsImage: swatchImage(color: folderColor.nsColor, isFolder: true))
+                        }
+                    }
+                }
+                Divider()
+                Button(action: { removeFolderColor(for: file) }) {
+                    Label("Varsayılan Renk", systemImage: "arrow.counterclockwise")
+                }
+            } label: {
+                Label("Klasör Rengi", systemImage: "paintpalette")
+            }
         }
 
         if activeSidebarViewMode == .recents {
@@ -2945,7 +3099,18 @@ public struct NativeExplorerView: View {
                 )
             }
         case .tag(let tagColor):
-            source = files.filter { tagForFile($0) == tagColor }
+            let currentMatches = files.filter { tagForFile($0) == tagColor }
+            let existingPaths = Set(currentMatches.map { itemPathKey($0) })
+            let extraTagged = fileTags.compactMap { (path, raw) -> RemoteFileItem? in
+                guard raw == tagColor.rawValue, !existingPaths.contains(path) else { return nil }
+                if let recent = recentItems.first(where: { $0.path == path }) {
+                    return RemoteFileItem(id: recent.path, name: recent.name, href: recent.path, isDirectory: recent.isDirectory, size: recent.size, modificationDate: recent.accessDate, contentType: recent.contentType)
+                }
+                let name = (path as NSString).lastPathComponent.isEmpty ? path : (path as NSString).lastPathComponent
+                let isDir = folderColors[path] != nil
+                return RemoteFileItem(id: path, name: name, href: path, isDirectory: isDir, size: 0, modificationDate: nil, contentType: nil)
+            }
+            source = currentMatches + extraTagged
         case .normal:
             source = isDeepSearchEnabled ? deepSearchResults : files
         }
@@ -3235,6 +3400,7 @@ public struct NativeExplorerView: View {
     }
     
     private func openServerInTab(_ server: CloudreveServerConfig) {
+        activeSidebarViewMode = .normal
         if let currentTab = tabs.first(where: { $0.id == activeTabID }),
            currentTab.serverId == server.id && currentPath.isEmpty {
             return
@@ -3307,6 +3473,7 @@ public struct NativeExplorerView: View {
     }
 
     private func navigateTo(_ path: String) {
+        activeSidebarViewMode = .normal
         exitSearch()
         currentPath = path
         if historyIndex < pathHistory.count - 1 {
@@ -3323,6 +3490,10 @@ public struct NativeExplorerView: View {
     }
     
     private func goBack() {
+        if activeSidebarViewMode != .normal {
+            activeSidebarViewMode = .normal
+            return
+        }
         if historyIndex > 0 {
             historyIndex -= 1
             currentPath = pathHistory[historyIndex]
@@ -3856,6 +4027,11 @@ public struct NativeExplorerView: View {
         let serverID = manager.activeServer?.id.uuidString ?? "global"
         return "HDrive_Tags_\(serverID)"
     }
+
+    private var folderColorsKey: String {
+        let serverID = manager.activeServer?.id.uuidString ?? "global"
+        return "HDrive_FolderColors_\(serverID)"
+    }
     
     private func loadPinnedFolders() {
         if let data = UserDefaults.standard.data(forKey: pinnedFoldersKey),
@@ -3943,7 +4119,83 @@ public struct NativeExplorerView: View {
         saveRecentItems()
     }
 
-    // MARK: - Etiketler (Tags / Color Labels)
+    // MARK: - Etiketler ve Klasör Renkleri (Tags & Folder Colors)
+    @ViewBuilder
+    private func fileIconView(for file: RemoteFileItem, iconSize: CGFloat, displayWidth: CGFloat, displayHeight: CGFloat) -> some View {
+        if file.isDirectory, let folderColor = folderColorForFile(file) {
+            Image(systemName: "folder.fill")
+                .resizable()
+                .scaledToFit()
+                .frame(width: displayWidth, height: displayHeight)
+                .foregroundStyle(folderColor.color.gradient)
+        } else {
+            Image(nsImage: FileIconProvider.shared.icon(for: file.name, isDirectory: file.isDirectory, size: iconSize, contentType: file.contentType))
+                .resizable()
+                .scaledToFit()
+                .frame(width: displayWidth, height: displayHeight)
+        }
+    }
+
+    @ViewBuilder
+    private func tagPillView(_ tag: TagColor, fontSize: CGFloat, dotSize: CGFloat) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: "tag.fill")
+                .font(.system(size: max(8, fontSize - 1), weight: .semibold))
+                .foregroundColor(tag.color)
+            Text(tag.displayName)
+                .font(.system(size: fontSize, weight: .semibold))
+                .foregroundColor(tag.color)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(RoundedRectangle(cornerRadius: 4, style: .continuous).fill(tag.color.opacity(0.14)))
+        .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).stroke(tag.color.opacity(0.38), lineWidth: 1))
+    }
+
+    private func swatchImage(color: NSColor, isFolder: Bool = false) -> NSImage {
+        let size = NSSize(width: 14, height: 14)
+        let image = NSImage(size: size, flipped: false) { rect in
+            color.setFill()
+            if isFolder {
+                let path = NSBezierPath()
+                path.move(to: NSPoint(x: 1, y: 2))
+                path.line(to: NSPoint(x: 13, y: 2))
+                path.line(to: NSPoint(x: 13, y: 10))
+                path.line(to: NSPoint(x: 7, y: 10))
+                path.line(to: NSPoint(x: 5.5, y: 12))
+                path.line(to: NSPoint(x: 1, y: 12))
+                path.close()
+                path.fill()
+            } else if let symbol = NSImage(systemSymbolName: "tag.fill", accessibilityDescription: nil) {
+                let config = NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
+                let configured = symbol.withSymbolConfiguration(config) ?? symbol
+                let drawRect = rect.insetBy(dx: 1, dy: 1)
+                configured.draw(in: drawRect)
+                color.set()
+                drawRect.fill(using: .sourceAtop)
+            } else {
+                NSBezierPath(roundedRect: rect.insetBy(dx: 2, dy: 2), xRadius: 3, yRadius: 3).fill()
+            }
+            return true
+        }
+        image.isTemplate = false
+        return image
+    }
+
+    private func itemPathKey(_ file: RemoteFileItem) -> String {
+        let filePath = manager.activeServer.map { file.navigationPath(relativeTo: $0) } ?? file.href
+        return filePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    }
+
+    private func targetItems(for file: RemoteFileItem) -> [RemoteFileItem] {
+        if selectedFileIDs.contains(file.id) && selectedFileIDs.count > 1 {
+            let selected = filteredFiles.filter { selectedFileIDs.contains($0.id) }
+            if !selected.isEmpty { return selected }
+        }
+        return [file]
+    }
+
     private func loadFileTags() {
         if let dict = UserDefaults.standard.dictionary(forKey: fileTagsKey) as? [String: String] {
             self.fileTags = dict
@@ -3957,25 +4209,62 @@ public struct NativeExplorerView: View {
     }
     
     private func setTag(_ tag: TagColor, for file: RemoteFileItem) {
-        let filePath = manager.activeServer.map { file.navigationPath(relativeTo: $0) } ?? file.href
-        let cleanPath = filePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        guard !cleanPath.isEmpty else { return }
-        fileTags[cleanPath] = tag.rawValue
+        for target in targetItems(for: file) {
+            let cleanPath = itemPathKey(target)
+            guard !cleanPath.isEmpty else { continue }
+            fileTags[cleanPath] = tag.rawValue
+        }
         saveFileTags()
     }
     
     private func removeTag(for file: RemoteFileItem) {
-        let filePath = manager.activeServer.map { file.navigationPath(relativeTo: $0) } ?? file.href
-        let cleanPath = filePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        fileTags.removeValue(forKey: cleanPath)
+        for target in targetItems(for: file) {
+            let cleanPath = itemPathKey(target)
+            fileTags.removeValue(forKey: cleanPath)
+        }
         saveFileTags()
     }
     
     private func tagForFile(_ file: RemoteFileItem) -> TagColor? {
-        let filePath = manager.activeServer.map { file.navigationPath(relativeTo: $0) } ?? file.href
-        let cleanPath = filePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let cleanPath = itemPathKey(file)
         guard let raw = fileTags[cleanPath] else { return nil }
         return TagColor(rawValue: raw)
+    }
+
+    private func loadFolderColors() {
+        if let dict = UserDefaults.standard.dictionary(forKey: folderColorsKey) as? [String: String] {
+            self.folderColors = dict
+        } else {
+            self.folderColors = [:]
+        }
+    }
+
+    private func saveFolderColors() {
+        UserDefaults.standard.set(folderColors, forKey: folderColorsKey)
+    }
+
+    private func setFolderColor(_ folderColor: FolderColor, for file: RemoteFileItem) {
+        for target in targetItems(for: file) where target.isDirectory {
+            let cleanPath = itemPathKey(target)
+            guard !cleanPath.isEmpty else { continue }
+            folderColors[cleanPath] = folderColor.rawValue
+        }
+        saveFolderColors()
+    }
+
+    private func removeFolderColor(for file: RemoteFileItem) {
+        for target in targetItems(for: file) where target.isDirectory {
+            let cleanPath = itemPathKey(target)
+            folderColors.removeValue(forKey: cleanPath)
+        }
+        saveFolderColors()
+    }
+
+    private func folderColorForFile(_ file: RemoteFileItem) -> FolderColor? {
+        guard file.isDirectory else { return nil }
+        let cleanPath = itemPathKey(file)
+        guard let raw = folderColors[cleanPath] else { return nil }
+        return FolderColor(rawValue: raw)
     }
     
     private func handleSidebarFolderDrop(_ providers: [NSItemProvider]) -> Bool {

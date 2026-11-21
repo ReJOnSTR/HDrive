@@ -140,20 +140,42 @@ public class FileItem : INotifyPropertyChanged
         _thumbnailImage ?? IconImageSmall;
 
     public Microsoft.UI.Xaml.Visibility HasIconImageVisibility =>
-        DisplayIconLarge != null ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
+        !(IsDirectory && !string.IsNullOrEmpty(_folderColor)) && DisplayIconLarge != null
+            ? Microsoft.UI.Xaml.Visibility.Visible
+            : Microsoft.UI.Xaml.Visibility.Collapsed;
 
     public Microsoft.UI.Xaml.Visibility HasNoIconImageVisibility =>
-        DisplayIconLarge != null ? Microsoft.UI.Xaml.Visibility.Collapsed : Microsoft.UI.Xaml.Visibility.Visible;
+        (IsDirectory && !string.IsNullOrEmpty(_folderColor)) || DisplayIconLarge == null
+            ? Microsoft.UI.Xaml.Visibility.Visible
+            : Microsoft.UI.Xaml.Visibility.Collapsed;
 
     public string GlyphIcon => IsDirectory ? "\uE8B7" : GetFileIcon(Name); // Windows 11 Segoe Fluent Icons Fallback
 
-    public Microsoft.UI.Xaml.Media.SolidColorBrush IconBrush => new(GetFileColor(Name, IsDirectory));
+    public Microsoft.UI.Xaml.Media.SolidColorBrush IconBrush =>
+        IsDirectory && !string.IsNullOrEmpty(_folderColor)
+            ? new Microsoft.UI.Xaml.Media.SolidColorBrush(ParseColorHex(_folderColor))
+            : new(GetFileColor(Name, IsDirectory));
 
     public string TypeDescription => IsDirectory ? "Klasör" : GetFileTypeDescription(Name);
 
     public string FormattedDate => ModifiedDate?.ToString("dd.MM.yyyy HH:mm") ?? "-";
 
     public string Extension => System.IO.Path.GetExtension(Name).ToUpperInvariant();
+
+    private string? _folderColor;
+    public string? FolderColor
+    {
+        get => _folderColor;
+        set
+        {
+            if (SetProperty(ref _folderColor, value))
+            {
+                OnPropertyChanged(nameof(IconBrush));
+                OnPropertyChanged(nameof(HasIconImageVisibility));
+                OnPropertyChanged(nameof(HasNoIconImageVisibility));
+            }
+        }
+    }
 
     private string? _tagColor;
     public string? TagColor
@@ -164,6 +186,9 @@ public class FileItem : INotifyPropertyChanged
             if (SetProperty(ref _tagColor, value))
             {
                 OnPropertyChanged(nameof(TagBrush));
+                OnPropertyChanged(nameof(TagPillBackground));
+                OnPropertyChanged(nameof(TagPillBorderBrush));
+                OnPropertyChanged(nameof(TagName));
                 OnPropertyChanged(nameof(HasTagVisibility));
             }
         }
@@ -171,6 +196,40 @@ public class FileItem : INotifyPropertyChanged
 
     public Microsoft.UI.Xaml.Media.SolidColorBrush? TagBrush =>
         !string.IsNullOrEmpty(_tagColor) ? new Microsoft.UI.Xaml.Media.SolidColorBrush(ParseColorHex(_tagColor)) : null;
+
+    public Microsoft.UI.Xaml.Media.SolidColorBrush? TagPillBackground
+    {
+        get
+        {
+            if (string.IsNullOrEmpty(_tagColor)) return null;
+            var c = ParseColorHex(_tagColor);
+            return new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(38, c.R, c.G, c.B));
+        }
+    }
+
+    public Microsoft.UI.Xaml.Media.SolidColorBrush? TagPillBorderBrush
+    {
+        get
+        {
+            if (string.IsNullOrEmpty(_tagColor)) return null;
+            var c = ParseColorHex(_tagColor);
+            return new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(110, c.R, c.G, c.B));
+        }
+    }
+
+    public string TagName
+    {
+        get
+        {
+            if (string.IsNullOrEmpty(_tagColor)) return string.Empty;
+            foreach (var def in Services.TagColorDefinition.All)
+            {
+                if (def.Hex.Equals(_tagColor, StringComparison.OrdinalIgnoreCase))
+                    return def.Name;
+            }
+            return "Etiket";
+        }
+    }
 
     public Microsoft.UI.Xaml.Visibility HasTagVisibility =>
         !string.IsNullOrEmpty(_tagColor) ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;

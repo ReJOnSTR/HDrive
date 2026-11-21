@@ -512,6 +512,7 @@ public sealed partial class MainWindow : Window
 
     private async void NavigateToPath(string path, bool addToHistory = true)
     {
+        _currentSidebarTag = "cloud";
         _currentPath = path;
 
         if (addToHistory)
@@ -549,9 +550,9 @@ public sealed partial class MainWindow : Window
 
     private void UpdateNavigationButtons()
     {
-        BackButton.IsEnabled = _historyIndex > 0;
-        ForwardButton.IsEnabled = _historyIndex < _history.Count - 1;
-        UpButton.IsEnabled = !string.IsNullOrEmpty(_currentPath);
+        BackButton.IsEnabled = _historyIndex > 0 || _currentSidebarTag != "cloud";
+        ForwardButton.IsEnabled = _historyIndex < _history.Count - 1 && _currentSidebarTag == "cloud";
+        UpButton.IsEnabled = !string.IsNullOrEmpty(_currentPath) || _currentSidebarTag != "cloud";
     }
 
     private void UpdateBreadcrumbs(string path)
@@ -601,12 +602,17 @@ public sealed partial class MainWindow : Window
                                  .ToList();
 
             var tags = OrganizationService.Instance.GetAllTags(config);
+            var folderColors = OrganizationService.Instance.GetAllFolderColors(config);
             foreach (var item in uniqueList)
             {
                 var clean = item.Path.Trim('/');
                 if (tags.TryGetValue(clean, out var tagColor))
                 {
                     item.TagColor = tagColor;
+                }
+                if (item.IsDirectory && folderColors.TryGetValue(clean, out var folderColor))
+                {
+                    item.FolderColor = folderColor;
                 }
             }
 
@@ -985,6 +991,13 @@ public sealed partial class MainWindow : Window
 
     private void BackButton_Click(object sender, RoutedEventArgs e)
     {
+        if (_currentSidebarTag != "cloud")
+        {
+            _currentSidebarTag = "cloud";
+            NavView.SelectedItem = AllFilesNavItem;
+            NavigateToPath(_currentPath, addToHistory: false);
+            return;
+        }
         if (_historyIndex > 0)
         {
             _historyIndex--;
@@ -1003,6 +1016,13 @@ public sealed partial class MainWindow : Window
 
     private void UpButton_Click(object sender, RoutedEventArgs e)
     {
+        if (_currentSidebarTag != "cloud")
+        {
+            _currentSidebarTag = "cloud";
+            NavView.SelectedItem = AllFilesNavItem;
+            NavigateToPath(_currentPath, addToHistory: false);
+            return;
+        }
         if (string.IsNullOrEmpty(_currentPath)) return;
         var clean = _currentPath.TrimEnd('/');
         var lastSlash = clean.LastIndexOf('/');
@@ -1018,6 +1038,16 @@ public sealed partial class MainWindow : Window
 
     private void PathBreadcrumbBar_ItemClicked(BreadcrumbBar sender, BreadcrumbBarItemClickedEventArgs args)
     {
+        if (_currentSidebarTag != "cloud")
+        {
+            if (args.Index == 0)
+            {
+                _currentSidebarTag = "cloud";
+                NavView.SelectedItem = AllFilesNavItem;
+                NavigateToPath(_currentPath, addToHistory: false);
+            }
+            return;
+        }
         if (args.Index == 0)
         {
             NavigateToPath("");
@@ -1794,14 +1824,32 @@ public sealed partial class MainWindow : Window
                 }
                 else if (tag == "recents")
                 {
-                    _currentSidebarTag = "recents";
-                    LoadRecentsView();
+                    if (_currentSidebarTag == "recents")
+                    {
+                        _currentSidebarTag = "cloud";
+                        NavView.SelectedItem = AllFilesNavItem;
+                        NavigateToPath(_currentPath, addToHistory: false);
+                    }
+                    else
+                    {
+                        _currentSidebarTag = "recents";
+                        LoadRecentsView();
+                    }
                 }
                 else if (tag.StartsWith("tag:"))
                 {
-                    var colorHex = tag.Substring("tag:".Length);
-                    _currentSidebarTag = tag;
-                    LoadTaggedView(colorHex);
+                    if (_currentSidebarTag == tag)
+                    {
+                        _currentSidebarTag = "cloud";
+                        NavView.SelectedItem = AllFilesNavItem;
+                        NavigateToPath(_currentPath, addToHistory: false);
+                    }
+                    else
+                    {
+                        var colorHex = tag.Substring("tag:".Length);
+                        _currentSidebarTag = tag;
+                        LoadTaggedView(colorHex);
+                    }
                 }
                 else if (tag.StartsWith("server:"))
                 {
@@ -1882,6 +1930,9 @@ public sealed partial class MainWindow : Window
             }
 
             ContextPinItem.Visibility = Visibility.Visible;
+            ContextFolderColorSubItem.Visibility = (item.IsDirectory || GetSelectedItems().Any(i => i.IsDirectory))
+                ? Visibility.Visible
+                : Visibility.Collapsed;
             if (IsFolderPinned(item.Path))
             {
                 ContextPinItem.Text = "Kenar Çubuğundan Kaldır";
@@ -3346,11 +3397,23 @@ public sealed partial class MainWindow : Window
             }
         }
 
-        // 5. ETİKETLER (Renk Filtreleri)
-        NavView.MenuItems.Add(new NavigationViewItemHeader { Content = "Etiketler" });
+        // 5. ETİKETLER (Açılır-Kapanır Renk Filtreleri)
+        var allTags = OrganizationService.Instance.GetAllTags(CloudreveManager.Instance.ActiveServer);
+        var tagsGroupItem = new NavigationViewItem
+        {
+            Content = "Etiketler",
+            Icon = new FontIcon { Glyph = "\uE8EC" },
+            SelectsOnInvoked = false,
+            IsExpanded = _currentSidebarTag.StartsWith("tag:")
+        };
+        if (allTags.Count > 0)
+        {
+            tagsGroupItem.InfoBadge = new InfoBadge { Value = allTags.Count };
+        }
         foreach (var tagDef in TagColorDefinition.All)
         {
             var hex = tagDef.Hex;
+            var tagCount = allTags.Values.Count(v => v.Equals(hex, StringComparison.OrdinalIgnoreCase));
             var tagItem = new NavigationViewItem
             {
                 Content = tagDef.Name,
@@ -3361,8 +3424,13 @@ public sealed partial class MainWindow : Window
                     Foreground = new SolidColorBrush(ParseColorHex(hex))
                 }
             };
-            NavView.MenuItems.Add(tagItem);
+            if (tagCount > 0)
+            {
+                tagItem.InfoBadge = new InfoBadge { Value = tagCount };
+            }
+            tagsGroupItem.MenuItems.Add(tagItem);
         }
+        NavView.MenuItems.Add(tagsGroupItem);
     }
 
     private void PinFolder(string name, string path, bool isDirectory = true)
@@ -3409,21 +3477,57 @@ public sealed partial class MainWindow : Window
 
     private void ContextTag_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is MenuFlyoutItem menuItem && menuItem.Tag is string colorHex && _selectedItem != null)
+        if (sender is MenuFlyoutItem menuItem && menuItem.Tag is string colorHex)
         {
+            var targets = GetSelectedItems();
+            if (targets.Count == 0 && _selectedItem != null) targets.Add(_selectedItem);
             var server = CloudreveManager.Instance.ActiveServer;
-            OrganizationService.Instance.SetTag(server, _selectedItem.Path, colorHex);
-            _selectedItem.TagColor = colorHex;
+            foreach (var item in targets)
+            {
+                OrganizationService.Instance.SetTag(server, item.Path, colorHex);
+                item.TagColor = colorHex;
+            }
+            UpdateSidebar();
         }
     }
 
     private void ContextClearTag_Click(object sender, RoutedEventArgs e)
     {
-        if (_selectedItem != null)
+        var targets = GetSelectedItems();
+        if (targets.Count == 0 && _selectedItem != null) targets.Add(_selectedItem);
+        var server = CloudreveManager.Instance.ActiveServer;
+        foreach (var item in targets)
         {
+            OrganizationService.Instance.RemoveTag(server, item.Path);
+            item.TagColor = null;
+        }
+        UpdateSidebar();
+    }
+
+    private void ContextFolderColor_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is MenuFlyoutItem menuItem && menuItem.Tag is string colorHex)
+        {
+            var targets = GetSelectedItems();
+            if (targets.Count == 0 && _selectedItem != null) targets.Add(_selectedItem);
             var server = CloudreveManager.Instance.ActiveServer;
-            OrganizationService.Instance.RemoveTag(server, _selectedItem.Path);
-            _selectedItem.TagColor = null;
+            foreach (var item in targets.Where(i => i.IsDirectory))
+            {
+                OrganizationService.Instance.SetFolderColor(server, item.Path, colorHex);
+                item.FolderColor = colorHex;
+            }
+        }
+    }
+
+    private void ContextClearFolderColor_Click(object sender, RoutedEventArgs e)
+    {
+        var targets = GetSelectedItems();
+        if (targets.Count == 0 && _selectedItem != null) targets.Add(_selectedItem);
+        var server = CloudreveManager.Instance.ActiveServer;
+        foreach (var item in targets.Where(i => i.IsDirectory))
+        {
+            OrganizationService.Instance.RemoveFolderColor(server, item.Path);
+            item.FolderColor = null;
         }
     }
 
@@ -3431,12 +3535,14 @@ public sealed partial class MainWindow : Window
     {
         var recents = OrganizationService.Instance.GetRecents(CloudreveManager.Instance.ActiveServer);
         var tags = OrganizationService.Instance.GetAllTags(CloudreveManager.Instance.ActiveServer);
+        var folderColors = OrganizationService.Instance.GetAllFolderColors(CloudreveManager.Instance.ActiveServer);
 
         _allItems.Clear();
         _items.Clear();
 
         foreach (var r in recents)
         {
+            var clean = r.Path.Trim('/');
             var item = new FileItem
             {
                 Name = r.Name,
@@ -3444,20 +3550,26 @@ public sealed partial class MainWindow : Window
                 IsDirectory = r.IsDirectory,
                 Size = r.Size,
                 ModifiedDate = r.LastAccessDate,
-                TagColor = tags.TryGetValue(r.Path.Trim('/'), out var color) ? color : null
+                TagColor = tags.TryGetValue(clean, out var color) ? color : null,
+                FolderColor = r.IsDirectory && folderColors.TryGetValue(clean, out var fColor) ? fColor : null
             };
             _allItems.Add(item);
             _items.Add(item);
         }
 
         _breadcrumbs.Clear();
+        _breadcrumbs.Add(GetRootTitle());
         _breadcrumbs.Add("Son Kullanılanlar");
         if (ItemCountText != null) ItemCountText.Text = _items.Count == 0 ? "Son kullanılan dosya yok" : $"{_items.Count} öğe";
+        UpdateNavigationButtons();
     }
 
     private void LoadTaggedView(string colorHex)
     {
-        var tags = OrganizationService.Instance.GetAllTags(CloudreveManager.Instance.ActiveServer);
+        var server = CloudreveManager.Instance.ActiveServer;
+        var tags = OrganizationService.Instance.GetAllTags(server);
+        var folderColors = OrganizationService.Instance.GetAllFolderColors(server);
+        var recents = OrganizationService.Instance.GetRecents(server);
         var tagName = TagColorDefinition.All.FirstOrDefault(t => t.Hex.Equals(colorHex, StringComparison.OrdinalIgnoreCase))?.Name ?? "Etiketli";
 
         _allItems.Clear();
@@ -3468,20 +3580,28 @@ public sealed partial class MainWindow : Window
             var cleanPath = kvp.Key;
             var fileName = Path.GetFileName(cleanPath);
             if (string.IsNullOrEmpty(fileName)) fileName = cleanPath;
+            var recentMatch = recents.FirstOrDefault(r => r.Path.Trim('/').Equals(cleanPath, StringComparison.OrdinalIgnoreCase));
+            var hasFolderColor = folderColors.TryGetValue(cleanPath, out var fColor);
+            var isDir = hasFolderColor || (recentMatch?.IsDirectory ?? false);
             var item = new FileItem
             {
                 Name = fileName,
                 Path = cleanPath,
-                IsDirectory = false,
-                TagColor = kvp.Value
+                IsDirectory = isDir,
+                Size = recentMatch?.Size ?? 0,
+                ModifiedDate = recentMatch?.LastAccessDate,
+                TagColor = kvp.Value,
+                FolderColor = isDir && hasFolderColor ? fColor : null
             };
             _allItems.Add(item);
             _items.Add(item);
         }
 
         _breadcrumbs.Clear();
+        _breadcrumbs.Add(GetRootTitle());
         _breadcrumbs.Add($"Etiket: {tagName}");
         if (ItemCountText != null) ItemCountText.Text = _items.Count == 0 ? "Bu etikete sahip dosya yok" : $"{_items.Count} öğe";
+        UpdateNavigationButtons();
     }
 
     private static Windows.UI.Color ParseColorHex(string hex)
